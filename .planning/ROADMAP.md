@@ -53,7 +53,31 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. An attempt to persist Google Places content into a durable field is refused by a database constraint, not by a code review.
   4. Every state change on a record shows which actor made it and when, with all timestamps stored as `timestamptz` and rendered in `America/Chicago` (zone and locale pinned in tests).
   5. `legal_name`, `display_name` and internal annotations are three distinct fields, and a test proves the internal annotation cannot reach an export or push payload.
-**Plans:** TBD
+**Plans:** 11 plans across 7 waves
+
+Plans:
+**Wave 1**
+- [ ] 01-01-PLAN.md — Repo scaffold, pinned toolchain, fail-loudly env guard (wave 0)
+- [ ] 01-02-PLAN.md — Local PostgreSQL 18 + Supabase/Clerk credentials and dashboard settings (wave 0, checkpoints)
+- [ ] 01-03-PLAN.md — Test harness: vitest configs pinned to UTC, DB fixtures, Playwright, CI (wave 1)
+- [ ] 01-04-PLAN.md — drizzle-kit bootstrap migration: Supabase-shaped roles, app schema, app.jwt() (wave 1)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [ ] 01-05-PLAN.md — Tenancy schema, RLS policies and the refused cross-org statement (wave 2)
+- [ ] 01-06-PLAN.md — Internal-annotation sentinel, timezone discipline, sole-organization port (wave 2)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+- [ ] 01-07-PLAN.md — Places retention constraints and the durable-cites-durable composite FK (wave 3)
+- [ ] 01-08-PLAN.md — Clerk shell: proxy, withOrg, requireOrg, JIT org, /no-access, /api/health (wave 3)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+- [ ] 01-09-PLAN.md — Event triggers, updated_at/updated_by, append-only grants, CONVENTIONS.md (wave 4)
+
+**Wave 5** *(blocked on Wave 4 completion)*
+- [ ] 01-10-PLAN.md — Vercel project, production schema migration, environment variables (wave 5)
+
+**Wave 6** *(blocked on Wave 5 completion)*
+- [ ] 01-11-PLAN.md — Deploy, e2e against the real URL, criterion-1 sign-in, phase gate (wave 6)
 **Security**: /gsd-secure-phase applies — RLS policies, Clerk claim shape, tenant isolation.
 **Notes**: Ships an unstyled app shell only; the design system is established in Phase 2's UI pass, which is the first phase with real screens.
 
@@ -203,7 +227,7 @@ Plan counts below are estimates until `/gsd-plan-phase` runs for each phase.
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundations & Tenancy | 0/4 | Not started | - |
+| 1. Foundations & Tenancy | 0/11 | Not started | - |
 | 2. Budget Governor & Search Presets | 0/4 | Not started | - |
 | 3. Free-Data Spine & Entity Resolution | 0/5 | Not started | - |
 | 4. Places Transient Verifier | 0/4 | Not started | - |

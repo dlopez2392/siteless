@@ -1163,26 +1163,34 @@ Actionable directives the plan must satisfy:
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
+
+> All five were resolved during `/gsd-discuss-phase` and `/gsd-plan-phase` on 2026-09-21.
+> Each carries the decision or plan task that closed it. Nothing below is still open.
 
 1. **Which test-database option (A/B/C/D)?**
    - What we know: Docker and WSL are both absent [VERIFIED]; D-05's literal fallback is the ~$10/mo second Supabase project; a bootstrap migration for a bare Postgres is required for CI in every option.
    - What's unclear: whether danlo prefers $0 + a 10-minute native install (A) over $10/mo + zero local setup (D).
    - Recommendation: **A**, and ask before planning. Do not let the planner pick this silently — it changes the Wave-0 task list.
+   - **RESOLVED:** option **A**, by **CONTEXT.md D-05a** (asked, not assumed — native PostgreSQL 18 for Windows, EDB installer, `TEST_DATABASE_URL` never a Supabase URL). Realised by **plan 01-02 Task 2** (the install-verification checkpoint) and **plan 01-04 Task 2** (`drizzle/0000_bootstrap.sql`, the same bootstrap CI's `postgres:18` service container runs).
 
 2. **Does Phase 1 create `businesses` and `source_records`, or only the tenancy spine?**
    - What we know: FOUND-04 needs the three-name split and FOUND-05 needs the composite FK — both require real tables. CONTEXT.md's Integration Points say Phases 2 ∥ 3 need these shapes agreed *here*.
    - Recommendation: yes — a **minimal** `source_records` (full retention constraints) and a **minimal** `businesses` (three names, provenance FK pairs for `legal_name`/`display_name`/`phone_e164`, `org_id`, `orgScoped` columns). Phase 3 adds geometry, normalization columns and indexes. Record the agreed shape in CONVENTIONS.md so Phase 2 and Phase 3 can run concurrently.
+   - **RESOLVED:** yes, minimal. `businesses` (three distinct name fields, `org_id`, RLS) lands in **plan 01-05**; `source_records` with the full retention CHECKs and the durable-cites-durable composite FK lands in **plan 01-07**. The agreed shape is written to CONVENTIONS.md by **plan 01-09 Task 3** so Phases 2 and 3 can run concurrently.
 
 3. **Supabase `postgres` + `SET ROLE` and custom-role pooler access (A1, A2).**
    - Recommendation: make these the first two verification steps of the phase's first DB task, against the real project, before the runtime wiring depends on them. Both have stated fallbacks.
+   - **RESOLVED:** **plan 01-10 Task 2, step 2** probes both against the real project before the runtime wiring depends on them, and records the outcome (and any fallback taken) in the SUMMARY.
 
 4. **`events` write amplification boundary (A7).**
    - Recommendation: decide it here — row triggers on state-bearing tables, one run-level event for bulk ingest — and write it down. Re-deriving it in Phase 3 means re-reading every call site.
+   - **RESOLVED:** decided as recommended — after-row triggers on the state-bearing tables only (`orgs`, `businesses`), one run-level event for bulk ingest. Written down in CONVENTIONS.md by **plan 01-09 Task 3**, and pinned by the DB-integration test `exactly orgs + businesses carry an app.log_event after-row trigger` (**plan 01-09**).
 
 5. **Which Clerk claim survives?**
    - What we know: the instance has a *custom* claim `{"org_id":"{{org.id}}","role":"authenticated"}` **and** v2's default `o.id`. The `role: 'authenticated'` claim is required only by Supabase's Data API path, which Phase 1 does not use.
    - Recommendation: keep both (the coalesce costs nothing and keeps the supabase-js path open) and test both shapes (D-11). Do not remove the custom claim — Storage/Realtime would need it later.
+   - **RESOLVED:** keep both. `app.current_org_id()` reads `coalesce(app.jwt()->'o'->>'id', app.jwt()->>'org_id')`, and **plan 01-05 Task 2** exercises both shapes — the v1 flat claim in `sees only its own org` and the v2 nested claim in the `token v2` test, which asserts the two resolve the same org. The custom claim is not removed.
 
 ---
 
