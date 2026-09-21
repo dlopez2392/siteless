@@ -186,13 +186,77 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| (populated by roadmap) | | |
+| FOUND-01 | Phase 1 | Pending |
+| FOUND-02 | Phase 1 | Pending |
+| FOUND-03 | Phase 1 | Pending |
+| FOUND-04 | Phase 1 | Pending |
+| FOUND-05 | Phase 1 | Pending |
+| FOUND-06 | Phase 1 | Pending |
+| SRCH-01 | Phase 2 | Pending |
+| SRCH-02 | Phase 2 | Pending |
+| SRCH-03 | Phase 2 | Pending |
+| SRCH-04 | Phase 2 | Pending |
+| BUDG-01 | Phase 2 | Pending |
+| BUDG-02 | Phase 2 | Pending |
+| BUDG-03 | Phase 2 | Pending |
+| BUDG-04 | Phase 2 | Pending |
+| DATA-01 | Phase 3 | Pending |
+| DATA-02 | Phase 3 | Pending |
+| DATA-03 | Phase 3 | Pending |
+| DATA-04 | Phase 3 | Pending |
+| DEDUP-01 | Phase 3 | Pending |
+| DEDUP-02 | Phase 3 | Pending |
+| DEDUP-03 | Phase 3 | Pending |
+| DEDUP-04 | Phase 3 | Pending |
+| PLACE-01 | Phase 4 | Pending |
+| PLACE-02 | Phase 4 | Pending |
+| PLACE-03 | Phase 4 | Pending |
+| PLACE-04 | Phase 4 | Pending |
+| PLACE-05 | Phase 4 | Pending |
+| PLACE-06 | Phase 4 | Pending |
+| VERIF-02 | Phase 5 | Pending |
+| VERIF-03 | Phase 5 | Pending |
+| VERIF-04 | Phase 5 | Pending |
+| VERIF-05 | Phase 5 | Pending |
+| VERIF-07 | Phase 5 | Pending |
+| VERIF-01 | Phase 6 | Pending |
+| VERIF-06 | Phase 6 | Pending |
+| VERIF-08 | Phase 6 | Pending |
+| SCORE-01 | Phase 6 | Pending |
+| SCORE-02 | Phase 6 | Pending |
+| TRI-01 | Phase 7 | Pending |
+| TRI-02 | Phase 7 | Pending |
+| TRI-03 | Phase 7 | Pending |
+| TRI-04 | Phase 7 | Pending |
+| TRI-05 | Phase 7 | Pending |
+| MOB-01 | Phase 7 | Pending |
+| MOB-02 | Phase 7 | Pending |
+| MOB-03 | Phase 7 | Pending |
+| MOB-04 | Phase 7 | Pending |
+| COMP-01 | Phase 7 | Pending |
+| COMP-02 | Phase 7 | Pending |
+| COMP-04 | Phase 7 | Pending |
+| FP-01 | Phase 7 | Pending |
+| HAND-01 | Phase 8 | Pending |
+| HAND-02 | Phase 8 | Pending |
+| HAND-03 | Phase 8 | Pending |
+| HAND-04 | Phase 8 | Pending |
+| HAND-05 | Phase 8 | Pending |
+| HAND-06 | Phase 8 | Pending |
+| COMP-03 | Phase 8 | Pending |
+| SCHED-01 | Phase 9 | Pending |
+| SCHED-02 | Phase 9 | Pending |
+| SCHED-03 | Phase 9 | Pending |
+| SCHED-04 | Phase 9 | Pending |
+| FP-02 | Phase 9 | Pending |
 
 **Coverage:**
-- v1 requirements: 57 total
-- Mapped to phases: 0
-- Unmapped: 57 ⚠️
+- v1 requirements: 63 total
+- Mapped to phases: 63
+- Unmapped: 0 ✓
+
+*Count correction (2026-09-20, roadmap creation): this section previously read "57 total". A direct count of REQ-IDs in the v1 section returns 63 (FOUND 6, SRCH 4, DATA 4, PLACE 6, VERIF 8, SCORE 2, DEDUP 4, SCHED 4, BUDG 4, TRI 5, MOB 4, HAND 6, FP 2, COMP 4). No requirements were added or removed — only the counter was wrong.*
 
 ---
 *Requirements defined: 2026-09-20*
-*Last updated: 2026-09-20 after initial definition*
+*Last updated: 2026-09-20 after roadmap creation (traceability populated, count corrected 57 → 63)*
