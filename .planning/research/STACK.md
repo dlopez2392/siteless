@@ -46,7 +46,7 @@ Under the $50 cap with ~25% headroom. **Vercel Pro ($20/mo) is separate infrastr
 
 | Technology | Version | Purpose | Why Recommended |
 |---|---|---|---|
-| Next.js | `16.3.5` | App framework, API routes, PWA shell | Current stable. Turbopack is the default bundler in 16 — this is why `next-pwa` is dead and Serwist is the only live option. Note `middleware.ts` → `app/proxy.ts`, Node runtime only. |
+| Next.js | `16.3.5` | App framework, API routes, PWA shell | Current stable. Turbopack is the default bundler in 16 — this is why `next-pwa` is dead and Serwist is the only live option. Note `middleware.ts` → `proxy.ts` at the project root (or `src/proxy.ts` — level with `app/`, never inside it; corrected 2026-09-21), Node runtime only. |
 | React | `19.3.0` | UI | Satisfies Next 16 peer (`^19.0.0`) and Clerk 7's narrow peer (`~19.3.0-0`). |
 | **TypeScript** | **`6.0.3` — NOT 7.0.2** | Types | **`typescript-eslint@8.70.0` declares peer `typescript: ">=4.8.4 <6.1.0"`.** Installing `typescript@latest` (7.0.2) fails with `ERESOLVE` and breaks type-aware linting, because TS 7.0 ships without a stable programmatic compiler API (expected in 7.1). Verified directly from npm peer metadata. See Version Compatibility. |
 | Node.js | `24.x LTS` | Runtime | Next requires `>=20.9.0`; Vitest 5 wants `@types/node ^22 \|\| >=24`. Pin in `.nvmrc` and in the CI matrix. |
@@ -369,7 +369,7 @@ pnpm add -D @duckdb/node-api@1.5.5-r.5
 | **`pg_cron` + `pg_net` as the pipeline scheduler** | No retries on skipped runs; a tick firing while the prior run holds a lock is **silently dropped**; no alerting beyond a log row; stops entirely if the project pauses. Recommended ceiling is 8 concurrent jobs / 10 min each. | Vercel Cron + Workflow DevKit. Keep pg_cron for trivial housekeeping only. |
 | **Vercel Hobby plan for cron** | Cron limited to **once per day** with **±59 minutes** of jitter; more frequent expressions **fail at deploy time**. | Vercel **Pro** ($20/mo, infra budget — not the $50 data budget). |
 | **Scraping Google Maps directly** | ToS violation; PROJECT.md scopes it out. | Places API (New) as the legal primary. |
-| **Auth checks in `app/proxy.ts`** | Next 16 renamed middleware → `proxy.ts` partly in response to **CVE-2025-29927** (middleware auth bypass). Vercel's guidance: proxy is for routing, not authorization. | `clerkMiddleware()` in `proxy.ts` for session context; `await auth.protect()` / explicit checks in layouts, route handlers, and server actions — **as close to the data as possible**. |
+| **Auth checks in `proxy.ts` at the project root (or `src/proxy.ts` — level with `app/`, never inside it; corrected 2026-09-21)** | Next 16 renamed middleware → `proxy.ts` partly in response to **CVE-2025-29927** (middleware auth bypass). Vercel's guidance: proxy is for routing, not authorization. | `clerkMiddleware()` in `proxy.ts` for session context; `await auth.protect()` / explicit checks in layouts, route handlers, and server actions — **as close to the data as possible**. |
 
 ---
 
