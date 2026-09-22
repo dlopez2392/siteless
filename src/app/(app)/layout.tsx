@@ -1,9 +1,11 @@
-import { currentUser } from '@clerk/nextjs/server';
+import { auth, currentUser } from '@clerk/nextjs/server';
 import { AppSidebar } from '@/components/app-shell/app-sidebar';
+import { BudgetBanner } from '@/components/app-shell/budget-banner';
 import { MobileTabBar } from '@/components/app-shell/mobile-tab-bar';
 import { TopBar } from '@/components/app-shell/top-bar';
 import { ensureOrgRow, orgClaims, requireOrg } from '@/lib/auth/require-org';
 import { SKIP_LINK } from '@/lib/ui/copy';
+import { getCurrentPeriod } from '@/server/queries/budget';
 
 export const dynamic = 'force-dynamic';
 
@@ -47,6 +49,18 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const claims = await orgClaims();
   await ensureOrgRow(claims, orgSlug ?? orgId); // D-03, just-in-time
 
+  // 🔴 ONE METER READ PER REQUEST, HERE, FOR THE BANNER BELOW. Sequential, never nested:
+  // `src/db/client.ts` pools with max: 1, so a second withOrg opened inside a first one
+  // waits on a connection the outer transaction holds and the request HANGS rather than
+  // failing (02-09's deviation 7).
+  const period = await getCurrentPeriod(claims, 'places');
+
+  // Affordance only. The boundary is `app.set_budget_cap` plus the absent UPDATE grant on
+  // budget_periods (plan 02-05); this decides which sentence a member reads, not what a
+  // member can do (T-2-02).
+  const { orgRole } = await auth();
+  const isAdmin = orgRole === 'org:admin';
+
   const user = await currentUser();
   const userEmail = user?.primaryEmailAddress?.emailAddress ?? '';
   const userName = user?.fullName ?? user?.firstName ?? userEmail;
@@ -81,6 +95,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           userEmail={userEmail}
           initials={initialsOf(userName, userEmail)}
         />
+
+        {/* Above the content area and inside the group layout, so it is on /presets,
+            /presets/new, /presets/[id], /spend, /settings/budget and
+            /settings/organization alike — D-12 is "every route", not "the spend view". */}
+        <BudgetBanner period={period} isAdmin={isAdmin} />
 
         {/* Gutters 16 / 24 / 32 and a 1120px reading-measure cap, per UI-SPEC § App shell.
             The bottom padding on phone is 16px PLUS the tab bar's 64px and its safe-area
