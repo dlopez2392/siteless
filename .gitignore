@@ -13,3 +13,4 @@ node_modules/
 /test-results/
 /drizzle/meta/_journal.json.bak
 *.tsbuildinfo
+tests/e2e/.auth/
