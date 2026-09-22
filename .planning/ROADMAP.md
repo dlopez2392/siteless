@@ -228,7 +228,7 @@ Plan counts below are estimates until `/gsd-plan-phase` runs for each phase.
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundations & Tenancy | 0/11 | Not started | - |
+| 1. Foundations & Tenancy | 12/12 | Complete | 2026-09-22 |
 | 2. Budget Governor & Search Presets | 0/4 | Not started | - |
 | 3. Free-Data Spine & Entity Resolution | 0/5 | Not started | - |
 | 4. Places Transient Verifier | 0/4 | Not started | - |
