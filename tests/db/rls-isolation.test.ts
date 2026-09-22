@@ -57,10 +57,20 @@ describe('RLS tenant isolation', () => {
 
   it('a second statement in the same aborted transaction reports 25P02', () =>
     withRollback(async (c) => {
-      const { b } = await seedTwoOrgs(c);
+      await seedTwoOrgs(c);
       await actAs(c, { org_id: 'org_A', sub: 'user_danlo', role: 'authenticated' });
-      // The refusal is the previous test's subject; here it is only what aborts the tx.
-      await c.query(INSERT_BUSINESS, [b, 'pwned']).catch(() => undefined);
+      // Deliberately NOT the cross-org business INSERT. This test's subject is the
+      // transaction-abort rule, and borrowing the previous test's refusal coupled the two:
+      // the M1 mutation then turned TWO tests red, which is exactly how a mutation check
+      // stops telling you which guard you broke. `orgs` has no INSERT policy for
+      // `authenticated` at all (T-1-23), so this refusal rests on a different invariant.
+      await c
+        .query('insert into orgs (clerk_org_id, name_internal, display_name) values ($1,$2,$3)', [
+          'org_C',
+          'Charlie (test)',
+          'Charlie',
+        ])
+        .catch(() => undefined);
       await expect(c.query('select 1')).rejects.toMatchObject({ code: '25P02' });
     }));
 
