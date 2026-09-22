@@ -32,7 +32,7 @@ Parallelization is enabled in config.
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Foundations & Tenancy** - Org-scoped auth, RLS proven by a refused cross-org statement, and the schema constraints that keep Places content out of the durable record (completed 2026-09-22)
-- [ ] **Phase 2: Budget Governor & Search Presets** - Nothing spends outside the meter; danlo defines and costs a search before running it
+- [x] **Phase 2: Budget Governor & Search Presets** - Nothing spends outside the meter; danlo defines and costs a search before running it (completed 2026-09-22)
 - [ ] **Phase 3: Free-Data Spine & Entity Resolution** - Overture + TX Comptroller become one deduped, provenance-tracked RGV business record
 - [ ] **Phase 4: Places Transient Verifier** - Google answers "is there a website URI?" under an allow-listed Enterprise field mask, and almost everything is discarded
 - [ ] **Phase 5: Verification & Receipts** - Cheapest-first probe ladder writes immutable receipts, including negative evidence, one tap from the lead
@@ -259,7 +259,7 @@ Plan counts below are estimates until `/gsd-plan-phase` runs for each phase.
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Foundations & Tenancy | 12/12 | Complete | 2026-09-22 |
-| 2. Budget Governor & Search Presets | 0/15 | Not started | - |
+| 2. Budget Governor & Search Presets | 15/15 | Complete | 2026-09-22 |
 | 3. Free-Data Spine & Entity Resolution | 0/5 | Not started | - |
 | 4. Places Transient Verifier | 0/4 | Not started | - |
 | 5. Verification & Receipts | 0/4 | Not started | - |
