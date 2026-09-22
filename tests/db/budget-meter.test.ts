@@ -451,6 +451,109 @@ describe('the budget meter, one worker at a time', () => {
       expect(row.rows[0]).toEqual({ micro: '0', units: 1, cents: '0.00' });
     }));
 
+  it('settle after release does not lose the ledger row', () =>
+    withRollback(async (c) => {
+      const { a } = await seedTwoOrgs(c);
+      const period = await seedPeriod(c, a, { cap: 10000, reserved: 10000 });
+      const stale = await c.query<{ id: string }>(
+        `insert into cost_reservations (org_id, budget_period_id, sku, est_micro_usd, expires_at)
+         values ($1, $2, $3, 10000, now() - interval '1 hour') returning id`,
+        [a, period, SKU],
+      );
+      const staleId = stale.rows[0]?.id;
+      expect(staleId).toBeTruthy();
+
+      await actAs(c, ORG_A_CLAIMS);
+      // A slow call outlived its TTL. The next caller's self-heal frees the hold and takes
+      // the freed budget for itself — correct, and the whole point of the self-heal.
+      const granted = await reserve(c, 10000);
+      expect(granted.reservation_id).toBeTruthy();
+
+      // 🔴 AND THEN THE SLOW CALL RETURNS. Google billed it. There is no hold left to
+      // offset, the budget it was holding now belongs to somebody else, and adding the
+      // actual to `spent` would push spent + reserved past the cap — so bp_not_over raised
+      // 23514, the WHOLE function aborted, and the ledger row for a call that really was
+      // charged was lost. The meter then under-reports actual spend permanently, and it is
+      // the one failure mode a green suite cannot see, because nothing was left behind.
+      const r = await c.query<{ ok: boolean }>(
+        'select app.settle_reservation($1, $2, $3, $4, $5, $6) as ok',
+        [staleId, 'req-late', 10000, 1, SKU, PROVIDER],
+      );
+      expect(r.rows[0]?.ok).toBe(true);
+
+      const ledger = await c.query<{ n: number; micro: string }>(
+        `select count(*)::int as n, coalesce(max(micro_usd)::text, '') as micro
+           from cost_ledger where request_id = 'req-late'`,
+      );
+      expect(ledger.rows[0]).toEqual({ n: 1, micro: '10000' });
+
+      // The overrun is AUDITED rather than silently dropped: the ledger (BUDG-01's external
+      // contract, and what /spend sums) carries the money, and an events row says the period
+      // row could not follow it. A settle that quietly moved nothing would be worse than the
+      // abort it replaces, because it would look like it worked.
+      const ev = await c.query<{ n: number; micro: string | null }>(
+        `select count(*)::int as n, max(after->>'micro_usd') as micro
+           from events
+          where entity_type = 'budget_periods'
+            and action = 'budget_overrun'
+            and entity_id = $1`,
+        [period],
+      );
+      expect(ev.rows[0]?.n).toBe(1);
+      expect(ev.rows[0]?.micro).toBe('10000');
+
+      // The period itself did not move: the new hold is intact and nothing was
+      // double-counted. The cap is not breached in budget_periods — it is reported.
+      expect(await totals(c, period)).toMatchObject({ reserved: '10000', spent: '0' });
+    }));
+
+  it('settle_reservation refuses a sku that is not the reservation\'s', () =>
+    withRollback(async (c) => {
+      const { a } = await seedTwoOrgs(c);
+      await seedPeriod(c, a, { cap: 100000 });
+      await actAs(c, ORG_A_CLAIMS);
+      const granted = await reserve(c, 10000);
+
+      // 🔴 p_sku AND p_provider WERE WRITTEN TO THE LEDGER VERBATIM, COMPARED TO NOTHING.
+      // `readUnitsUsedThisPeriod` derives the monthly free allowance by summing `units` for
+      // one sku, so a mismatched sku silently moves a call out of the allowance it consumed
+      // and every later estimate that month is wrong — in the cheap direction. And
+      // cost_ledger.provider is BUDG-01's external contract, which could disagree with the
+      // provider of the period the row points at.
+      const attempt = c.query('select app.settle_reservation($1, $2, $3, $4, $5, $6)', [
+        granted.reservation_id,
+        'req-wrong-sku',
+        7000,
+        1,
+        'pd_enterprise',
+        PROVIDER,
+      ]);
+      await expect(attempt).rejects.toMatchObject({ code: '22023' });
+      await expect(attempt).rejects.toThrow(/does not match the reservation/);
+    }));
+
+  it('settle_reservation refuses a provider that is not the period\'s', () =>
+    withRollback(async (c) => {
+      const { a } = await seedTwoOrgs(c);
+      await seedPeriod(c, a, { cap: 100000 });
+      await actAs(c, ORG_A_CLAIMS);
+      const granted = await reserve(c, 10000);
+
+      // A SEPARATE test from the sku above, because they are separate facts: the sku comes
+      // off the reservation and the provider off the period it points at. One test covering
+      // both would stop telling you which derivation broke.
+      const attempt = c.query('select app.settle_reservation($1, $2, $3, $4, $5, $6)', [
+        granted.reservation_id,
+        'req-wrong-provider',
+        7000,
+        1,
+        SKU,
+        'firecrawl',
+      ]);
+      await expect(attempt).rejects.toMatchObject({ code: '22023' });
+      await expect(attempt).rejects.toThrow(/does not match the reservation/);
+    }));
+
   it('cost_cents renders micro-USD exactly', () =>
     withRollback(async (c) => {
       const { a } = await seedTwoOrgs(c);
