@@ -47,9 +47,18 @@ export async function withRollback(fn: (c: Client) => Promise<void>): Promise<vo
   }
 }
 
-/** Clerk session token v1 (flat org_id) and v2 (nested `o`). The suite exercises BOTH (D-11). */
+/**
+ * Clerk session token v1 (flat org_id) and v2 (nested `o`). The suite exercises BOTH (D-11).
+ *
+ * 🔴 THE ROLE IS SPELLED DIFFERENTLY IN THE TWO SHAPES, AND THAT IS THE POINT. v2 nests the
+ * BARE role under `o.rol` ('admin'); v1 carries the PREFIXED form flat in `org_role`
+ * ('org:admin'), which is also what @clerk/shared rebuilds for auth().orgRole. A helper that
+ * compares one spelling to the other passes or fails silently depending on which side was
+ * written first, so `app.current_org_role()` normalises both and
+ * tests/db/budget-admin-gate.test.ts pins each spelling in its own named test.
+ */
 export type Claims =
-  | { org_id: string; sub?: string; role?: 'authenticated' }
+  | { org_id: string; org_role?: string; sub?: string; role?: 'authenticated' }
   | { o: { id: string; rol?: string; slg?: string }; sub?: string; role?: 'authenticated' };
 
 /** Simulate an RLS caller. `true` = set_config is transaction-LOCAL and dies with the tx (D-11b). */
