@@ -180,4 +180,48 @@ describe('grants audit', () => {
         e_delete: false,
       });
     }));
+
+  /**
+   * CR-02. UPDATE on the tenant root is a COLUMN privilege, not a table privilege: the
+   * orgs_update policy constrains `id` and cannot constrain `clerk_org_id`, so a member of
+   * tenant A could re-key A onto another Clerk organisation and hand it A's data.
+   *
+   * has_table_privilege reports the TABLE-level grant only, which is why the three
+   * functions are read side by side: table-level UPDATE must be gone, some column must
+   * still be updatable (or the orgs_update policy is dead and the positive control in
+   * rls-isolation.test.ts is the thing that would notice), and the key must not be among
+   * them. updated_by is asserted absent too — app.touch_updated_at() stamps it as the
+   * owner, so granting it would only let a caller forge its own attribution.
+   */
+  it('authenticated can update an orgs label but not its clerk_org_id', () =>
+    withRollback(async (c) => {
+      const { rows } = await c.query<{
+        tbl_update: boolean;
+        any_col_update: boolean;
+        clerk_org_id: boolean;
+        display_name: boolean;
+        name_internal: boolean;
+        timezone: boolean;
+        id: boolean;
+        updated_by: boolean;
+      }>(`
+        select has_table_privilege('authenticated','public.orgs','UPDATE')            as tbl_update,
+               has_any_column_privilege('authenticated','public.orgs','UPDATE')       as any_col_update,
+               has_column_privilege('authenticated','public.orgs','clerk_org_id','UPDATE') as clerk_org_id,
+               has_column_privilege('authenticated','public.orgs','display_name','UPDATE')  as display_name,
+               has_column_privilege('authenticated','public.orgs','name_internal','UPDATE') as name_internal,
+               has_column_privilege('authenticated','public.orgs','timezone','UPDATE')      as timezone,
+               has_column_privilege('authenticated','public.orgs','id','UPDATE')            as id,
+               has_column_privilege('authenticated','public.orgs','updated_by','UPDATE')    as updated_by`);
+      expect(rows[0]).toEqual({
+        tbl_update: false,
+        any_col_update: true,
+        clerk_org_id: false,
+        display_name: true,
+        name_internal: true,
+        timezone: true,
+        id: false,
+        updated_by: false,
+      });
+    }));
 });

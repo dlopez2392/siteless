@@ -71,6 +71,13 @@
       "when": 1790071024913,
       "tag": "0009_ensure_org_no_write",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1790071207168,
+      "tag": "0010_orgs_key_immutable",
+      "breakpoints": true
     }
   ]
 }

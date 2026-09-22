@@ -1,0 +1,35 @@
+-- CR-02. A tenant must not be able to re-key itself onto another Clerk organisation.
+--
+-- The orgs_update policy (0003) is
+--     using (id = (select app.current_org_id())) with check (id = (select app.current_org_id()))
+-- which protects `id` and nothing else. app.current_org_id() is STABLE and resolves against
+-- the statement snapshot, so for
+--     update orgs set clerk_org_id = 'org_X' where id = <A.id>;
+-- USING passes (A.id = A.id) and WITH CHECK passes (NEW.id is still A.id). The row is
+-- rewritten. From then on any Clerk organisation whose id is 'org_X' and whose row has not
+-- been provisioned resolves — through app.current_org_id() AND through app.ensure_org —
+-- into tenant A: its members read and write A's businesses, source_records and events, A's
+-- data is exposed to them, and A's own members lose access until an owner repairs the row.
+--
+-- Phase 1 exposes no UPDATE path to orgs, so this is a latent hole in the backstop rather
+-- than a reachable exploit today. It becomes reachable the first time an org-settings
+-- server action writes `db.update(orgs).set(input)` with a form-derived object — which is
+-- exactly the class of mistake RLS is here to make harmless.
+--
+-- A policy cannot express "every column but this one": WITH CHECK sees the finished row and
+-- has no access to OLD. A column-level privilege can, because PostgreSQL checks it against
+-- the statement's SET list before any policy is evaluated. A BEFORE trigger that writes
+-- updated_at/updated_by is NOT subject to that check (verified: the rename positive control
+-- in tests/db/rls-isolation.test.ts comes back with updated_by stamped while
+-- has_column_privilege('authenticated','orgs','updated_by','UPDATE') is false), so D-07's
+-- attribution survives — and a caller still cannot forge it, because the column is not
+-- granted.
+--
+-- Deliberately NOT granted: id (the tenant key), clerk_org_id (the Clerk key), created_at,
+-- updated_at, updated_by. A column added to orgs by a later migration inherits nothing here
+-- and must be added to this grant explicitly if a tenant is meant to edit it — the same
+-- fail-loud rule migration 0008 established for tables (.planning/CONVENTIONS.md § Grants).
+revoke update on public.orgs from authenticated;
+--> statement-breakpoint
+
+grant update (name_internal, display_name, timezone) on public.orgs to authenticated;

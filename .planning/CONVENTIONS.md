@@ -125,6 +125,20 @@ exist. `drizzle/0008_revoke_platform_grants.sql` closes it on both databases.
   policies need them; never `truncate`, `references`, `trigger` or `maintain`. `events` is the
   exception in the other direction — `select, insert` only, because D-06 makes it immutable by
   grant (see Audit and attribution).
+- **A key a policy cannot protect is a COLUMN grant, not a table grant** (migration 0010). A
+  policy's `WITH CHECK` sees the finished row and has no access to `OLD`, so it can express
+  "the row still belongs to me" but never "this column did not change". `orgs_update` protects
+  `id` for exactly that reason and could not protect `clerk_org_id`: a member of tenant A could
+  point A's row at another Clerk organisation and hand that organisation A's data. UPDATE on
+  `orgs` is therefore `grant update (name_internal, display_name, timezone)` — PostgreSQL
+  checks a column privilege against the statement's SET list, before any policy runs.
+  **A BEFORE trigger is not subject to that check**, so `app.touch_updated_at()` still stamps
+  `updated_at`/`updated_by` although neither is granted — which is also what stops a caller
+  forging its own attribution. **A column added to `orgs` later inherits nothing** and must be
+  named in that grant explicitly if a tenant is meant to edit it; the same fail-loud rule this
+  section sets for tables. `tests/db/grants-audit.test.ts` reads all three of
+  `has_table_privilege`, `has_any_column_privilege` and `has_column_privilege` side by side,
+  because the first one alone cannot see a column grant.
 - **`anon` gets nothing, on any table, ever.** It is not a Siteless caller: `app_user` is
   `NOINHERIT` and holds `authenticated` alone. `anon` appearing in a grant is a defect.
 - **`service_role` is server-side only** — `bypassrls`, never held by a browser session, and
@@ -287,12 +301,13 @@ Where the Google Maps Platform Terms live in the schema (FOUND-05).
 Read from `information_schema.columns` after `drizzle/0007` was applied. `org_id` on every
 table but `orgs`; `created_at` / `updated_at` / `updated_by` come from the `orgScoped` spread.
 
-**`orgs`** — the tenant root. RLS on; `orgs_select`, `orgs_update` only.
+**`orgs`** — the tenant root. RLS on; `orgs_select`, `orgs_update` only. UPDATE is a **column**
+grant: `name_internal`, `display_name`, `timezone` and nothing else (0010).
 
 | Column | Type | Notes |
 |---|---|---|
 | `id` | `uuid` pk | `default gen_random_uuid()` — the tenant key |
-| `clerk_org_id` | `text not null` | unique; what the Clerk claim resolves against |
+| `clerk_org_id` | `text not null` | unique; what the Clerk claim resolves against. **Not updatable by `authenticated`** (0010) |
 | `name_internal` | `text not null` | operator's label — never outbound |
 | `display_name` | `text not null` | |
 | `timezone` | `text not null` | default `'America/Chicago'` |
