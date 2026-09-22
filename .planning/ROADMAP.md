@@ -74,7 +74,7 @@ Plans:
 - [x] 01-09-PLAN.md — Event triggers, updated_at/updated_by, append-only grants, CONVENTIONS.md (wave 4)
 
 **Wave 5** *(blocked on Wave 4 completion)*
-- [ ] 01-10-PLAN.md — Vercel project, production schema migration, environment variables (wave 5)
+- [x] 01-10-PLAN.md — Vercel project, production schema migration, environment variables (wave 5)
 
 **Wave 6** *(blocked on Wave 5 completion)*
 - [ ] 01-11-PLAN.md — Deploy, e2e against the real URL, criterion-1 sign-in, phase gate (wave 6)
