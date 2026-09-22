@@ -2,6 +2,7 @@ import 'server-only';
 import { sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { withOrg, type OrgClaims } from '@/db/with-org';
+import { PRICE_BOOK, type Sku } from '@/lib/budget/price-book';
 import type { EstimateRange } from '@/lib/estimate/estimate';
 import type { GeoSpec, PresetSpec, SeedTables } from '@/lib/estimate/expand-cells';
 import type { GeocodeResult } from '@/lib/geocode/census';
@@ -165,6 +166,84 @@ export function geoPayloadOf(geo: GeoInput): { kind: GeoInput['kind']; payload: 
     ...(geo.countyName === undefined ? {} : { countyName: geo.countyName }),
   };
   return { kind: 'radius', payload };
+}
+
+/* ======================================================================================
+ * The estimate snapshot, on its way into and out of jsonb.
+ * ==================================================================================== */
+
+/**
+ * 🔴 `EstimateRange.remainingMicroUsd` IS A BIGINT, AND `JSON.stringify` THROWS ON ONE.
+ *
+ * "TypeError: Do not know how to serialize a BigInt" — the same failure drizzle-kit hit on
+ * `runs.cost_micro_usd` in wave 1, where it emitted no migration at all while typecheck
+ * stayed green. Storing an estimate straight into `search_versions.estimate_snapshot` would
+ * throw at the moment of saving a preset, which is the one write in this phase a user
+ * actually performs.
+ *
+ * So the stored shape carries the µUSD figure as a DECIMAL STRING and converts back on read.
+ * It is not a lossy rounding — a string holds every digit — and the conversion is in one
+ * place rather than at each of the three call sites that touch a snapshot.
+ *
+ * (Over the wire it stays a bigint: React Flight serializes one as `"$n" + toString(10)`,
+ * verified in `react-server-dom-turbopack-server.node.production.js`. The boundary that
+ * cannot take it is JSON, not the action.)
+ */
+const SKU_KEYS = Object.keys(PRICE_BOOK) as [Sku, ...Sku[]];
+
+const assumptionsSchema = z.strictObject({
+  fanOut: z.number(),
+  pagesLo: z.number(),
+  pagesHi: z.number(),
+  radiusReferenceMiles: z.number(),
+});
+
+/** What an action receives from a screen: a real `EstimateRange`, bigint and all. */
+export const estimateRangeSchema = z.strictObject({
+  cells: z.number(),
+  requestsLo: z.number(),
+  requestsHi: z.number(),
+  costMicroUsdLo: z.number(),
+  costMicroUsdHi: z.number(),
+  expectedResults: z.number(),
+  freeRemaining: z.number(),
+  remainingMicroUsd: z.bigint(),
+  pctOfRemainingLo: z.number(),
+  pctOfRemainingHi: z.number(),
+  sku: z.enum(SKU_KEYS),
+  assumptions: assumptionsSchema,
+});
+
+/** What the column holds. `freeRemaining` is `null` for an unlimited-allowance SKU, because
+ *  `JSON.stringify(Infinity)` is `null` anyway and a round-trip that silently turns
+ *  "unlimited" into "none left" would quote a cost for a free call. */
+const storedEstimateSchema = z.strictObject({
+  ...estimateRangeSchema.shape,
+  freeRemaining: z.number().nullable(),
+  remainingMicroUsd: z.string().regex(/^-?\d+$/),
+});
+
+export type StoredEstimate = z.infer<typeof storedEstimateSchema>;
+
+export function toStoredEstimate(range: EstimateRange): StoredEstimate {
+  return {
+    ...range,
+    freeRemaining: Number.isFinite(range.freeRemaining) ? range.freeRemaining : null,
+    remainingMicroUsd: range.remainingMicroUsd.toString(),
+  };
+}
+
+/** `null` when the column holds something this build no longer understands — a snapshot is
+ *  a convenience, never a correctness input, so an unreadable one is simply absent. */
+export function fromStoredEstimate(value: unknown): EstimateRange | null {
+  if (value === null || value === undefined) return null;
+  const parsed = storedEstimateSchema.safeParse(value);
+  if (!parsed.success) return null;
+  return {
+    ...parsed.data,
+    freeRemaining: parsed.data.freeRemaining ?? Number.POSITIVE_INFINITY,
+    remainingMicroUsd: BigInt(parsed.data.remainingMicroUsd),
+  };
 }
 
 /* ======================================================================================
@@ -459,7 +538,7 @@ export async function readPreset(
     cluster_ids: string[];
     geo_kind: string;
     geo_payload: GeoPayload;
-    estimate_snapshot: EstimateRange | null;
+    estimate_snapshot: unknown;
     created_at: Date;
     created_by: string | null;
     used_by_runs: number;
@@ -487,7 +566,7 @@ export async function readPreset(
     geoKind: r.geo_kind,
     geoPayload: r.geo_payload,
     spec: specInputOfVersion(r.cluster_ids, r.geo_kind, r.geo_payload, index),
-    estimateSnapshot: r.estimate_snapshot,
+    estimateSnapshot: fromStoredEstimate(r.estimate_snapshot),
     createdAt: r.created_at,
     createdBy: r.created_by,
     usedByRuns: r.used_by_runs,
@@ -503,6 +582,25 @@ export async function readPreset(
     versions,
     updatedAt: head.updated_at,
   };
+}
+
+/**
+ * The version number a preset is on right now.
+ *
+ * 🔴 CALLED ONLY AFTER A SAVE CONFLICT, AND ONLY IN A FRESH TRANSACTION. The 23505 that
+ * detected the conflict ABORTED the transaction it was raised in — every further statement
+ * there answers `25P02 current transaction is aborted`, which is the repo's recorded
+ * one-refused-statement-per-transaction rule — so the number that goes into the conflict
+ * message cannot be read on the way out of the failed save.
+ */
+export async function readCurrentVersionNumber(tx: Tx, searchId: string): Promise<number | null> {
+  const row = rowsOf<{ version: number }>(
+    await tx.execute(sql`
+      select coalesce(max(version), 0)::int as version
+        from search_versions
+       where search_id = ${searchId}`),
+  )[0];
+  return row && row.version > 0 ? row.version : null;
 }
 
 export async function getPreset(claims: OrgClaims, searchId: string): Promise<PresetDetail | null> {
