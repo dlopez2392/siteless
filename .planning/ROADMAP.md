@@ -97,10 +97,10 @@ Plans:
 
 Plans:
 **Wave 1**
-- [ ] 02-01-PLAN.md — Design system birth: shadcn init, painted tokens, Inter, theme, toaster, jsdom lane
-- [ ] 02-02-PLAN.md — Seed data (4 clusters, 17 RGV cities, 254 counties, outlet matrix), Census fixtures, concurrency harness, the Google-credential and PG17 guards
-- [ ] 02-03-PLAN.md — Search & reference schema: nine tables, org_id IS NULL policies, grants, version immutability, triggers
-- [ ] 02-04-PLAN.md — Cost model: SKU price book, fieldMaskTier, micro-USD money, the Chicago budget month
+- [x] 02-01-PLAN.md — Design system birth: shadcn init, painted tokens, Inter, theme, toaster, jsdom lane
+- [x] 02-02-PLAN.md — Seed data (4 clusters, 17 RGV cities, 254 counties, outlet matrix), Census fixtures, concurrency harness, the Google-credential and PG17 guards
+- [x] 02-03-PLAN.md — Search & reference schema: nine tables, org_id IS NULL policies, grants, version immutability, triggers
+- [x] 02-04-PLAN.md — Cost model: SKU price book, fieldMaskTier, micro-USD money, the Chicago budget month
 
 **Wave 2** *(blocked on Wave 1)*
 - [ ] 02-05-PLAN.md — Budget schema + the race-free meter: reserve, self-heal, settle, set_budget_cap
