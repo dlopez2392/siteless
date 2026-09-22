@@ -38,7 +38,13 @@ export const runs = pgTable(
     // Paired with 'refused'/'partial', this is what the run screen explains to danlo
     // instead of showing a number that silently stopped moving.
     stoppedReason: text('stopped_reason'),
-    costMicroUsd: bigint('cost_micro_usd', { mode: 'bigint' }).notNull().default(BigInt(0)),
+    // `.default(sql\`0\`)`, not `.default(0n)`: drizzle-kit 0.31.10 serializes the default
+    // into meta/NNNN_snapshot.json with JSON.stringify, which throws
+    // "TypeError: Do not know how to serialize a BigInt" and emits no migration at all.
+    // The SQL literal produces the identical `default 0` in the DDL.
+    costMicroUsd: bigint('cost_micro_usd', { mode: 'bigint' })
+      .notNull()
+      .default(sql`0`),
     callsCount: integer('calls_count').notNull().default(0),
     startedAt: tstz('started_at'),
     finishedAt: tstz('finished_at'),
