@@ -133,3 +133,129 @@ export const BUDGET_CAP_HELP =
 export const BUDGET_AUDIT_NOTE =
   'Changing the cap is recorded with your name and the time, like every other change in ' +
   'Siteless.';
+
+/* ======================================================================================
+ * UI-SPEC § States → Error, as the server actions in src/server/actions/ signal them.
+ *
+ * These are the sentences a TYPED REFUSAL carries. An action returns
+ * `{ ok:false, code, message }` and the message is one of these — so the words a user
+ * reads when the product says no are fixed here, in the same file as the words it uses
+ * when it says yes, rather than paraphrased at six call sites.
+ * ==================================================================================== */
+
+/** UI-SPEC § Error → "Preset name missing". */
+export const PRESET_NAME_MISSING =
+  'A preset needs a name so you can tell versions apart later. Try “Hidalgo — home services”.';
+
+/** UI-SPEC § Error → "No cluster selected". */
+export const NO_CLUSTER_SELECTED =
+  'Pick at least one industry cluster. Clusters are what Siteless searches for — a ' +
+  'geography on its own has nothing to look for.';
+
+/** UI-SPEC § Error → "No geography selected". */
+export const NO_GEOGRAPHY_SELECTED =
+  'Pick a geography. Choose cities, a county, or a radius around an address.';
+
+/**
+ * UI-SPEC § Error → "Estimate can't be computed".
+ *
+ * `cluster` and `geography` name what was missing, because "we couldn't estimate this"
+ * with no subject sends the user round the picker changing things at random. The estimator
+ * throws with the missing key in its message; the action passes it through here.
+ */
+export function ESTIMATE_UNAVAILABLE(cluster: string, geography: string) {
+  return (
+    `We couldn't estimate this preset. Outlet counts for ${cluster} in ${geography} aren't ` +
+    `seeded, so any dollar figure would be a guess. Pick another geography, or save the ` +
+    `preset anyway — saving costs nothing and you can estimate later.`
+  );
+}
+
+/**
+ * UI-SPEC § Error → "Save conflict (version moved)".
+ *
+ * 🔴 "Nothing you typed here has been saved" is the load-bearing clause. The insert was
+ * refused by `search_versions_search_version_uniq`, so the user's edit is still in the form
+ * and still theirs to copy out — and a conflict message that does not say so reads like
+ * data loss.
+ */
+export function SAVE_CONFLICT(currentVersion: number) {
+  return (
+    `This preset changed while you were editing — it's on version ${currentVersion} now. ` +
+    `Reload to edit the current version. Nothing you typed here has been saved.`
+  );
+}
+
+/**
+ * UI-SPEC § Error → "Cap below current spend".
+ *
+ * 🔴 `floorMicroUsd` IS `spent + reserved`, NOT `spent + $1`. UI-SPEC's copy says "at least
+ * {spent + $1}" and that number is wrong whenever a reservation is open — `bp_not_over`
+ * refuses at `spent + reserved`, so a user told "$13.00" and refused at $13.00 would
+ * conclude the product is broken. The floor is passed in from the numbers the query
+ * actually returned; the sentence keeps UI-SPEC's shape.
+ */
+export function CAP_BELOW_SPEND(
+  attemptedMicroUsd: bigint | number,
+  spentMicroUsd: bigint | number,
+  floorMicroUsd: bigint | number,
+  resetDate: string,
+) {
+  return (
+    `A ${formatUsd(attemptedMicroUsd)} cap is below the ${formatUsd(spentMicroUsd)} you've ` +
+    `already spent this month. Set a cap of at least ${formatUsd(floorMicroUsd)}, or wait ` +
+    `for the reset on ${resetDate}.`
+  );
+}
+
+/** UI-SPEC § Error → "Non-admin on Budget settings". D-10's affordance half. */
+export function BUDGET_ADMIN_ONLY(orgLabel: string) {
+  return (
+    `Budget settings are admin-only. Your role in ${orgLabel} is Member, so you can see ` +
+    `spend but not change the cap. Ask an admin to change it, or open the spend view — ` +
+    `that's readable by everyone.`
+  );
+}
+
+/** UI-SPEC § Error → "Unexpected server error". The only refusal with no tailored sentence,
+ *  and the only one that means a bug rather than a decision. */
+export function UNEXPECTED_ERROR(thing: string) {
+  return (
+    `Something broke on our side loading ${thing}. Nothing was charged. Try again — if it ` +
+    `keeps happening, the run history on the spend view will show whether anything actually ran.`
+  );
+}
+
+/**
+ * Not in UI-SPEC's table, which has no row for a resource that is not there. Written in the
+ * same voice, and deliberately vague about WHY: every read is confined by RLS, so a
+ * different tenant's id and a deleted id are the same answer here, and saying which one it
+ * was would confirm to a wrong-tenant caller that the row exists (T-2-10).
+ */
+export function NOT_FOUND(thing: string) {
+  return (
+    `We couldn't find that ${thing}. It may have been removed, or the link may belong to a ` +
+    `different organisation.`
+  );
+}
+
+/**
+ * Not in UI-SPEC's table either — it covers the geocoder's no-match and unreachable rows but
+ * not its third outcome: an address that resolved perfectly well and is not in Texas.
+ *
+ * The TYPED address is quoted, not the matched one, and that is forced rather than chosen:
+ * `src/lib/geocode/census.ts` returns a bare reason on every failure and keeps nothing else,
+ * deliberately, so a rejected out-of-state match's details are never ours to hold.
+ */
+export function GEOCODE_NOT_TEXAS(address: string) {
+  return (
+    `“${address}” isn't in Texas. Siteless covers Texas only, so there are no outlet counts ` +
+    `to estimate from — the seeded businesses come from the Texas Comptroller. Try a Texas ` +
+    `street address, or define this preset by county instead.`
+  );
+}
+
+/** UI-SPEC § Copy Table → Duplicate dialog default name (D-17). */
+export function COPY_OF(name: string) {
+  return `Copy of ${name}`;
+}
