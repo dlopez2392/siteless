@@ -195,11 +195,15 @@ excluded directory just the same.
 | --- | --- |
 | Production URL (use this) | `https://siteless-iota.vercel.app` |
 | Other alias | `https://siteless-danlopez508-8452s-projects.vercel.app` |
-| Deployment id | `dpl_CAcqW8nAXa2nimyUp65kBsEcgMFQ` |
-| Per-deployment URL | `https://siteless-71ec0prh2-danlopez508-8452s-projects.vercel.app` |
-| Verified commit | `453c0c4b7e2ab34f367c8366928fbf622ca7456f` (`453c0c4`), branch `main` |
+| Deployment id | `dpl_AxqqohtjnoFzhfJxSvUSWYtrFHkm` |
+| Per-deployment URL | `https://siteless-dqfm2wzg8-danlopez508-8452s-projects.vercel.app` |
+| Verified commit | `311e6b4574cc1973c6307b6d2b1dcb1f24dea876` (`311e6b4`), branch `main` |
 | State | READY, target production, region `iad1` |
 | First deployed | 2026-09-22 |
+
+The first production deployment was `453c0c4` (`dpl_CAcqW8nAXa2nimyUp65kBsEcgMFQ`). It was
+superseded the same day by `311e6b4`, which is the pending-session fix the e2e suite found
+against it. The alias is unchanged and always points at the newest production deployment.
 
 Use the **alias**, not the per-deployment URL. The per-deployment URL is covered by Vercel
 deployment protection and answers `302` to an unauthenticated request, including on
@@ -214,8 +218,29 @@ has been pushed.
 
 ```
 $ curl -fsS https://siteless-iota.vercel.app/api/health
-{"ok":true,"db":"up","proxy":"up","commit":"453c0c4b7e2ab34f367c8366928fbf622ca7456f"}
+{"ok":true,"db":"up","proxy":"up","commit":"311e6b4574cc1973c6307b6d2b1dcb1f24dea876"}
 
 $ curl -sS -o /dev/null -w '%{http_code} %{redirect_url}' https://siteless-iota.vercel.app/
 307 https://siteless-iota.vercel.app/sign-in
 ```
+
+## 11. Two things the deployed app says that are expected, not defects
+
+A browser on the deployed app logs:
+
+```
+Clerk: Clerk has been loaded with development keys. Development instances have strict
+usage limits and should not be used when deploying your application to production.
+```
+
+That is correct and expected for phase 1: the Vercel project carries the Clerk
+**development** instance keys, which is what makes an unattended e2e sign-in possible at
+all. Moving to a Clerk production instance is its own piece of work with its own DNS step —
+BIS's runbook records that the app subdomain must be an **A** record, because a CNAME
+cannot have records beneath it and the vendor's "configure automatically" resolves that by
+deleting the record the product lives on. Do not treat the banner as a bug to silence here.
+
+A signed-out page load also logs `"useOrganizationList" requires an active user session`.
+`ActivateSoleOrganization` is mounted in the root layout on purpose, so it is present on
+`/sign-in` where there is no session yet. The component correctly does nothing in that
+state; the warning is noise, not a failure.
