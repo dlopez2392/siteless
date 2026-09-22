@@ -1,7 +1,7 @@
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { BudgetGauge } from '@/components/spend/budget-gauge';
-import { formatUsd } from '@/lib/budget/money';
+import { formatUsd, MICRO_PER_CENT } from '@/lib/budget/money';
 import { periodLabel, periodResetInstant } from '@/lib/budget/period';
 import { APP_TZ, formatLocal } from '@/lib/time';
 import { periodWindow, type BudgetPeriodRow } from '@/server/queries/budget';
@@ -84,11 +84,17 @@ export function PeriodHeader({
 
         <BudgetGauge capMicroUsd={cap} committedMicroUsd={committed} testId={gaugeTestId} />
 
-        {/* Only when there is something to reconcile. In Phase 2 nothing reserves budget
-            yet — the verifier ships in Phase 4 — so this line is normally absent rather
-            than sitting there reading "$0.00 reserved", which would be noise pretending
-            to be information. */}
-        {period.reservedMicroUsd > 0n ? (
+        {/* Only when there is something to reconcile, and only when the amount is large
+            enough to RENDER as something.
+
+            🔴 THE THRESHOLD IS ONE CENT, NOT ZERO, AND A SCREENSHOT IS WHY. A concurrent
+            agent left a 1 µUSD reservation on the shared test meter and this line rendered
+            "Includes $0.00 reserved by runs in flight" — a sentence whose whole job is
+            explaining a discrepancy, quoting the one number this product must never show.
+            Money is µUSD and only the DISPLAY rounds (`src/lib/budget/money.ts`), so a
+            sub-cent reservation produces no visible discrepancy for this note to explain;
+            it is still inside the figure and the gauge above, where it belongs. */}
+        {period.reservedMicroUsd >= BigInt(MICRO_PER_CENT) ? (
           <p
             data-testid="spend-reserved-note"
             className="text-sm font-normal text-muted-foreground"
