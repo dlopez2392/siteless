@@ -45,6 +45,36 @@ export function rowsOf<T>(result: unknown): T[] {
   return result as unknown as T[];
 }
 
+/**
+ * Epoch milliseconds, as text from the database, into an instant.
+ *
+ * 🔴 A `timestamptz` DOES NOT ARRIVE AS A `Date` THROUGH THIS PATH. Observed on
+ * 2026-09-22 against the runtime configuration — postgres.js 3.4.9, `prepare: false`,
+ * drizzle `execute` — where `runs.started_at` came back as the STRING
+ * `'2026-09-22 10:21:31.273904-05'` while the row type here declared `Date`. Nothing
+ * failed at the boundary; it failed three layers later, as `RangeError: Invalid time
+ * value` out of `Intl` on the spend view, with typecheck, lint and build all green
+ * (plan 02-13, deviation 3). This module's header already draws the same conclusion for
+ * `bigint` and for `period_start`: cast in SQL, convert here, and stay immune to a driver
+ * that later changes its mind.
+ *
+ * 🔴 EPOCH MILLISECONDS RATHER THAN A FORMATTED STRING, AND THAT IS DELIBERATE. An epoch
+ * is an instant and instants have no zone, so there is no text format to misparse and no
+ * zone named anywhere — `src/lib/time.ts` stays the only file in `src/` that names one,
+ * and every rendering of these values still resolves its zone there.
+ *
+ * `extract(epoch from ...)` is null-propagating, so a run that never started stays null
+ * rather than becoming 1970.
+ */
+function instantOf(epochMs: string | null): Date | null {
+  if (epochMs === null) return null;
+  const ms = Number(epochMs);
+  if (!Number.isFinite(ms)) {
+    throw new Error(`instantOf: expected epoch milliseconds, got ${JSON.stringify(epochMs)}`);
+  }
+  return new Date(ms);
+}
+
 export type BudgetPeriodRow = {
   id: string;
   /** 'YYYY-MM-01' in the app's zone. A string, never a Date — see the header. */
@@ -63,7 +93,7 @@ type RawPeriod = {
   cap: string;
   reserved: string;
   spent: string;
-  warned_80_at: Date | null;
+  warned_80_ms: string | null;
 };
 
 /**
@@ -91,7 +121,7 @@ function toPeriodRow(raw: RawPeriod): BudgetPeriodRow {
     capMicroUsd,
     reservedMicroUsd,
     spentMicroUsd,
-    warned80At: raw.warned_80_at,
+    warned80At: instantOf(raw.warned_80_ms),
     pctUsed: pctUsedOf(capMicroUsd, spentMicroUsd, reservedMicroUsd),
   };
 }
@@ -123,7 +153,7 @@ export async function readCurrentPeriod(
              cap_micro_usd::text     as cap,
              reserved_micro_usd::text as reserved,
              spent_micro_usd::text   as spent,
-             warned_80_at
+             (extract(epoch from warned_80_at) * 1000)::bigint::text as warned_80_ms
         from budget_periods
        where id = ${ensured.id}`),
   )[0];
@@ -278,6 +308,18 @@ export function periodWindow(periodStartIso: string): { from: Date; to: Date } {
  * rows that explain why the month stopped. The window is on the run's own `created_at`, and
  * the ledger is a LEFT join.
  *
+ * 🔴 THE TWO BOUNDS ARE BOUND AS ISO-8601 TEXT AND CAST, NEVER AS A JS `Date`. The runtime
+ * driver — postgres.js 3.4.9 with `prepare: false`, which the transaction pooler requires —
+ * refuses a `Date` parameter through drizzle's `execute` with
+ * `ERR_INVALID_ARG_TYPE: The "string" argument must be of type string ... Received an
+ * instance of Date`, and the page 500s. Reproduced in isolation against this exact client
+ * configuration on 2026-09-22 (plan 02-13, deviation 1): the same statement with
+ * `${d.toISOString()}::timestamptz` returns `2026-09-01 00:00:00-05`, the correct instant.
+ * No db test covered this function, so the defect shipped in 02-09 and surfaced on the
+ * first page that called it. `toISOString()` is UTC with an explicit `Z`, so PostgreSQL
+ * resolves it identically whatever the server's `TimeZone` happens to be — the cast is
+ * doing zone work, not just type work.
+ *
  * `presetDisplayName`, never `name_internal` (CONVENTIONS § Naming). The internal label is
  * the operator's and BIS's single `accounts.name` reached customers three times.
  */
@@ -290,8 +332,8 @@ export async function readSpendByRun(
     run_id: string;
     preset_display_name: string;
     version: number;
-    started_at: Date | null;
-    finished_at: Date | null;
+    started_ms: string | null;
+    finished_ms: string | null;
     calls: number;
     micro_usd: string;
     status: string;
@@ -301,8 +343,8 @@ export async function readSpendByRun(
       select r.id                                 as run_id,
              s.display_name                       as preset_display_name,
              v.version                            as version,
-             r.started_at                         as started_at,
-             r.finished_at                        as finished_at,
+             (extract(epoch from r.started_at)  * 1000)::bigint::text as started_ms,
+             (extract(epoch from r.finished_at) * 1000)::bigint::text as finished_ms,
              r.status                             as status,
              r.stopped_reason                     as stopped_reason,
              count(l.id)::int                     as calls,
@@ -311,7 +353,8 @@ export async function readSpendByRun(
         join search_versions v on v.id = r.search_version_id
         join searches s        on s.id = v.search_id
         left join cost_ledger l on l.run_id = r.id
-       where r.created_at >= ${from} and r.created_at < ${to}
+       where r.created_at >= ${from.toISOString()}::timestamptz
+         and r.created_at <  ${to.toISOString()}::timestamptz
        group by r.id, s.display_name, v.version, r.started_at, r.finished_at,
                 r.status, r.stopped_reason
        order by r.created_at desc`),
@@ -320,8 +363,8 @@ export async function readSpendByRun(
     runId: r.run_id,
     presetDisplayName: r.preset_display_name,
     version: r.version,
-    startedAt: r.started_at,
-    finishedAt: r.finished_at,
+    startedAt: instantOf(r.started_ms),
+    finishedAt: instantOf(r.finished_ms),
     calls: r.calls,
     microUsd: BigInt(r.micro_usd),
     status: r.status,
