@@ -8,6 +8,34 @@
       "when": 1790043006920,
       "tag": "0000_bootstrap",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1790044003078,
+      "tag": "0001_tenancy",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1790044014346,
+      "tag": "0002_tenancy_functions",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1790044414604,
+      "tag": "0003_policies",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1790044425006,
+      "tag": "0004_ensure_org",
+      "breakpoints": true
     }
   ]
 }
