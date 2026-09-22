@@ -15,7 +15,7 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "test:unit": "vitest run tests/unit",
-    "test:db": "vitest run --config vitest.db.config.ts --pool=forks --poolOptions.forks.singleFork",
+    "test:db": "vitest run --config vitest.db.config.ts --pool=forks",
     "test:e2e": "playwright test",
     "verify": "pnpm typecheck && pnpm lint && pnpm test:unit && pnpm test:db",
     "db:generate": "tsx scripts/db.ts generate",
