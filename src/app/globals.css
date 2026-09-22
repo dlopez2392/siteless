@@ -2,131 +2,208 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
+/* next-themes drives light/dark with attribute="class", so `dark:` variants key off
+   the `.dark` class rather than the OS media query. Written by `shadcn init`; kept. */
 @custom-variant dark (&:is(.dark *));
 
-@theme inline {
-    --font-heading: var(--font-sans);
-    --font-sans: var(--font-sans);
-    --color-sidebar-ring: var(--sidebar-ring);
-    --color-sidebar-border: var(--sidebar-border);
-    --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-    --color-sidebar-accent: var(--sidebar-accent);
-    --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-    --color-sidebar-primary: var(--sidebar-primary);
-    --color-sidebar-foreground: var(--sidebar-foreground);
-    --color-sidebar: var(--sidebar);
-    --color-chart-5: var(--chart-5);
-    --color-chart-4: var(--chart-4);
-    --color-chart-3: var(--chart-3);
-    --color-chart-2: var(--chart-2);
-    --color-chart-1: var(--chart-1);
-    --color-ring: var(--ring);
-    --color-input: var(--input);
-    --color-border: var(--border);
-    --color-destructive: var(--destructive);
-    --color-accent-foreground: var(--accent-foreground);
-    --color-accent: var(--accent);
-    --color-muted-foreground: var(--muted-foreground);
-    --color-muted: var(--muted);
-    --color-secondary-foreground: var(--secondary-foreground);
-    --color-secondary: var(--secondary);
-    --color-primary-foreground: var(--primary-foreground);
-    --color-primary: var(--primary);
-    --color-popover-foreground: var(--popover-foreground);
-    --color-popover: var(--popover);
-    --color-card-foreground: var(--card-foreground);
-    --color-card: var(--card);
-    --color-foreground: var(--foreground);
-    --color-background: var(--background);
-    --radius-sm: calc(var(--radius) * 0.6);
-    --radius-md: calc(var(--radius) * 0.8);
-    --radius-lg: var(--radius);
-    --radius-xl: calc(var(--radius) * 1.4);
-    --radius-2xl: calc(var(--radius) * 1.8);
-    --radius-3xl: calc(var(--radius) * 2.2);
-    --radius-4xl: calc(var(--radius) * 2.6);
-}
+/* ---------------------------------------------------------------------------
+   PAINTED DESIGN TOKENS — 02-UI-SPEC.md § Color.
+
+   Executor Rule 2: painted values, never CSS custom properties, for anything a
+   test pins. Every value below is a LITERAL hex from the spec's two colour
+   tables; the e2e probe asserts the computed `rgb(15, 118, 110)`, so `#0F766E`
+   has to be physically present in this file.
+
+   Executor Rule 3: nothing here is COMPOSED at runtime from another token — no
+   `color-mix(...)`, no `var()` of another colour token. Had there been any, it
+   would live on `*` and `.dark *`, never on `:root`, because a composed custom
+   property resolves where it is declared and on `:root` it freezes the light
+   value for the whole document (recorded BIS production defect). The
+   `@theme inline` block below is Tailwind's BUILD-time indirection, which is a
+   different mechanism and is explicitly fine (UI-SPEC § Theme).
+
+   Executor Rule 4: unprefixed CSS only. No hand-written vendor-prefixed twin
+   anywhere in this file — Lightning CSS drops the standard property when one sits
+   behind it, and the standard one silently disappears.
+
+   Executor Rule 1: Tailwind v4 arbitrary values must wrap the custom property in
+   `var()` — `[var(--x)]`. The bare-dashes shorthand v4 dropped emits invalid CSS
+   silently, so it appears nowhere in this project, not even in a comment (the
+   plan greps for it).
+   --------------------------------------------------------------------------- */
 
 :root {
-    --background: oklch(1 0 0);
-    --foreground: oklch(0.141 0.005 285.823);
-    --card: oklch(1 0 0);
-    --card-foreground: oklch(0.141 0.005 285.823);
-    --popover: oklch(1 0 0);
-    --popover-foreground: oklch(0.141 0.005 285.823);
-    --primary: oklch(0.21 0.006 285.885);
-    --primary-foreground: oklch(0.985 0 0);
-    --secondary: oklch(0.967 0.001 286.375);
-    --secondary-foreground: oklch(0.21 0.006 285.885);
-    --muted: oklch(0.967 0.001 286.375);
-    --muted-foreground: oklch(0.552 0.016 285.938);
-    --accent: oklch(0.967 0.001 286.375);
-    --accent-foreground: oklch(0.21 0.006 285.885);
-    --destructive: oklch(0.577 0.245 27.325);
-    --border: oklch(0.92 0.004 286.32);
-    --input: oklch(0.92 0.004 286.32);
-    --ring: oklch(0.705 0.015 286.067);
-    --chart-1: oklch(0.871 0.006 286.286);
-    --chart-2: oklch(0.552 0.016 285.938);
-    --chart-3: oklch(0.442 0.017 285.786);
-    --chart-4: oklch(0.37 0.013 285.805);
-    --chart-5: oklch(0.274 0.006 286.033);
-    --radius: 0.625rem;
-    --sidebar: oklch(0.985 0 0);
-    --sidebar-foreground: oklch(0.141 0.005 285.823);
-    --sidebar-primary: oklch(0.21 0.006 285.885);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.967 0.001 286.375);
-    --sidebar-accent-foreground: oklch(0.21 0.006 285.885);
-    --sidebar-border: oklch(0.92 0.004 286.32);
-    --sidebar-ring: oklch(0.705 0.015 286.067);
+  /* 60% — dominant surface */
+  --background: #F4F6F7;
+  --foreground: #101619;
+
+  /* 30% — raised surfaces and chrome */
+  --card: #FFFFFF;
+  --card-foreground: #101619;
+  --popover: #FFFFFF;
+  --popover-foreground: #101619;
+  --sidebar: #EAEEEF;
+  --sidebar-foreground: #101619;
+  --muted: #E7EBEC;
+  --muted-foreground: #5B686D;
+  --border: #D8DEE0;
+  --input: #D8DEE0;
+
+  /* 10% — accent. Reserved for the exhaustive list in UI-SPEC § Accent reserved for. */
+  --primary: #0F766E;
+  --primary-foreground: #FFFFFF;
+  --ring: #0F766E;
+
+  --secondary: #E7EBEC;
+  --secondary-foreground: #101619;
+  --accent: #E7EBEC;
+  --accent-foreground: #101619;
+
+  /* Semantics — only at their threshold. */
+  --destructive: #B42318;
+  --destructive-foreground: #FFFFFF;
+  --destructive-surface: #FEE4E2;
+  --destructive-surface-foreground: #7A271A;
+  --warning: #B54708;
+  --warning-foreground: #FFFFFF;
+  --warning-surface: #FEF0C7;
+  --warning-surface-foreground: #B54708;
+
+  /* Sidebar chrome. `--sidebar-accent` is the active nav row's background, which
+     UI-SPEC § App shell specifies as the muted fill (accent shows as the label, the
+     icon and the 2px edge bar, never as a filled row). */
+  --sidebar-accent: #E7EBEC;
+  --sidebar-accent-foreground: #101619;
+  --sidebar-border: #D8DEE0;
+  --sidebar-ring: #0F766E;
+  --sidebar-primary: #0F766E;
+  --sidebar-primary-foreground: #FFFFFF;
+
+  /* Radii — deliberately off the 4-point spacing set (UI-SPEC § Design System).
+     Exactly three values ship; every namespace below resolves to one of them. */
+  --radius: 12px;
+  --radius-control: 8px;
+  --radius-pill: 999px;
 }
 
 .dark {
-    --background: oklch(0.141 0.005 285.823);
-    --foreground: oklch(0.985 0 0);
-    --card: oklch(0.21 0.006 285.885);
-    --card-foreground: oklch(0.985 0 0);
-    --popover: oklch(0.21 0.006 285.885);
-    --popover-foreground: oklch(0.985 0 0);
-    --primary: oklch(0.92 0.004 286.32);
-    --primary-foreground: oklch(0.21 0.006 285.885);
-    --secondary: oklch(0.274 0.006 286.033);
-    --secondary-foreground: oklch(0.985 0 0);
-    --muted: oklch(0.274 0.006 286.033);
-    --muted-foreground: oklch(0.705 0.015 286.067);
-    --accent: oklch(0.274 0.006 286.033);
-    --accent-foreground: oklch(0.985 0 0);
-    --destructive: oklch(0.704 0.191 22.216);
-    --border: oklch(1 0 0 / 10%);
-    --input: oklch(1 0 0 / 15%);
-    --ring: oklch(0.552 0.016 285.938);
-    --chart-1: oklch(0.871 0.006 286.286);
-    --chart-2: oklch(0.552 0.016 285.938);
-    --chart-3: oklch(0.442 0.017 285.786);
-    --chart-4: oklch(0.37 0.013 285.805);
-    --chart-5: oklch(0.274 0.006 286.033);
-    --sidebar: oklch(0.21 0.006 285.885);
-    --sidebar-foreground: oklch(0.985 0 0);
-    --sidebar-primary: oklch(0.488 0.243 264.376);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.274 0.006 286.033);
-    --sidebar-accent-foreground: oklch(0.985 0 0);
-    --sidebar-border: oklch(1 0 0 / 10%);
-    --sidebar-ring: oklch(0.552 0.016 285.938);
+  --background: #0E1416;
+  --foreground: #E7EDEE;
+
+  --card: #161E21;
+  --card-foreground: #E7EDEE;
+  --popover: #161E21;
+  --popover-foreground: #E7EDEE;
+  --sidebar: #121A1C;
+  --sidebar-foreground: #E7EDEE;
+  --muted: #1D272A;
+  --muted-foreground: #93A1A5;
+  --border: #263136;
+  --input: #263136;
+
+  --primary: #2DD4BF;
+  --primary-foreground: #04211E;
+  --ring: #2DD4BF;
+
+  --secondary: #1D272A;
+  --secondary-foreground: #E7EDEE;
+  --accent: #1D272A;
+  --accent-foreground: #E7EDEE;
+
+  --destructive: #F97066;
+  --destructive-foreground: #2A0B08;
+  --destructive-surface: #3A1210;
+  --destructive-surface-foreground: #F97066;
+  --warning: #FDB022;
+  --warning-foreground: #2A1A04;
+  --warning-surface: #3B2708;
+  --warning-surface-foreground: #FDB022;
+
+  --sidebar-accent: #1D272A;
+  --sidebar-accent-foreground: #E7EDEE;
+  --sidebar-border: #263136;
+  --sidebar-ring: #2DD4BF;
+  --sidebar-primary: #2DD4BF;
+  --sidebar-primary-foreground: #04211E;
+}
+
+/* `inline` is load-bearing, not cosmetic: it makes `bg-background` emit
+   `background-color: var(--background)` directly. Without it Tailwind would
+   interpose a `--color-background` declaration on `:root`, which resolves there
+   once and freezes the light palette for the whole document — the same class of
+   defect as Executor Rule 3. */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-ring: var(--ring);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-destructive-surface: var(--destructive-surface);
+  --color-destructive-surface-foreground: var(--destructive-surface-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-warning-surface: var(--warning-surface);
+  --color-warning-surface-foreground: var(--warning-surface-foreground);
+
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+
+  /* Three declared radii mapped onto the namespaces the shadcn copy-ins actually
+     use, so every surface lands on one of the three rather than on shadcn's
+     0.625rem default. Buttons, inputs, popovers and menus are `rounded-lg` (8px);
+     cards, dialogs, drawers and the command palette are `rounded-xl` (12px);
+     badges are `rounded-4xl` (pill). Verified by grepping src/components/ui. */
+  --radius-sm: var(--radius-control);
+  --radius-md: var(--radius-control);
+  --radius-lg: var(--radius-control);
+  --radius-xl: var(--radius);
+  --radius-2xl: var(--radius);
+  --radius-3xl: var(--radius);
+  --radius-4xl: var(--radius-pill);
+
+  /* Inter arrives on `--font-sans-inter` from next/font/google in layout.tsx. It
+     cannot be named `--font-sans` directly: that is the Tailwind namespace this
+     very line defines, and the self-reference would make the fallback stack
+     unreachable (it is exactly what `shadcn init` emitted). */
+  --font-sans:
+    var(--font-sans-inter), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+  --font-heading: var(--font-sans);
 }
 
 @layer base {
   * {
     @apply border-border outline-ring/50;
-    }
+  }
   body {
     @apply bg-background text-foreground;
-    }
-  button:not(:disabled), [role="button"]:not(:disabled) {
+  }
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
     cursor: pointer;
-    }
+  }
   html {
     @apply font-sans;
-    }
+  }
 }
