@@ -21,11 +21,27 @@ const BUDGET_SETTINGS = '/settings/budget';
 const SHELL_ROUTES = ['/presets', '/spend', BUDGET_SETTINGS, '/settings/organization'];
 
 /**
- * Plan 02-13 builds /settings/budget. Until it lands there is no way to move the meter
- * from a browser, so the two tests that need an 80% state report as skipped with the
- * owning plan named, rather than failing for a reason that has nothing to do with the
- * banner. This resolves itself the moment 02-13 ships — there is no flag to remember to
- * turn off, and plan 02-15 runs this suite against the deployed URL where it will be on.
+ * Plan 02-13 built /settings/budget, so the cap control now exists and these tests are no
+ * longer skipped for its absence. They are still guarded, and by a HARDER fact.
+ *
+ * 🔴 THE 80% TIER IS `committed * 100 >= cap * 80`, AND `committed` IS ZERO UNTIL PHASE 4.
+ * Nothing in Phase 2 spends money — the Places verifier ships in Phase 4 — so the ledger is
+ * empty, no reservation is ever open, and `0 * 100 >= cap * 80` is false for EVERY positive
+ * cap. No value that can be typed into the cap field produces an 80% state on a meter that
+ * has committed nothing. That is a property of the arithmetic, not a gap in the fixture,
+ * and it is why the guard below reads the meter's real figure off `/spend` rather than
+ * assuming a cap can be lowered into the threshold.
+ *
+ * 🔴 AND THE CAP IS COMPUTED FROM THAT FIGURE, NOT HARD-CODED. This file previously set
+ * `0.05` and expected 80%; with any non-zero spend that is `committed >= cap`, which is the
+ * ONE HUNDRED percent banner — so the test would have asserted the wrong tier the moment it
+ * stopped being skipped. The cap is now derived as `committed × 1.15`, which puts the meter
+ * at ~87% — inside [80%, 100%) by construction, and above `bp_not_over`'s floor so the
+ * database accepts the change.
+ *
+ * Plan 02-15 runs this suite against the deployed build and must re-check that these two
+ * tests EXECUTE rather than skip: a permanently skipped test reads the same as a passing
+ * one in a summary line.
  */
 async function capControl(page: Page) {
   await page.goto(BUDGET_SETTINGS);
@@ -33,6 +49,19 @@ async function capControl(page: Page) {
   const save = page.getByTestId('budget-cap-save');
   const present = (await input.count()) > 0 && (await save.count()) > 0;
   return { input, save, present };
+}
+
+/** What the meter says is committed this month, in dollars, read off the product's own
+ *  spend view — the same `spent + reserved` the banner tiers on. */
+async function committedUsd(page: Page): Promise<number> {
+  await page.goto('/spend');
+  const text = await page.getByTestId('spend-mtd-figure').innerText();
+  return Number(text.replace(/[$,]/g, ''));
+}
+
+/** A cap that puts the CURRENT committed total inside [80%, 100%). */
+function capForEightyPercent(committed: number): string {
+  return (Math.ceil(committed * 115) / 100).toFixed(2);
 }
 
 async function setCap(page: Page, usd: string) {
@@ -54,13 +83,19 @@ test('budget banner: renders on every route at 80 percent', async ({ page }) => 
   const { present } = await capControl(page);
   test.skip(!present, 'the cap control ships in plan 02-13; nothing can move the meter yet');
 
+  const committed = await committedUsd(page);
+  test.skip(
+    committed <= 0,
+    'the meter has committed nothing, and no cap puts zero above 80% of itself; the first paid call ships with the Places verifier in Phase 4',
+  );
+
   const { input } = await capControl(page);
   const original = await input.inputValue();
 
   try {
-    // A cap low enough that the seeded month's spend plus reservations is over 80% of it
-    // but under 100%, chosen from what the meter already reads rather than guessed.
-    await setCap(page, '0.05');
+    // A cap the meter is already ~87% of: over 80%, under 100%, and above the
+    // `bp_not_over` floor. Derived from what the meter reads, never guessed.
+    await setCap(page, capForEightyPercent(committed));
 
     for (const route of SHELL_ROUTES) {
       await page.goto(route);
@@ -78,11 +113,17 @@ test('budget banner: is not dismissible', async ({ page }) => {
   const { present } = await capControl(page);
   test.skip(!present, 'the cap control ships in plan 02-13; nothing can move the meter yet');
 
+  const committed = await committedUsd(page);
+  test.skip(
+    committed <= 0,
+    'the meter has committed nothing, and no cap puts zero above 80% of itself; the first paid call ships with the Places verifier in Phase 4',
+  );
+
   const { input } = await capControl(page);
   const original = await input.inputValue();
 
   try {
-    await setCap(page, '0.05');
+    await setCap(page, capForEightyPercent(committed));
     await page.goto('/presets');
 
     const banner = page.getByTestId('budget-banner-80');
