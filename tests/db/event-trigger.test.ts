@@ -62,7 +62,8 @@ const LATEST_BUSINESS_EVENT = `
    limit 1`;
 
 const LOG_EVENT_TRIGGERS = `
-  select c.relname as table_name
+  select c.relname   as table_name,
+         t.tgenabled::text as enabled
     from pg_trigger t
     join pg_class c on c.oid = t.tgrelid
     join pg_proc p on p.oid = t.tgfoid
@@ -148,10 +149,17 @@ describe('attribution is a property of the database', () => {
 
   it('every state-bearing table has an app.log_event after-row trigger', () =>
     withRollback(async (c) => {
-      const { rows } = await c.query<{ table_name: string }>(LOG_EVENT_TRIGGERS);
+      const { rows } = await c.query<{ table_name: string; enabled: string }>(LOG_EVENT_TRIGGERS);
       // Exact set equality in both directions: a missing trigger and a surprise extra one
       // are both failures, and the second is how source_records would quietly acquire the
       // write amplification the boundary exists to prevent.
       expect(rows.map((r) => r.table_name).sort()).toEqual([...EVENT_LOGGED].sort());
+      // PRESENT is not FIRING. `alter table businesses disable trigger businesses_event`
+      // leaves the pg_trigger row exactly where it was with tgenabled = 'D', so an
+      // enumeration that only counts rows reports full coverage while attribution is
+      // silently off — executed, and the suite stayed green here while only the behaviour
+      // test above went red. 'O' fires on ordinary writes and 'A' fires always; 'D'
+      // (disabled) and 'R' (replica only) do not.
+      expect(rows.filter((r) => r.enabled !== 'O' && r.enabled !== 'A')).toEqual([]);
     }));
 });
