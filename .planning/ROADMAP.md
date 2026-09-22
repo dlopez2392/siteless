@@ -120,7 +120,7 @@ Plans:
 - [x] 02-13-PLAN.md — Spend view and budget settings, including BUDG-03's second-wall card
 
 **Wave 6** *(blocked on Wave 5, checkpoints)*
-- [ ] 02-14-PLAN.md — Production migration and seed, Google quota and Vercel Pro checkpoints
+- [x] 02-14-PLAN.md — Production migration and seed, Google quota and Vercel Pro checkpoints
 
 **Wave 7** *(blocked on Wave 6, checkpoints)*
 - [ ] 02-15-PLAN.md — Deploy, e2e on the real URL, both-theme screenshot review, gate mutations M7–M12, close VALIDATION
