@@ -40,6 +40,7 @@ import { Client } from 'pg';
 import { actAs, actAsOwner, seedTwoOrgs, withRollback } from './_fixtures';
 
 const ORG_A_CLAIMS = { o: { id: 'org_A' }, sub: 'user_danlo', role: 'authenticated' } as const;
+const ORG_B_CLAIMS = { o: { id: 'org_B' }, sub: 'user_bravo', role: 'authenticated' } as const;
 
 /** One of the three providers `bp_provider_known` admits. Not a free-form string. */
 const PROVIDER = 'places';
@@ -109,6 +110,37 @@ async function reserve(c: Client, micro: number): Promise<ReserveRow> {
   const row = r.rows[0];
   if (!row) throw new Error('reserve: no row');
   return row;
+}
+
+/**
+ * A run owned by `orgId`, built through its whole chain — search, version, run — because
+ * each link carries a composite (id, org_id) foreign key since migration 0017 and a run
+ * stitched together out of another org's version would be refused before it could be the
+ * subject of the test below.
+ *
+ * Written as that org's own caller: `searches` and `search_versions` both carry
+ * app.log_event, which resolves the tenant out of the transaction-local claims and would
+ * fail with 23502 against the NOT NULL events.org_id if the owner wrote these with no claim.
+ */
+async function makeRunFor(c: Client, orgId: string, claims: Parameters<typeof actAs>[1]) {
+  await actAs(c, claims);
+  const s = await c.query<{ id: string }>(
+    "insert into searches (org_id, name_internal, display_name) values ($1, 'x — internal', 'x') returning id",
+    [orgId],
+  );
+  const v = await c.query<{ id: string }>(
+    `insert into search_versions (org_id, search_id, version, cluster_ids, geo_kind, geo_payload)
+     values ($1, $2, 1, '{}'::uuid[], 'counties', '{"countyIds":[]}'::jsonb) returning id`,
+    [orgId, s.rows[0]?.id],
+  );
+  const r = await c.query<{ id: string }>(
+    'insert into runs (org_id, search_version_id) values ($1, $2) returning id',
+    [orgId, v.rows[0]?.id],
+  );
+  const id = r.rows[0]?.id;
+  if (!id) throw new Error('makeRunFor: runs insert returned no row');
+  await actAsOwner(c);
+  return id;
 }
 
 async function countReservations(c: Client, periodId: string): Promise<number> {
@@ -266,6 +298,55 @@ describe('the budget meter, one worker at a time', () => {
         [liveId],
       );
       expect(still.rows[0]?.released).toBe(false);
+      expect(await totals(c, period)).toMatchObject({ reserved: '10000' });
+    }));
+
+  it('reserve_budget refuses a run belonging to another org', () =>
+    withRollback(async (c) => {
+      const { a, b } = await seedTwoOrgs(c);
+      const foreignRun = await makeRunFor(c, b, ORG_B_CLAIMS);
+      await seedPeriod(c, a, { cap: 100000 });
+      await actAs(c, ORG_A_CLAIMS);
+
+      // 🔴 A DEFINER THAT TAKES A FOREIGN KEY WITHOUT RE-CHECKING TENANCY IS THE T-2-10 SHAPE
+      // app.settle_reservation ALREADY GUARDS AGAINST FOR RESERVATIONS. RLS does not apply to
+      // this insert — the function runs as the owner — and the FK to `runs` is a referential
+      // check, which bypasses RLS by design. So a caller could attach its reservation, and
+      // through it a ledger row, to another tenant's run id. `readSpendByRun` joins under the
+      // victim's RLS so the victim would never see it; that makes it quieter, not smaller.
+      //
+      // 42501, and the same message whether the run belongs to somebody else or does not
+      // exist at all: telling the two apart is the existence oracle.
+      const attempt = c.query(
+        'select reservation_id from app.reserve_budget($1, $2, $3, $4, $5)',
+        [PROVIDER, PERIOD, 10000, foreignRun, SKU],
+      );
+      await expect(attempt).rejects.toMatchObject({ code: '42501' });
+      await expect(attempt).rejects.toThrow(/reserve_budget: run belongs to another org/);
+    }));
+
+  it("reserve_budget accepts the caller's own run", () =>
+    withRollback(async (c) => {
+      const { a } = await seedTwoOrgs(c);
+      const ownRun = await makeRunFor(c, a, ORG_A_CLAIMS);
+      const period = await seedPeriod(c, a, { cap: 100000 });
+      await actAs(c, ORG_A_CLAIMS);
+
+      // The positive control, and it is not optional: a check written against the wrong side
+      // of the comparison refuses EVERY run, and `queueRun` — the only path in Phase 2 that
+      // can cause spend — passes a run id on every single call. Every other test in this file
+      // reserves with a null run and would stay green through that.
+      const r = await c.query<ReserveRow>(
+        'select reservation_id, pct_after::text as pct_after, at_80, at_100 ' +
+          'from app.reserve_budget($1, $2, $3, $4, $5)',
+        [PROVIDER, PERIOD, 10000, ownRun, SKU],
+      );
+      expect(r.rows[0]?.reservation_id).toBeTruthy();
+      const res = await c.query<{ run_id: string }>(
+        'select run_id from cost_reservations where id = $1',
+        [r.rows[0]?.reservation_id],
+      );
+      expect(res.rows[0]?.run_id).toBe(ownRun);
       expect(await totals(c, period)).toMatchObject({ reserved: '10000' });
     }));
 
