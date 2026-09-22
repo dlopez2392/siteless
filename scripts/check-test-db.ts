@@ -7,6 +7,7 @@
  * Prints only the server banner and `ok` lines. The connection string, the password
  * and the claims payload are never echoed (T-1-22).
  */
+import { readFileSync } from 'node:fs';
 import { config as loadEnv } from 'dotenv';
 import { Client } from 'pg';
 
@@ -95,16 +96,30 @@ try {
     console.log('ok — app_user has USAGE on schema public');
 
     // 7. drizzle-kit — and nothing else — recorded the bootstrap migration (D-09).
-    const applied = await c.query<{ n: string }>(
-      "select count(*)::text as n from drizzle.__drizzle_migrations where hash like '%bootstrap%'",
+    //    `hash` is a SHA-256 of the SQL text, not the filename, so the row is tied back to
+    //    the 0000_bootstrap tag through the journal's `when`, which drizzle-kit writes
+    //    verbatim into created_at.
+    const journal = JSON.parse(
+      readFileSync(new URL('../drizzle/meta/_journal.json', import.meta.url), 'utf8'),
+    ) as { entries: { tag: string; when: number }[] };
+    const bootstrapEntry = journal.entries.find((e) => e.tag === '0000_bootstrap');
+    if (!bootstrapEntry) throw new Error('check-test-db: no 0000_bootstrap entry in the journal');
+
+    const applied = await c.query<{ created_at: string }>(
+      'select created_at from drizzle.__drizzle_migrations',
     );
-    if (applied.rows[0]?.n !== '1') {
+    if (applied.rowCount !== 1) {
       throw new Error(
-        'check-test-db: expected exactly 1 drizzle.__drizzle_migrations row for 0000_bootstrap, got ' +
-          String(applied.rows[0]?.n),
+        'check-test-db: expected exactly 1 drizzle.__drizzle_migrations row, got ' +
+          String(applied.rowCount),
       );
     }
-    console.log('ok — drizzle.__drizzle_migrations has the 0000_bootstrap row');
+    if (applied.rows[0]?.created_at !== String(bootstrapEntry.when)) {
+      throw new Error(
+        'check-test-db: the applied migration does not match the 0000_bootstrap journal entry',
+      );
+    }
+    console.log('ok — drizzle.__drizzle_migrations has exactly the 0000_bootstrap row');
   }
 } finally {
   await c.end();
