@@ -78,7 +78,7 @@ Plans:
 
 **Wave 6** *(blocked on Wave 5 completion)*
 - [ ] 01-11-PLAN.md — Deploy, e2e against the real URL, criterion-1 sign-in, phase gate (wave 6)
-- [ ] 01-12-PLAN.md — Gap closure: revoke Supabase platform grants (TRUNCATE bypasses RLS) and the default ACL, parity on both databases (wave 6, found by 01-10)
+- [x] 01-12-PLAN.md — Gap closure: revoke Supabase platform grants (TRUNCATE bypasses RLS) and the default ACL, parity on both databases (wave 6, found by 01-10)
 **Security**: /gsd-secure-phase applies — RLS policies, Clerk claim shape, tenant isolation.
 **Notes**: Ships an unstyled app shell only; the design system is established in Phase 2's UI pass, which is the first phase with real screens.
 
