@@ -40,9 +40,9 @@ precisely what "second wall, not the primary meter" means, and the card on
 `/settings/budget` says so on screen. Anyone who reads this quota as "the spend is capped at
 $50" has read it wrong.
 
-**A budget alert is not a cap either.** Google states it verbatim: *"Setting a budget does
-not automatically cap Google Cloud or Google Maps Platform usage or spending."* A budget
-alert emails you after the money is gone. Keep the alert **and** the quota **and** the
+**A budget alert is not a cap either.** Google states it verbatim:
+*"Setting a budget does not automatically cap Google Cloud or Google Maps Platform usage or spending."*
+A budget alert emails you after the money is gone. Keep the alert **and** the quota **and** the
 meter, and be clear about which one actually stops things — only the meter refuses a call
 before it is made, and only the quota refuses it if the meter is broken.
 
