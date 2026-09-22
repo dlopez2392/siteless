@@ -992,23 +992,26 @@ Chicago only ever as half a pair; suites run `TZ=UTC` so a forgotten zone is red
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Which 17 cities?** (A1)
+   - **RESOLVED (orchestrator, 2026-09-22):** the measured 17 cities with ≥400 active outlets, name variants folded; seed JSON documents the rule, coverage and the next five candidates — plan 02-02 Task 1. Flagged for danlo's one-line confirmation before Phase 3 runs.
    - *What we know:* the measured outlet distribution for all 114 (city, county) pairs; a ≥400 threshold yields a clean 17 covering 90.7 %.
    - *What's unclear:* whether danlo wants every county represented (Willacy's Raymondville is 22nd at 221 outlets) and whether `RIO GRANDE CY`/`RIO GRANDE` fold into Rio Grande City in the picker.
    - *Recommendation:* take the measured 17 as the default, surface the list in the plan for a one-line confirmation, and fold the name variants. **Phase 3 reads this — agree it before the two phases run in parallel.**
 
 2. **Where does the default $50 cap live?** (A9)
+   - **RESOLVED (orchestrator, 2026-09-22):** `budget_periods.cap_micro_usd bigint NOT NULL DEFAULT 50000000`, lazily created by a get-or-create definer copying the previous period's cap; edits only via `app.set_budget_cap` — plan 02-05.
    - *Recommendation:* `budget_periods.cap_micro_usd` with a `DEFAULT 50000000`, seeded lazily by a `get-or-create-period` definer copying the previous period's cap (so an edited cap persists across months). A cap on `orgs` is the alternative; either way the edit path is `app.set_budget_cap`.
 
 3. **Does Phase 2 wire "Run this preset" at all?**
+   - **RESOLVED (orchestrator, 2026-09-22):** yes — creates a `runs` row in `queued` and takes the reservation; drawer copy says runs execute when Phase 4 ships — plans 02-09 / 02-12.
    - UI-SPEC OQ 7 already decided the fallback: the button ships with its label plus visible helper text ("Runs start when the Places verifier ships in Phase 4"). But the `runs` row + the reservation *can* be created here, which is what makes criterion 5's "concurrent burst is refused" reachable from the UI rather than only from a test.
    - *Recommendation:* create `runs` in status `queued` and take the reservation; Phase 4 picks it up. Say so in the drawer copy.
 
-4. **Is the Vercel project on Pro?** (A7) — not blocking Phase 2; needed before the Phase 9 scheduler is planned. A `checkpoint:human-action` one-liner.
+4. **Is the Vercel project on Pro?** (A7) — not blocking Phase 2; needed before the Phase 9 scheduler is planned. A `checkpoint:human-action` one-liner. **RESOLVED:** carried as a `checkpoint:human-action` in plan 02-14.
 
-5. **`cost_ledger` retention.** One row per paid call, forever, is fine at 2,400 rows/month, but the spend view's "by run" query wants `(org_id, budget_period_id, run_id)` indexes from day one. Partitioning is Phase 9's problem; the index is this phase's.
+5. **`cost_ledger` retention.** **RESOLVED:** the `(org_id, budget_period_id, run_id)` indexes ship in plan 02-05; partitioning deferred to Phase 9. One row per paid call, forever, is fine at 2,400 rows/month, but the spend view's "by run" query wants `(org_id, budget_period_id, run_id)` indexes from day one. Partitioning is Phase 9's problem; the index is this phase's.
 
 ---
 
