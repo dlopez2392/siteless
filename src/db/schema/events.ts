@@ -1,4 +1,6 @@
-import { bigint, index, jsonb, pgTable, text, uuid } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
+import { bigint, index, jsonb, pgPolicy, pgTable, text, uuid } from 'drizzle-orm/pg-core';
+import { authenticatedRole } from 'drizzle-orm/supabase';
 import { orgs } from './orgs';
 import { tstz } from './_helpers';
 
@@ -20,5 +22,20 @@ export const events = pgTable(
     after: jsonb('after'),
     occurredAt: tstz('occurred_at').notNull().defaultNow(),
   },
-  (t) => [index('events_org_occurred_idx').on(t.orgId, t.occurredAt)],
+  // Select and insert only, declared inline rather than via orgPolicies(): events has no
+  // legitimate UPDATE or DELETE path (D-06). Plan 09 revokes those grants as well, so the
+  // append-only property does not rest on a policy that a later `for all` could widen.
+  (t) => [
+    index('events_org_occurred_idx').on(t.orgId, t.occurredAt),
+    pgPolicy('events_select', {
+      for: 'select',
+      to: authenticatedRole,
+      using: sql`org_id = (select app.current_org_id())`,
+    }),
+    pgPolicy('events_insert', {
+      for: 'insert',
+      to: authenticatedRole,
+      withCheck: sql`org_id = (select app.current_org_id())`,
+    }),
+  ],
 );
