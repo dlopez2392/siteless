@@ -53,7 +53,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. An attempt to persist Google Places content into a durable field is refused by a database constraint, not by a code review.
   4. Every state change on a record shows which actor made it and when, with all timestamps stored as `timestamptz` and rendered in `America/Chicago` (zone and locale pinned in tests).
   5. `legal_name`, `display_name` and internal annotations are three distinct fields, and a test proves the internal annotation cannot reach an export or push payload.
-**Plans:** 11 plans across 7 waves
+**Plans:** 12 plans across 7 waves (01-12 is a gap-closure plan added during execution)
 
 Plans:
 **Wave 1**
@@ -78,6 +78,7 @@ Plans:
 
 **Wave 6** *(blocked on Wave 5 completion)*
 - [ ] 01-11-PLAN.md — Deploy, e2e against the real URL, criterion-1 sign-in, phase gate (wave 6)
+- [ ] 01-12-PLAN.md — Gap closure: revoke Supabase platform grants (TRUNCATE bypasses RLS) and the default ACL, parity on both databases (wave 6, found by 01-10)
 **Security**: /gsd-secure-phase applies — RLS policies, Clerk claim shape, tenant isolation.
 **Notes**: Ships an unstyled app shell only; the design system is established in Phase 2's UI pass, which is the first phase with real screens.
 
