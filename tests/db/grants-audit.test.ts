@@ -281,22 +281,42 @@ describe('grants audit', () => {
       // `grant update (cap_micro_usd) on budget_periods to authenticated` — restoring
       // exactly the direct-write path app.set_budget_cap exists to be the only door to —
       // and every assertion above would stay green.
+      //
+      // 🔴 `search_versions` needs the SAME treatment, and did not have it until the Phase 2
+      // gate (plan 02-15 T3) proved the gap by mutation. M12b —
+      // `grant update (geo_payload) on public.search_versions to authenticated` — left the
+      // ENTIRE 90-test suite green while `has_column_privilege('authenticated',
+      // 'public.search_versions','geo_payload','UPDATE')` read TRUE, i.e. a tenant could
+      // rewrite a stored version's geography. The table-level row above stays [t,t,f,f]
+      // because a column grant is invisible to has_table_privilege, and
+      // `versions immutable: UPDATE as authenticated is refused` stays green because it
+      // updates `geo_kind`, which the column grant did not name. Append-only by grant has to
+      // be asserted at the column level or it is not asserted at all (T-2-12, SRCH-03).
       const { rows: cols } = await c.query<{
         bp_any_update: boolean;
         cr_any_update: boolean;
         cl_any_insert: boolean;
+        sv_any_update: boolean;
         runs_any_update: boolean;
       }>(`
         select has_any_column_privilege('authenticated','public.budget_periods','UPDATE')   as bp_any_update,
                has_any_column_privilege('authenticated','public.cost_reservations','UPDATE') as cr_any_update,
                has_any_column_privilege('authenticated','public.cost_ledger','INSERT')       as cl_any_insert,
+               has_any_column_privilege('authenticated','public.search_versions','UPDATE')   as sv_any_update,
                has_any_column_privilege('authenticated','public.runs','UPDATE')              as runs_any_update`);
       expect(cols[0]).toEqual({
         bp_any_update: false,
         cr_any_update: false,
         cl_any_insert: false,
+        // 🔴 UPDATE only. There is deliberately no `sv_any_delete` companion: PostgreSQL
+        // has no column-level DELETE, and `has_any_column_privilege(...,'DELETE')` does not
+        // return false for it — it raises `unrecognized privilege type: "DELETE"` and takes
+        // the whole test with it. (Written, watched red exactly that way, corrected.) The
+        // DELETE half of append-only is therefore fully covered by the table-level row
+        // above plus `versions immutable: DELETE as authenticated is refused`.
+        sv_any_update: false,
         // The positive control: has_any_column_privilege genuinely discriminates on this
-        // database, so the three falses above are a finding and not a broken predicate.
+        // database, so the four falses above are a finding and not a broken predicate.
         runs_any_update: true,
       });
     }));
