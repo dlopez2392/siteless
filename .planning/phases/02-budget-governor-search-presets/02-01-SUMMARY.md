@@ -477,3 +477,7 @@ Screenshots of the real screens in both themes on the built app (Executor Rule 8
 
 _Phase: 02-budget-governor-search-presets_
 _Completed: 2026-09-22_
+
+## Self-Check: PASSED
+
+All 13 claimed files exist on disk (plus 35 primitives under `src/components/ui/`), and all four commits — `3beccb1`, `f4ffebc`, `ba6c066`, `312f555` — are present in `git log 131bf02..HEAD` on branch `worktree-agent-a430bef81523dbaa5`.
