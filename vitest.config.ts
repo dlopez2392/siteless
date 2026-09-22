@@ -18,9 +18,38 @@ process.env.LANG = 'en_US.UTF-8';
 
 import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
+import { createRequire } from 'node:module';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const alias = { '@': fileURLToPath(new URL('./src', import.meta.url)) };
+
+// The node lane additionally resolves `server-only` to its no-op twin.
+//
+// `server-only` exports TWO modules: `empty.js` under the `react-server` condition, and
+// `index.js` — whose entire body is a `throw` — under every other. That IS the mechanism:
+// importing a server module from a client bundle is meant to explode. Next compiles
+// server code with `react-server` set; Vitest does not, so `import 'server-only'` on
+// line 1 of src/env.ts, src/db/with-org.ts or src/lib/geocode/census.ts makes those
+// modules unimportable from a unit test — the import throws before a single test runs.
+//
+// 🔴 Why an alias and not `resolve.conditions: ['react-server', ...]`: Vitest EXTERNALISES
+// node_modules dependencies, so `server-only` is imported by Node's own resolver, which
+// never sees Vite's conditions. Adding the condition looks right, changes nothing, and
+// leaves the same error — which is why this comment exists.
+//
+// The target is resolved through `require.resolve` rather than spelled as a path: the
+// package's `exports` map does not expose `./empty.js`, so a bare `server-only/empty.js`
+// specifier is refused, and hard-coding `node_modules/...` would assume a hoisting layout
+// pnpm does not promise.
+//
+// Applied to the NODE lane only, deliberately: the dom lane simulates the client, where
+// that throw is a real guard and must stay armed.
+const serverOnlyNoop = join(
+  dirname(createRequire(import.meta.url).resolve('server-only')),
+  'empty.js',
+);
+const nodeAlias = { ...alias, 'server-only': serverOnlyNoop };
 
 export default defineConfig({
   resolve: { alias },
@@ -36,7 +65,7 @@ export default defineConfig({
     // harness change 2).
     projects: [
       {
-        resolve: { alias },
+        resolve: { alias: nodeAlias },
         test: {
           name: 'node',
           include: ['tests/unit/**/*.test.ts'],
