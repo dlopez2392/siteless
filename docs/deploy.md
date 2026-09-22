@@ -260,15 +260,27 @@ excluded directory just the same.
 | --- | --- |
 | Production URL (use this) | `https://siteless-iota.vercel.app` |
 | Other alias | `https://siteless-danlopez508-8452s-projects.vercel.app` |
-| Deployment id | `dpl_AxqqohtjnoFzhfJxSvUSWYtrFHkm` |
-| Per-deployment URL | `https://siteless-dqfm2wzg8-danlopez508-8452s-projects.vercel.app` |
-| Verified commit | `311e6b4574cc1973c6307b6d2b1dcb1f24dea876` (`311e6b4`), branch `main` |
+| Deployment id | `dpl_Dk71EVmgcaav2NwhgWQNd65EJBRy` |
+| Per-deployment URL | `https://siteless-o7tcvnsmp-danlopez508-8452s-projects.vercel.app` |
+| Verified commit | `6d6c52f742c2cb5552ea4af533fc5706f55e33c2` (`6d6c52f`), branch `main` |
 | State | READY, target production, region `iad1` |
 | First deployed | 2026-09-22 |
+| Phase 2 deployed | 2026-09-22, plan 02-15 |
 
-The first production deployment was `453c0c4` (`dpl_CAcqW8nAXa2nimyUp65kBsEcgMFQ`). It was
-superseded the same day by `311e6b4`, which is the pending-session fix the e2e suite found
-against it. The alias is unchanged and always points at the newest production deployment.
+### Deployment history
+
+| Commit | Deployment id | Shipped | What it was |
+| --- | --- | --- | --- |
+| `453c0c4` | `dpl_CAcqW8nAXa2nimyUp65kBsEcgMFQ` | 2026-09-22, plan 01-11 | the first production deployment |
+| `311e6b4` | `dpl_AxqqohtjnoFzhfJxSvUSWYtrFHkm` | 2026-09-22, plan 01-11 | the pending-session fix the e2e suite found against `453c0c4` |
+| `6d6c52f` | `dpl_Dk71EVmgcaav2NwhgWQNd65EJBRy` | 2026-09-22, plan 02-15 | Phase 2 — the six new routes, the budget meter and the design system |
+
+The alias is unchanged and always points at the newest production deployment.
+
+The Phase 2 deployment was gated first: `typecheck`, `lint`, `test:unit` (76), `test:db` (90)
+and `build` each run individually and each exit 0, with `git rev-parse --short HEAD` printed
+before and after the five and identical (`6d6c52f`) — a parallel session moving the tree
+mid-gate is how a gate goes silently green on a commit nobody meant to ship.
 
 Use the **alias**, not the per-deployment URL. The per-deployment URL is covered by Vercel
 deployment protection and answers `302` to an unauthenticated request, including on
@@ -283,11 +295,17 @@ has been pushed.
 
 ```
 $ curl -fsS https://siteless-iota.vercel.app/api/health
-{"ok":true,"db":"up","proxy":"up","commit":"311e6b4574cc1973c6307b6d2b1dcb1f24dea876"}
+{"ok":true,"db":"up","proxy":"up","commit":"6d6c52f742c2cb5552ea4af533fc5706f55e33c2"}
 
 $ curl -sS -o /dev/null -w '%{http_code} %{redirect_url}' https://siteless-iota.vercel.app/
-307 https://siteless-iota.vercel.app/sign-in
+307 https://siteless-iota.vercel.app/presets
 ```
+
+Since Phase 2 the signed-out `GET /` redirects to `/presets` rather than straight to
+`/sign-in` — `/presets` is the app's home and it redirects to `/sign-in` in turn, so the
+visitor still lands on the sign-in page and no route on the way there returns the org-scoped
+shell. Plan 02-15 smoked all six new routes signed out; each answered `307` to
+`/sign-in` and none carried `data-testid="org-id"` in its body, followed or unfollowed.
 
 ## 11. Two things the deployed app says that are expected, not defects
 

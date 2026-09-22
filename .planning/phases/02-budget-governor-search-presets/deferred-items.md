@@ -157,3 +157,79 @@ were verified green in the same probe.
 `savePresetVersion` / `duplicatePreset` — rather than re-writing their INSERT — is the test
 that closes this class. Same for the `$0`-estimate 1 µUSD hold that 02-09 already owes a
 db test for.
+
+---
+
+# Logged by plan 02-15
+
+## 🔴 BLOCKER (awaiting danlo) — `preset-detail.spec.ts` seeds a DIFFERENT DATABASE than the app it drives
+
+**Found during:** plan 02-15, Task 1 — the first time this suite has ever been pointed at a
+DEPLOYED url. Three tests fail; the phase's e2e gate cannot go green without a decision.
+
+### What happens
+
+```
+✘ preset detail: a saved edit shows two versions and the run keeps the old one (0ms)
+-  preset detail: duplicate creates a new preset at version 1          (did not run)
+-  preset detail: run this preset queues a run                          (did not run)
+
+error: insert or update on table "searches" violates foreign key constraint
+       "searches_org_id_orgs_id_fk"
+```
+
+The failure is in `beforeAll`, so the two later tests never start. Deterministic: the same
+test at the same line, `0ms`, on a solo re-run (10s wall) as in the full run (53s wall) — a
+regression fails the same test every time, and contention moves between tests.
+
+### Why
+
+`tests/e2e/preset-detail.spec.ts` is the **only** spec in the suite that writes to a
+database directly. Two lines decide which one:
+
+```ts
+async function withDb(...) { const url = process.env.TEST_DATABASE_URL; ... }   // LOCAL siteless_test
+async function tenantId(page) { await page.goto('/settings/organization'); ... } // the DEPLOYED app's org
+```
+
+`tenantId()` reads danlo's real org id off **production**, and `withDb()` then inserts it
+into **local** `siteless_test`, where no such `orgs` row exists. The FK refuses it.
+
+These are the same database only when `E2E_BASE_URL` points at a local dev server — which is
+how plan 02-12 ran it. Against a deployment they are two different databases, and the spec's
+own header assumption ("`siteless_test` is one database for the whole repo") stops holding.
+
+### 🔴 The same defect breaks CI, and has never been observed there
+
+The `e2e` job in `.github/workflows/ci.yml` sets exactly four variables — `E2E_BASE_URL`,
+`E2E_ADMIN_EMAIL`, `CLERK_SECRET_KEY`, `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` — and `.env.local`
+is gitignored, so **`TEST_DATABASE_URL` is undefined on a CI runner**. `withDb` throws its
+own named error, `preset-detail.spec: TEST_DATABASE_URL is not set`, in `beforeAll`. (Read
+from the workflow and the gitignore, not executed — a local run cannot reproduce it, because
+`playwright.config.ts` loads `.env.local` before the spec sees `process.env`.)
+
+CI has been green on `7cec235`, a **Phase 1** commit predating every Phase 2 spec. No CI run
+has ever executed this file. The first push of this branch would have gone red.
+
+### The three ways out — none of them is the executor's to pick
+
+1. **Point the fixture at the database behind `E2E_BASE_URL`.** Then the fixture seeds and
+   tears down rows in **production Supabase**, and CI needs a production database credential
+   added to GitHub Actions secrets. The only such URL on this machine is `SUPABASE_DB_URL`,
+   the **owner** — which `docs/deploy.md` §3 forbids the runtime from ever holding, because an
+   owner bypasses RLS. A security-posture change.
+2. **Rebuild the fixture through the product's UI** — which is what the spec's own header says
+   to do "when 02-11 lands", and 02-11 has landed. Partially blocked: the fixture needs a
+   `complete` run costing $2.31 against version 1, and **nothing in Phase 2 can finish a run**
+   (Phase 4 owns calling Places). Rebuilt through the UI the test would lose exactly the leg
+   that proves SRCH-03 — that a finished run still points at the version that produced it —
+   and that is ROADMAP success criterion 3.
+3. **Self-skip the spec unless the target is backed by `TEST_DATABASE_URL`.** Cheap, honest,
+   no security change; but it drops `preset detail: a saved edit shows two versions and the
+   run keeps the old one` from the deployed run, and 02-15's acceptance criteria name that
+   test explicitly among those that must be pasted as passing. Turning a required criterion
+   into a permanent skip is a scope decision — and a permanently skipped test reads the same
+   as a passing one in a summary line, which is the trap `budget-banner.spec.ts` already
+   warns about in its own header.
+
+**Owner:** danlo. Deviation Rule 4 (architectural / security). Not auto-fixed.
