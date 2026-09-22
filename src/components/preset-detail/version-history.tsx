@@ -15,6 +15,8 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { formatLocal } from '@/lib/time';
+import { DuplicateDialog } from './duplicate-dialog';
+import { RunDrawer, type RunVersionOption } from './run-drawer';
 import { geoDetail, type DiffGeo } from './version-diff';
 
 /**
@@ -50,6 +52,19 @@ export type HistoryVersion = {
   geo: DiffGeo;
   usedByRuns: number;
   createdAt: Date;
+  /** Priced on the server against the CURRENT meter reading, not from
+   *  `estimate_snapshot`. `null` when this version cannot be priced. */
+  costRange: string | null;
+  requests: string | null;
+};
+
+/** Everything the two row dialogs need that is the same for every row. Passed once rather
+ *  than repeated on each `HistoryVersion`, so "which preset am I duplicating" cannot end
+ *  up answered differently on two rows of the same table. */
+export type HistoryContext = {
+  presetName: string;
+  isAdmin: boolean;
+  remainingLabel: string;
 };
 
 /** Which of the two presentations a hook belongs to. The desk table keeps the canonical
@@ -111,23 +126,55 @@ function VersionDetail({ version, surface }: { version: HistoryVersion; surface:
  * each of these in its client dialog trigger; the labels and the hooks are fixed here so
  * that wrapping cannot quietly reword them.
  */
-function RowActions({ version, surface }: { version: HistoryVersion; surface: Surface }) {
+function RowActions({
+  version,
+  surface,
+  context,
+  options,
+}: {
+  version: HistoryVersion;
+  surface: Surface;
+  context: HistoryContext;
+  options: RunVersionOption[];
+}) {
   return (
     <>
-      <Button
-        variant="outline"
-        className="h-11 sm:h-9"
-        data-testid={`version-${surface}-${version.version}-run`}
+      {/* D-16's "any version is re-runnable, explicitly". `pickable` is true here because
+          the reader arrived from a specific row and may want to change their mind — from
+          the primary CTA there is nothing to pick. */}
+      <RunDrawer
+        presetName={context.presetName}
+        versions={options}
+        initialVersionId={version.id}
+        pickable
+        remainingLabel={context.remainingLabel}
+        isAdmin={context.isAdmin}
       >
-        Run version {version.version}
-      </Button>
-      <Button
-        variant="ghost"
-        className="h-11 sm:h-9"
-        data-testid={`version-${surface}-${version.version}-duplicate`}
+        <Button
+          variant="outline"
+          className="h-11 sm:h-9"
+          data-testid={`version-${surface}-${version.version}-run`}
+        >
+          Run version {version.version}
+        </Button>
+      </RunDrawer>
+
+      {/* D-17. `Copy of {name}` is derived from the preset's own display name, the same
+          string `duplicate-preset.ts` derives it from when the field is left untouched. */}
+      <DuplicateDialog
+        fromVersionId={version.id}
+        fromVersion={version.version}
+        defaultName={`Copy of ${context.presetName}`}
+        estimateLabel={version.costRange}
       >
-        Duplicate from version {version.version}
-      </Button>
+        <Button
+          variant="ghost"
+          className="h-11 sm:h-9"
+          data-testid={`version-${surface}-${version.version}-duplicate`}
+        >
+          Duplicate from version {version.version}
+        </Button>
+      </DuplicateDialog>
     </>
   );
 }
@@ -145,12 +192,24 @@ function CurrentBadge() {
 export function VersionHistory({
   versions,
   editHref,
+  context,
 }: {
   /** Newest first, as `readPreset` orders them. */
   versions: HistoryVersion[];
   editHref: string;
+  context: HistoryContext;
 }) {
   const onlyOneVersion = versions.length === 1;
+
+  // Built once and handed to every row's drawer, so the picker inside any row offers the
+  // same set of versions at the same prices.
+  const options: RunVersionOption[] = versions.map((v) => ({
+    id: v.id,
+    version: v.version,
+    isCurrent: v.isCurrent,
+    costRange: v.costRange,
+    requests: v.requests,
+  }));
 
   return (
     <Card data-testid="version-history">
@@ -187,8 +246,14 @@ export function VersionHistory({
                     </p>
                     <VersionDetail version={v} surface="row" />
                   </TableCell>
+                  {/* 🔴 THE COUNT IS ALSO AN ATTRIBUTE, and that is what the e2e spec
+                      asserts on. The sentence is UI-SPEC copy and may be reworded; the
+                      NUMBER is SRCH-03's actual claim ("this run is still pointing at
+                      that version"), so the test pins the number and stays honest through
+                      a copy change instead of breaking on one. */}
                   <TableCell
                     data-testid={`version-row-${v.version}-used-by`}
+                    data-used-by-count={v.usedByRuns}
                     className="text-right align-top tabular-nums"
                   >
                     {usedByLabel(v.usedByRuns)}
@@ -198,7 +263,7 @@ export function VersionHistory({
                   </TableCell>
                   <TableCell className="align-top">
                     <div className="flex flex-wrap items-center justify-end gap-2">
-                      <RowActions version={v} surface="row" />
+                      <RowActions version={v} surface="row" context={context} options={options} />
                     </div>
                   </TableCell>
                 </TableRow>
@@ -234,6 +299,7 @@ export function VersionHistory({
                   <p className="text-sm font-normal text-muted-foreground">
                     <span
                       data-testid={`version-card-${v.version}-used-by`}
+                      data-used-by-count={v.usedByRuns}
                       className="tabular-nums"
                     >
                       {usedByLabel(v.usedByRuns)}
@@ -245,7 +311,7 @@ export function VersionHistory({
                   <VersionDetail version={v} surface="card" />
 
                   <div className="mt-2 flex flex-wrap items-center gap-2">
-                    <RowActions version={v} surface="card" />
+                    <RowActions version={v} surface="card" context={context} options={options} />
                   </div>
                 </ItemContent>
               </Item>

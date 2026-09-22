@@ -1,3 +1,4 @@
+import { auth } from '@clerk/nextjs/server';
 import { sql } from 'drizzle-orm';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
@@ -10,8 +11,11 @@ import {
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
 import { Button } from '@/components/ui/button';
+import { RunDrawer, type RunVersionOption } from '@/components/preset-detail/run-drawer';
 import {
   estimateLineParts,
+  estimateRangeLabel,
+  estimateRequestsLabel,
   SummaryCard,
   type LastRun,
 } from '@/components/preset-detail/summary-card';
@@ -22,10 +26,12 @@ import {
 } from '@/components/preset-detail/version-diff';
 import {
   VersionHistory,
+  type HistoryContext,
   type HistoryVersion,
 } from '@/components/preset-detail/version-history';
 import { withOrg } from '@/db/with-org';
 import { orgClaims } from '@/lib/auth/require-org';
+import { formatUsd } from '@/lib/budget/money';
 import { ESTIMATE_SKU } from '@/lib/estimate/assumptions';
 import { estimatePreset, type EstimateRange } from '@/lib/estimate/estimate';
 import type { RunStatus } from '@/lib/ui/run-tone';
@@ -123,7 +129,45 @@ function diffVersionOf(version: PresetVersionRow, index: ReferenceIndex): DiffVe
   };
 }
 
-type RawLastRun = { status: string; cost: string; at: Date };
+/**
+ * 🔴 A `timestamptz` READ THROUGH `tx.execute` ARRIVES AS A STRING, NOT A `Date` — AND ITS
+ * TYPE SAYS OTHERWISE.
+ *
+ * `tstz` declares `mode: 'date'`, but that mapping is applied by drizzle's COLUMN MAPPER,
+ * which only runs for query-builder results. Every read in `src/server/queries/` is raw
+ * `tx.execute(sql\`...\`)`, so the value that actually arrives is postgres.js's own text —
+ * `2026-09-22 11:49:28.864085-05` — while `PresetVersionRow.createdAt` is declared `Date`.
+ * Typecheck, lint and build are all green on that mismatch because nothing checks a cast.
+ *
+ * It surfaced here because this is the first screen to FORMAT one:
+ * `Intl.DateTimeFormat.format(aString)` coerces with `Number()`, gets `NaN`, and throws
+ * `RangeError: Invalid time value` — a 500 on the whole page, found by the first real e2e
+ * run and by nothing before it.
+ *
+ * The normalisation below is deliberate rather than `new Date(raw)`: a space instead of
+ * `T` and a two-digit offset are both outside the ISO grammar, and `Date`'s handling of a
+ * non-ISO string is implementation-defined. V8 happens to get this one right; that is not
+ * a contract. `-05` and `-0500` both become `-05:00`, `Z` is left alone.
+ *
+ * Throws rather than substituting a fallback instant: the column is NOT NULL, so an
+ * unparseable value means the driver's text format changed underneath us, and silently
+ * rendering the epoch would be the product lying about when a run happened.
+ */
+function instantOf(value: Date | string, what: string): Date {
+  if (value instanceof Date) return value;
+  const iso = value
+    .replace(' ', 'T')
+    .replace(/([+-]\d{2})(\d{2})?$/, (_m, hours: string, minutes?: string) =>
+      minutes === undefined ? `${hours}:00` : `${hours}:${minutes}`,
+    );
+  const parsed = new Date(iso);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new Error(`preset detail: ${what} is not a parseable timestamp (${value})`);
+  }
+  return parsed;
+}
+
+type RawLastRun = { status: string; cost: string; at: Date | string };
 
 export default async function PresetDetailPage({
   params,
@@ -134,6 +178,13 @@ export default async function PresetDetailPage({
   if (!UUID.test(id)) notFound();
 
   const claims = await orgClaims();
+
+  // Affordance only, exactly as in the shell's banner: this decides which sentence a
+  // refused reservation offers as its way out, never what a member is allowed to do. The
+  // boundary is `app.set_budget_cap` plus the absent UPDATE grant on budget_periods
+  // (T-2-02). Clerk spells the role `org:admin` in a session claim.
+  const { orgRole } = await auth();
+  const isAdmin = orgRole === 'org:admin';
 
   const data = await withOrg(claims, async (tx) => {
     const index = await readReferenceIndex(tx);
@@ -202,6 +253,7 @@ export default async function PresetDetailPage({
   const currentEstimate = current ? estimateOf(current) : null;
 
   const history: HistoryVersion[] = preset.versions.map((v, i) => {
+    const range = estimateOf(v);
     // `preset.versions` is ordered `version desc`, so a version's PREDECESSOR is the next
     // element, not the previous one. Getting this backwards renders every diff inverted —
     // "Added" for everything that was removed — and still looks plausible on screen.
@@ -217,16 +269,37 @@ export default async function PresetDetailPage({
       clusterNames: clusterNamesOf(v.clusterIds, index),
       geo: diffGeoOf(v, index),
       usedByRuns: v.usedByRuns,
-      createdAt: v.createdAt,
+      createdAt: instantOf(v.createdAt, `version ${v.version} created_at`),
+      costRange: range ? estimateRangeLabel(range) : null,
+      requests: range ? estimateRequestsLabel(range) : null,
     };
   });
 
   const editHref = `/presets/${preset.id}/edit`;
 
+  // What the drawer tells you is left before you commit to a run. `remaining` is
+  // cap - spent - reserved, the same three numbers `app.reserve_budget` compares.
+  const remaining = period.capMicroUsd - period.spentMicroUsd - period.reservedMicroUsd;
+  const historyContext: HistoryContext = {
+    presetName: preset.displayName,
+    isAdmin,
+    remainingLabel: `${formatUsd(remaining < 0n ? 0n : remaining)} of ${formatUsd(
+      period.capMicroUsd,
+    )}`,
+  };
+
+  const runOptions: RunVersionOption[] = history.map((v) => ({
+    id: v.id,
+    version: v.version,
+    isCurrent: v.isCurrent,
+    costRange: v.costRange,
+    requests: v.requests,
+  }));
+
   const lastRunProps: LastRun | null = lastRun
     ? {
         status: lastRun.status as RunStatus,
-        at: lastRun.at,
+        at: instantOf(lastRun.at, 'the last run timestamp'),
         costMicroUsd: BigInt(lastRun.cost),
       }
     : null;
@@ -281,13 +354,24 @@ export default async function PresetDetailPage({
             sits here in the title row. Plan 02-12 Task 2 wraps this trigger in the run
             drawer.
           */}
-          <Button
-            variant="default"
-            data-testid="run-preset"
-            className="fixed inset-x-4 bottom-[calc(5rem+env(safe-area-inset-bottom))] z-40 h-12 shadow-lg sm:static sm:inset-auto sm:h-9 sm:shadow-none"
-          >
-            Run this preset
-          </Button>
+          {preset.currentVersionId ? (
+            <RunDrawer
+              presetName={preset.displayName}
+              versions={runOptions}
+              initialVersionId={preset.currentVersionId}
+              pickable={false}
+              remainingLabel={historyContext.remainingLabel}
+              isAdmin={isAdmin}
+            >
+              <Button
+                variant="default"
+                data-testid="run-preset"
+                className="fixed inset-x-4 bottom-[calc(5rem+env(safe-area-inset-bottom))] z-40 h-12 shadow-lg sm:static sm:inset-auto sm:h-9 sm:shadow-none"
+              >
+                Run this preset
+              </Button>
+            </RunDrawer>
+          ) : null}
         </div>
       </div>
 
@@ -312,7 +396,7 @@ export default async function PresetDetailPage({
         </Button>
       </div>
 
-      <VersionHistory versions={history} editHref={editHref} />
+      <VersionHistory versions={history} editHref={editHref} context={historyContext} />
     </div>
   );
 }
