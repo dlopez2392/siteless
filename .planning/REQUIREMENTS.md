@@ -9,12 +9,12 @@ Requirements for initial release. Each maps to roadmap phases. Success metric: 5
 
 ### Foundations
 
-- [ ] **FOUND-01**: User signs in with Clerk; every request is org-scoped; every table carries `org_id` with RLS policies; v1 runs a single org
-- [ ] **FOUND-02**: Every `org_id` policy is proven by a test that runs through a user-role connection carrying Clerk claims (session token v2 `o.id` shape), pins SQLSTATE `42501` on the refused statement, and was watched failing first
-- [ ] **FOUND-03**: Every state change on a lead records actor and timestamp
-- [ ] **FOUND-04**: `legal_name` (Comptroller DBA), `display_name` (shown on the card), and internal annotations are separate fields; a test asserts the internal annotation never appears in any export or push payload
-- [ ] **FOUND-05**: Durable fields may only cite durable sources — a database constraint (retention class per source record) prevents Google Places content from being persisted beyond `place_id`, lat/lng and the derived boolean
-- [ ] **FOUND-06**: All timestamps are `timestamptz`; scheduling, calling windows and "new since last run" logic are computed in `America/Chicago`, with zone and locale pinned in tests
+- [x] **FOUND-01**: User signs in with Clerk; every request is org-scoped; every table carries `org_id` with RLS policies; v1 runs a single org
+- [x] **FOUND-02**: Every `org_id` policy is proven by a test that runs through a user-role connection carrying Clerk claims (session token v2 `o.id` shape), pins SQLSTATE `42501` on the refused statement, and was watched failing first
+- [x] **FOUND-03**: Every state change on a lead records actor and timestamp
+- [x] **FOUND-04**: `legal_name` (Comptroller DBA), `display_name` (shown on the card), and internal annotations are separate fields; a test asserts the internal annotation never appears in any export or push payload
+- [x] **FOUND-05**: Durable fields may only cite durable sources — a database constraint (retention class per source record) prevents Google Places content from being persisted beyond `place_id`, lat/lng and the derived boolean
+- [x] **FOUND-06**: All timestamps are `timestamptz`; scheduling, calling windows and "new since last run" logic are computed in `America/Chicago`, with zone and locale pinned in tests
 
 ### Search Presets
 
@@ -186,12 +186,12 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| FOUND-01 | Phase 1 | Pending |
-| FOUND-02 | Phase 1 | Pending |
-| FOUND-03 | Phase 1 | Pending |
-| FOUND-04 | Phase 1 | Pending |
-| FOUND-05 | Phase 1 | Pending |
-| FOUND-06 | Phase 1 | Pending |
+| FOUND-01 | Phase 1 | Complete |
+| FOUND-02 | Phase 1 | Complete |
+| FOUND-03 | Phase 1 | Complete |
+| FOUND-04 | Phase 1 | Complete |
+| FOUND-05 | Phase 1 | Complete |
+| FOUND-06 | Phase 1 | Complete |
 | SRCH-01 | Phase 2 | Pending |
 | SRCH-02 | Phase 2 | Pending |
 | SRCH-03 | Phase 2 | Pending |

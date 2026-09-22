@@ -31,7 +31,7 @@ Parallelization is enabled in config.
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Foundations & Tenancy** - Org-scoped auth, RLS proven by a refused cross-org statement, and the schema constraints that keep Places content out of the durable record
+- [x] **Phase 1: Foundations & Tenancy** - Org-scoped auth, RLS proven by a refused cross-org statement, and the schema constraints that keep Places content out of the durable record (completed 2026-09-22)
 - [ ] **Phase 2: Budget Governor & Search Presets** - Nothing spends outside the meter; danlo defines and costs a search before running it
 - [ ] **Phase 3: Free-Data Spine & Entity Resolution** - Overture + TX Comptroller become one deduped, provenance-tracked RGV business record
 - [ ] **Phase 4: Places Transient Verifier** - Google answers "is there a website URI?" under an allow-listed Enterprise field mask, and almost everything is discarded

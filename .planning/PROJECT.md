@@ -12,7 +12,7 @@ A "no website" verdict you can trust enough to pick up the phone — every lead 
 
 ### Validated
 
-(None yet — ship to validate)
+- [x] Clerk org-scoped auth; `org_id` on every table with RLS; actor + timestamp on every state change; single org in v1 — *Validated in Phase 1: Foundations & Tenancy (2026-09-22): deployed at siteless-iota.vercel.app; RLS refusal pinned to 42501 through user-role connections; Places retention CHECK/FK constraints; append-only `events` by trigger and grant; platform default grants revoked (gap plan 01-12); 31 DB + 11 unit tests, e2e twice on the real URL.*
 
 ### Active
 
@@ -33,7 +33,6 @@ Detailed, testable requirements with REQ-IDs live in `.planning/REQUIREMENTS.md`
 - [ ] Accepting a lead pushes it to BIS as a tagged contact under BIS's dogfood account — idempotent by the stable key, observable per-lead status with retry; low-confidence and suppressed leads never auto-push; CSV export with a stable column contract
 - [ ] One-tap "actually has a site" control feeding a measured false-positive rate: every called lead's outcome plus a weekly random sample of 20 uncalled verified leads
 - [ ] Org-scoped internal do-not-contact list gating both the queue and the push; calling-window display in `America/Chicago`; per-field provenance on export; in-product compliance note
-- [ ] Clerk org-scoped auth; `org_id` on every table with RLS; actor + timestamp on every state change; single org in v1
 
 ### Out of Scope
 
@@ -131,4 +130,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-09-20 after research and requirements scoping*
+*Last updated: 2026-09-22 after Phase 1 (Foundations & Tenancy) completed and verified 5/5*
