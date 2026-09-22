@@ -77,7 +77,23 @@ findings:
   warning: 7
   info: 11
   total: 20
-status: issues_found
+status: fixed
+fixed_at: 2026-09-22
+fixed:
+  critical: 2
+  warning: 6
+  deferred: 1
+  info_untouched: 11
+fix_commits:
+  CR-01: b387cb2
+  CR-02: 32b1ebb
+  WR-01: ef3ee7a
+  WR-02: 992a348
+  WR-03: 9145de3
+  WR-04: 1d0b374
+  WR-05: 0f1c2a5
+  WR-06: 1fce7da
+  WR-07: deferred
 ---
 
 # Phase 01: Code Review Report
@@ -85,7 +101,18 @@ status: issues_found
 **Reviewed:** 2026-09-22T08:26:53Z
 **Depth:** standard
 **Files Reviewed:** 68
-**Status:** issues_found
+**Status:** fixed — both BLOCKERs and six of seven WARNINGs fixed and committed; WR-07 deferred with a reason; INFO findings untouched and still open
+
+> **Fix pass, 2026-09-22.** Each finding carries a `Resolution:` line below its Fix section.
+> Migrations `0009`–`0011` were applied by drizzle-kit to the local database **and to
+> production**, second run applying nothing (12 journal rows on both), with a 14-fact
+> side-by-side confirming parity and production data untouched (1 org, 11 events,
+> 0 businesses, 0 source_records — nothing deleted). Gates at the end of the pass:
+> `typecheck` 0, `lint` 0, `test:unit` 16/16, `test:db` 37/37 (was 31), `build` 0,
+> `db:check --bootstrap` 0, `db:generate` reports no drift, `git status` clean.
+> **The three CI jobs have not executed** — WR-02, WR-03, WR-04 and WR-05 change
+> `.github/workflows/ci.yml`, which cannot be run on this machine; every claim about them
+> rests on locally-reproduced behaviour, noted per finding.
 
 Severity vocabulary: **BLOCKER** (listed under Critical Issues) = incorrect behaviour, security gap, or data-integrity risk that must be fixed before this foundation is built on. **WARNING** = degrades correctness of a gate, maintainability, or robustness; should be fixed. **INFO** = dead code, unused declarations, doc/impl drift, tooling gaps.
 
@@ -154,6 +181,8 @@ Add to `tests/db/ensure-org.test.ts`, under the existing idempotence test: call 
 
 Separately, consider whether `ensureOrgRow` belongs on every render at all; after this fix the cost is one indexed SELECT per request, which is tolerable, but a Phase 2 layout could do it once and pass the row id down.
 
+**Resolution:** fixed in `b387cb2` — `drizzle/0009_ensure_org_no_write.sql` replaces the `on conflict do update` arm with select-then-`do nothing` (plus a re-select for the lost-race case), applied to local and production; `tests/db/ensure-org.test.ts` gains 'app.ensure_org writes nothing on an already-provisioned org', watched failing on the grouped event counts `[{insert,1},{update,1}]`, with mutation M-CR01 (0004's body restored on the live database) reddening exactly that one test. `updated_by IS NULL` is the discriminator rather than `updated_at`, because `now()` is constant across a transaction. Production's 10 spurious `update` rows are **left in place deliberately** — `events` is append-only by design and deleting them is danlo's call, not this agent's. The "does `ensureOrgRow` belong on every render" question is left to Phase 2 as suggested.
+
 ### CR-02: `orgs_update` policy allows a tenant to change its own `clerk_org_id`, re-keying the tenant onto another Clerk organisation
 
 **Severity:** BLOCKER
@@ -202,6 +231,8 @@ it('a tenant cannot re-key its own clerk_org_id', () =>
 
 and a positive control in the same file that `update orgs set display_name = 'Renamed' where id = $1` as the same caller returns `rowCount 1`. Extend `grants-audit.test.ts`'s DML matrix with `has_column_privilege('authenticated','public.orgs','clerk_org_id','UPDATE') = false`. Watch the new refusal test fail against 0008 first.
 
+**Resolution:** fixed in `32b1ebb` — `drizzle/0010_orgs_key_immutable.sql` revokes table-level UPDATE on `orgs` and grants `update (name_internal, display_name, timezone)`, applied to local and production. Watched failing first with the re-key UPDATE **resolving** rather than rejecting, i.e. the hole demonstrated rather than inferred. `tests/db/rls-isolation.test.ts` gains the refusal (42501 + `/permission denied for table orgs/`) and a rename positive control that also asserts `updated_by` is still stamped — PostgreSQL checks column privileges against the statement's SET list, not against what a BEFORE trigger writes, so D-07 survives and a caller still cannot forge attribution. `grants-audit.test.ts` reads `has_table_privilege`, `has_any_column_privilege` and `has_column_privilege` side by side (the first alone cannot see a column grant). Mutation M-CR02 (`grant update on public.orgs to authenticated` on the live database) reds exactly those two tests and leaves the rename control green. `.planning/CONVENTIONS.md` § Grants records the rule and the "a column added later inherits nothing" consequence.
+
 ## Warnings
 
 ### WR-01: `authenticated` can insert arbitrary rows into the audit log with any `actor_id`
@@ -230,6 +261,8 @@ end $$;
 
 Update `grants-audit.test.ts:171-181` (`e_insert: false`) and add a test that a direct `insert into events ...` as `authenticated` is refused with `permission denied for table events`, while `event-trigger.test.ts` continues to prove the trigger path still lands rows. Keep the sequence grant: the trigger still needs it? It does not, since the definer runs as owner; you can drop `usage, select on sequences` for `authenticated` too, but do that as its own migration with its own test.
 
+**Resolution:** fixed in `ef3ee7a` — `drizzle/0011_events_no_caller_insert.sql` adds `app.emit_event(text, uuid, text, jsonb)` (SECURITY DEFINER, `search_path` pinned, taking neither `org_id` nor `actor_id` as a parameter and resolving the actor exactly as `app.log_event()` does) and then revokes INSERT, applied to local and production. Watched failing first with the forged-actor INSERT **succeeding**. `events-append-only.test.ts` gains the refusal ('a caller cannot author its own audit row', message pinned) and an `emit_event` positive control asserting org, actor, action and payload; `grants-audit.test.ts` moves to `e_insert: false`. Mutation M-WR01 (`grant insert on public.events to authenticated` on the live database) reds exactly the attempt and the catalog test, leaving the positive control green. Deviation from the suggested body: the null-org check runs **before** the insert — left to the insert it surfaces as `23502` on a not-null column, which reads as a schema bug rather than "this session has no tenant". The `events_insert` policy and the sequence grant are kept as the review suggests, both now inert; `.planning/CONVENTIONS.md` § Audit and attribution records the writer table and that Phase 3's run-level event goes through `app.emit_event`.
+
 ### WR-02: The e2e gate can pass against the previous deployment
 
 **Severity:** WARNING
@@ -251,6 +284,8 @@ Update `grants-audit.test.ts:171-181` (`e_insert: false`) and add a test that a 
 
 placed before `pnpm test:e2e`. If `main` is deployed by CLI rather than git integration, replace the poll with a `workflow_run`/`deployment_status` trigger; either way the job must prove the sha before it asserts anything.
 
+**Resolution:** fixed in `992a348` — the `e2e` job polls `/api/health` for ten minutes until `commit` equals `GITHUB_SHA` before Playwright runs, and `docs/deploy.md` § 7 records that CI now enforces the rule the manual runbook already stated. **Deviation:** `curl -fsS` is wrong here — the default shell is `bash -e` and `/api/health` answers 503 while the db or proxy probe is down, so `-f` would abort the step on the first poll instead of retrying; replaced with `curl -sS --max-time 10 ... || true`. Verified against the live deployment rather than by inspection: the extraction returns the full 40-character sha (equal to `git rev-parse 311e6b4`), and all three branches were exercised under `set -e` — match exits 0, mismatch exits 1 naming the last-seen sha, unreachable host exits 1 without aborting the step. **The CI job itself has not executed**; workflow changes cannot be run on this machine.
+
 ### WR-03: CI never runs `next build`; the artifact that deploys is not gated
 
 **Severity:** WARNING
@@ -269,6 +304,8 @@ placed before `pnpm test:e2e`. If `main` is deployed by CLI rather than git inte
 
 and add `pnpm build` to the `verify` npm script. `postgres()` does not connect at construction, so the placeholder URL is never dialled.
 
+**Resolution:** fixed in `9145de3` — the `verify` job runs `pnpm build` and the `verify` npm script gains it (the one script change in this pass; `pnpm-lock.yaml` is untouched). The review's premise is confirmed by execution, not assumed: an unparseable runtime pool URL fails `next build` with "Failed to collect page data for /" while `tsc --noEmit` stays green. **Two deviations.** (1) The suggested `SUPABASE_DB_POOL_URL` cannot appear in `ci.yml` — T-1-19 / plan 01-03 asserts that file is greppable-clean of the production vendor's name. `src/env.ts` therefore accepts `RUNTIME_DB_URL` as a vendor-neutral alias, inert wherever the primary is set, so no deployed behaviour changes; `||` not `??`, because GitHub Actions substitutes an absent secret as the **empty string**. `tests/unit/env-alias.test.ts` is its guard (4 cases) and mutation M-WR03 (deleting the alias) reds exactly the two fallback cases. (2) The suggested `secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` is unnecessary — a well-formed placeholder builds fine, so the job needs no secret and works on a fork PR. A full `next build` through the alias alone, with the primary emptied exactly as CI has it, was run here and succeeds. **The CI job itself has not executed.**
+
 ### WR-04: CI never exercises the runtime role; `grant authenticated to app_user` is untested in CI
 
 **Severity:** WARNING
@@ -284,6 +321,8 @@ and add `pnpm build` to the `verify` npm script. `postgres()` does not connect a
 ```
 
 `db:migrate` runs before `test:db` and sets that password, so the order already works. Then drop the fallback in `with-org.test.ts:31` to `process.env.SUPABASE_DB_POOL_URL` alone and add one assertion that the connection is not the owner: `select current_user` inside `withOrg` must be `authenticated` and outside it must be `app_user`. Verify by temporarily removing the 0000 grant locally and reading the failing test's name.
+
+**Resolution:** fixed in `1d0b374` — the `db` job supplies the non-owner runtime URL, the `TEST_DATABASE_URL` fallback is gone, and section 3 of `with-org.test.ts` pins **both** ends (`authenticated` inside `withOrg`, `app_user` outside). Watched failing by running with the owner's URL as the pool — exactly what CI does today — which reds with `expected 'postgres' to be 'app_user'`. Mutation M-WR04 (`revoke authenticated from app_user` on the live database, confirmed via `pg_has_role`) reds the same single test on "Failed query: set local role authenticated"; restored and re-verified. **Deviation:** the variable is named `RUNTIME_DB_URL` in the workflow, for the T-1-19 reason given under WR-03; precedence was proven by a run with `RUNTIME_DB_URL` correct and `SUPABASE_DB_POOL_URL` deliberately poisoned with the owner's URL. **The CI job itself has not executed.**
 
 ### WR-05: The Playwright failure artifact uploads a directory that is never produced
 
@@ -306,6 +345,8 @@ reporter: process.env.CI ? [['list'], ['html', { open: 'never' }]] : 'list',
                retention-days: 7 }
 ```
 
+**Resolution:** fixed in `0f1c2a5` — `playwright.config.ts` adds the html reporter in CI (with `open: 'never'`, or it tries to spawn a browser at the end of the run and hangs a headless agent) and the upload step takes both paths, with `if-no-files-found: warn` so a future regression of the same shape reports rather than hides. Both directories are already gitignored. **The CI job itself has not executed.**
+
 ### WR-06: `pnpm db:check --bootstrap` cannot pass against any migrated database
 
 **Severity:** WARNING
@@ -325,6 +366,8 @@ if (total.rows[0]?.n !== journal.entries.length) {
   throw new Error(`check-test-db: ${total.rows[0]?.n} migrations applied, journal has ${journal.entries.length}`);
 }
 ```
+
+**Resolution:** fixed in `1fce7da`, essentially as suggested. Watched failing first: `pnpm db:check --bootstrap` red with "expected exactly 1 drizzle.__drizzle_migrations row, got 12". Both guards are mutation-killable rather than decorative, proven with two purely additive (and therefore risk-free to reverse) mutations on the live migrations table: a duplicate row carrying 0000's `created_at` reds guard 1 ("recorded 2 times"), and an extra row the journal does not know reds guard 2 ("13 migrations applied, the journal has 12"). Both restored, count back to 12, check green. The script's own header comment was corrected too — it still described the old, narrower claim.
 
 ### WR-07: Six retention constraints and one index exist only in hand-written SQL; the Drizzle schema and snapshot know nothing of them
 
@@ -346,6 +389,15 @@ foreignKey({ name: 'businesses_phone_src_fk', columns: [t.phoneSourceId, t.phone
 ```
 
 `businesses` and `sourceRecords` already reference each other (`sourceRecords.businessId -> businesses.id`), so the composite FKs must be declared with a lazy `() => sourceRecords` reference or via `relations`; if that cycle proves unworkable, keep the SQL but add a `drizzle-kit check` step to CI and a comment that accurately states *why* the schema omits them.
+
+**Resolution: deferred — the fix is plan-sized and the review's expected outcome does not hold.** The finding is accurate: `pnpm db:generate` reports `source_records 13 columns 1 indexes 2 fks` and `businesses 17 columns 1 indexes 1 fks`, so the snapshot really is missing `sr_expiry` and the three composite provenance FKs. But "regenerate, expecting an empty (or constraint-name-only) migration" was tested here and is **wrong**. Declaring just two of the six (`sr_expiry` and `sr_ephemeral_has_expiry`) and running `db:generate` emits full creation DDL:
+
+```sql
+CREATE INDEX "sr_expiry" ON "source_records" USING btree ("expires_at") WHERE expires_at is not null;--> statement-breakpoint
+ALTER TABLE "source_records" ADD CONSTRAINT "sr_ephemeral_has_expiry" CHECK ((retention_class = 'ephemeral') = (expires_at is not null));
+```
+
+Applying that would fail with `42P07`/`42710` on both databases, because every one of these objects already exists. Landing WR-07 therefore needs either a hand-written DROP migration followed by a generated CREATE one — opening a window in which FOUND-05's Google-retention constraints do not exist, **on production** — or hand-editing generated SQL, which `.planning/CONVENTIONS.md` § Migrations forbids. Both are a plan, not a fix, and this agent's brief is explicit that a plan-sized finding is deferred rather than half-applied. The experiment was fully reverted (generated `.sql` and snapshot deleted, `_journal.json` restored, schema edit undone, `git status` clean, `db:generate` back to "No schema changes"). 0006's header comment ("constraints drizzle-kit's differ does not emit") is the inaccuracy at the root of this and **cannot be corrected in place** — drizzle-kit hashes the SQL text of an applied migration, so editing even a comment breaks its checksum. Recommend a small Phase 2 plan covering the drop/recreate ordering, the production window, and the `drizzle-kit check` CI step the review offers as the alternative.
 
 ## Info
 
