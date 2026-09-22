@@ -326,9 +326,9 @@ src/lib/ui/copy.ts
 
 - **Found during:** self-check, after the SUMMARY commit
 - **Issue:** `const SEP` — the separator used to build composite Map keys — was written as a *literal* U+0000 rather than an escape, and the doc comment above it quoted one too. Two raw NUL bytes in the file made git treat the whole module as **binary**: `git diff --stat` reported `src/lib/estimate/expand-cells.ts | Bin 0 -> 10333 bytes`, with no line diff at all. Every gate was green — `tsc`, `eslint` and all 63 tests — because the *character* is correct; only the encoding was. The cost is real and immediate: a binary-classified source file is invisible to review, produces no `git diff`, and cannot be three-way merged, and two sibling plans are merging into this branch's base.
-- **Fix:** Replaced both with the escape `' '`, which denotes the same character. Behaviour is bit-identical.
+- **Fix:** Replaced both with the escape `'\0'`, which denotes the same character. Behaviour is bit-identical.
 - **Files modified:** `src/lib/estimate/expand-cells.ts`
-- **Verification:** `NUL bytes in the COMMITTED blob: 0` (10,341 bytes); `git grep -n "const SEP" HEAD -- src/lib/estimate/expand-cells.ts` → `HEAD:src/lib/estimate/expand-cells.ts:69:const SEP = ' ';` — git only greps a file it reads as text. Full suite 63/63, typecheck and lint clean after the change.
+- **Verification:** `NUL bytes in the COMMITTED blob: 0` (10,341 bytes); `git grep -n "const SEP" HEAD -- src/lib/estimate/expand-cells.ts` → `HEAD:src/lib/estimate/expand-cells.ts:69:const SEP = '\0';` — git only greps a file it reads as text. Full suite 63/63, typecheck and lint clean after the change.
 - **Committed in:** `0e09399` (`fix`)
 - **Note:** the one historical diff `1748083..0e09399` still prints `Bin`, because the *old* side is the binary blob. Everything from `0e09399` forward diffs as text.
 

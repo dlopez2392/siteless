@@ -103,9 +103,9 @@ Plans:
 - [x] 02-04-PLAN.md — Cost model: SKU price book, fieldMaskTier, micro-USD money, the Chicago budget month
 
 **Wave 2** *(blocked on Wave 1)*
-- [ ] 02-05-PLAN.md — Budget schema + the race-free meter: reserve, self-heal, settle, set_budget_cap
-- [ ] 02-06-PLAN.md — Idempotent seed loader, and the built-in and preset-versioning proofs
-- [ ] 02-07-PLAN.md — Estimator, Census geocoder, server-safe UI maps
+- [x] 02-05-PLAN.md — Budget schema + the race-free meter: reserve, self-heal, settle, set_budget_cap
+- [x] 02-06-PLAN.md — Idempotent seed loader, and the built-in and preset-versioning proofs
+- [x] 02-07-PLAN.md — Estimator, Census geocoder, server-safe UI maps
 
 **Wave 3** *(blocked on Wave 2)*
 - [ ] 02-08-PLAN.md — The meter proofs: 40-way concurrent burst, thresholds, admin gate, Chicago month in SQL
