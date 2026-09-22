@@ -64,9 +64,38 @@ type CardRow = {
   geo_kind: string | null;
   geo_payload: GeoPayload | null;
   estimate_snapshot: unknown;
-  last_run_at: Date | null;
+  /** 🔴 DECLARED `unknown`, AND THAT IS NOT LAZINESS — see `instantOf`. */
+  last_run_at: unknown;
   runs_this_month: number;
 };
+
+/**
+ * 🔴 A TIMESTAMP OUT OF `tx.execute` ARRIVES AS A STRING, NOT AS A `Date`.
+ *
+ * Measured, not assumed: `max(coalesce(started_at, created_at))` comes back as
+ * `'2026-09-22 10:21:31.273904-05'` with `Object.prototype.toString` reporting
+ * `[object String]`, while `count(*)::int` in the SAME row arrives as a real number.
+ * drizzle's `execute` goes through postgres.js's `unsafe` path, which does not apply the
+ * driver's timestamptz parser.
+ *
+ * Declaring the field `Date | null` — the obvious thing, and what this file did first —
+ * type-checks, lints, builds and unit-tests perfectly green, and then throws
+ * `RangeError: Invalid time value` inside `Intl.DateTimeFormat` the first time a preset
+ * with a run is rendered, which 500s the whole list. No gate in this plan could see it;
+ * only loading the page against real rows could.
+ *
+ * 🔴 THE STRING IS PARSED AS-IS, WITH ITS SPACE. Postgres writes
+ * `YYYY-MM-DD HH:MM:SS.ssssss±HH`, and V8's lenient parser handles exactly that form.
+ * "Helpfully" ISO-ifying it to `...T10:21:31.273904-05` produces an INVALID DATE — the
+ * offset has no minutes, so the strict ISO path rejects it. Verified both ways.
+ */
+function instantOf(value: unknown): Date | null {
+  if (value === null || value === undefined) return null;
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
+  if (typeof value !== 'string') return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
 
 /**
  * The geography phrase. Reads the reference index rather than the payload's own strings, so
@@ -108,6 +137,17 @@ export async function readPresetCards(tx: Tx, index: ReferenceIndex): Promise<Pr
   const today = localDate(new Date());
   const { from, to } = periodWindow(`${today.slice(0, 7)}-01`);
 
+  // 🔴 ISO STRINGS WITH AN EXPLICIT CAST, NEVER A `Date` OBJECT. drizzle's postgres-js
+  // driver sends `tx.execute` parameters through postgres.js's `unsafe` path, which does
+  // not type-infer a JS Date the way its tagged template does — a bound Date throws
+  // `TypeError: The "string" argument must be of type string ... Received an instance of
+  // Date` at query time, inside drizzle's "Failed query" wrapper. Typecheck, lint and
+  // build are all green against it, and the page 500s the first time it is loaded.
+  // `toISOString()` is UTC and the column is `timestamptz`, so the instant is preserved
+  // exactly; the zone arithmetic already happened in `periodWindow`.
+  const fromIso = from.toISOString();
+  const toIso = to.toISOString();
+
   const rows = rowsOf<CardRow>(
     await tx.execute(sql`
       select s.id,
@@ -124,8 +164,8 @@ export async function readPresetCards(tx: Tx, index: ReferenceIndex): Promise<Pr
         left join lateral (
           select max(coalesce(r.started_at, r.created_at))            as last_run_at,
                  count(*) filter (
-                   where coalesce(r.started_at, r.created_at) >= ${from}
-                     and coalesce(r.started_at, r.created_at) <  ${to}
+                   where coalesce(r.started_at, r.created_at) >= ${fromIso}::timestamptz
+                     and coalesce(r.started_at, r.created_at) <  ${toIso}::timestamptz
                  )::int                                              as runs_this_month
             from runs r
             join search_versions v on v.id = r.search_version_id
@@ -145,7 +185,7 @@ export async function readPresetCards(tx: Tx, index: ReferenceIndex): Promise<Pr
         .filter((name): name is string => typeof name === 'string'),
       geographyLabel: geographyLabelOf(r.geo_kind, r.geo_payload, index),
       version: r.version,
-      lastRunAt: r.last_run_at,
+      lastRunAt: instantOf(r.last_run_at),
       estimateMicroUsdHi: snapshot === null ? null : snapshot.costMicroUsdHi,
     };
   });

@@ -44,6 +44,10 @@ export function PresetCard({ preset }: { preset: PresetCardData }) {
     <Link
       href={`/presets/${preset.id}`}
       data-testid={`preset-card-${preset.id}`}
+      // The name as an ATTRIBUTE, so a spec can find the preset it just created without
+      // matching on rendered copy — the card's every other string is UI-SPEC's and will
+      // be restyled; this one is the user's own data.
+      data-preset-name={preset.displayName}
       className="block rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
     >
       <Card className="h-full transition-colors hover:border-ring/40">

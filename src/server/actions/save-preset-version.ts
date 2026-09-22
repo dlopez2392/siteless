@@ -129,6 +129,26 @@ export async function savePresetVersion(input: unknown): Promise<
         version = 1;
       }
 
+      // 🔴 `array[$n, $n+1, ...]`, NEVER A BARE JS ARRAY PARAMETER.
+      //
+      // Interpolating the array directly — `${resolved.clusterIds}::uuid[]`, which is what
+      // this statement said until plan 02-11 executed it for the first time — makes drizzle
+      // expand it into a PARENTHESISED LIST, and Postgres is handed
+      //
+      //     values (app.current_org_id(), $1, $2, ($3, $4)::uuid[], ...)
+      //
+      // `($3, $4)` is a ROW expression, and a row cannot be cast to `uuid[]`. Every save of
+      // a multi-cluster preset failed, and a single-cluster one would have been cast from a
+      // one-column row — so the happy path nobody tried was the only one that could work.
+      // `tsc`, eslint, `next build` and the whole unit suite are green against the broken
+      // form; 02-09's SUMMARY records that no statement in that plan was ever executed.
+      //
+      // `sql.join` emits one placeholder per id, so each value stays a bound parameter.
+      const clusterIdsSql = sql`array[${sql.join(
+        resolved.clusterIds.map((id) => sql`${id}`),
+        sql`, `,
+      )}]::uuid[]`;
+
       // 🔴 `created_by` is the Clerk `sub`, and the audit row is NOT written here: the
       // `app.log_event` trigger on `search_versions` writes it, takes neither org nor actor
       // as an argument, and so cannot be forged (T-2-11). Writing one from here as well
@@ -140,7 +160,7 @@ export async function savePresetVersion(input: unknown): Promise<
              estimate_snapshot, created_by)
           values
             (app.current_org_id(), ${targetSearchId}, ${version},
-             ${resolved.clusterIds}::uuid[], ${geoKind}, ${JSON.stringify(geoPayload)}::jsonb,
+             ${clusterIdsSql}, ${geoKind}, ${JSON.stringify(geoPayload)}::jsonb,
              ${snapshotJson}::jsonb, ${userId})
           returning id, version`),
       )[0];

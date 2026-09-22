@@ -157,7 +157,8 @@ export function GeographyPicker({
                     variant="ghost"
                     size="icon"
                     aria-label={`Remove ${city.name}`}
-                    data-testid={`preset-editor-city-remove-${city.id}`}
+                    data-testid="preset-editor-city-remove"
+                    data-city-id={city.id}
                     onClick={() => toggleCity(city.id, false)}
                     className="size-11"
                   >
@@ -204,13 +205,18 @@ export function GeographyPicker({
               <ScrollArea className="max-h-80">
                 <CommandList className="max-h-none">
                   {matches.map((city) => {
-                    const id = `preset-editor-city-${city.id}`;
                     const checked = cityIds.includes(city.id);
                     return (
                       <CommandItem
                         key={city.id}
                         value={city.name}
-                        data-testid={id}
+                        // 🔴 ONE HOOK FOR EVERY ROW, PLUS THE ID AS DATA. A testid carrying
+                        // a uuid cannot be written down in a spec — the seed mints fresh
+                        // ids on every database — so the rows share a hook and a spec
+                        // addresses them positionally or by `data-city-id`.
+                        data-testid="preset-editor-city-option"
+                        data-city-id={city.id}
+                        aria-checked={checked}
                         onSelect={() => toggleCity(city.id, !checked)}
                         className="h-11 gap-3"
                       >
@@ -237,7 +243,7 @@ export function GeographyPicker({
       {mode === 'counties' ? (
         <ItemGroup className="gap-2">
           {reference.rgvCounties.map((county) => {
-            const id = `preset-editor-county-${county.id}`;
+            const id = `preset-editor-county-input-${county.fips}`;
             const checked = countyIds.includes(county.id);
             return (
               <Item key={county.id} variant="outline" asChild className="min-h-11 py-2">
@@ -245,7 +251,9 @@ export function GeographyPicker({
                   <ItemMedia>
                     <Checkbox
                       id={id}
-                      data-testid={id}
+                      // The FIPS code is stable across every database; the uuid is not.
+                      data-testid="preset-editor-county-option"
+                      data-county-fips={county.fips}
                       checked={checked}
                       onCheckedChange={(next) => toggleCounty(county.id, next === true)}
                       className="size-5"

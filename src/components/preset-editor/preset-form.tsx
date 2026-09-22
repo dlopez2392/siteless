@@ -22,7 +22,9 @@ import type { EditorReference } from '@/server/queries/preset-editor';
 import { savePresetVersion } from '@/server/actions/save-preset-version';
 import type { ClusterKey } from '@/seed/types';
 import { ClusterPicker } from './cluster-picker';
+import { EstimatePanel } from './estimate-panel';
 import { GeographyPicker, type GeoMode, type RadiusCentre } from './geography-picker';
+import { useLiveEstimate } from './use-live-estimate';
 
 /**
  * SRCH-01's editor. `/presets/new` and `/presets/[id]/edit` are the same component with a
@@ -134,6 +136,20 @@ export function PresetForm({
   const nextVersion = (initial.loadedVersion ?? 0) + 1;
   const patch = (next: Partial<EditorState>) => setState((prev) => ({ ...prev, ...next }));
 
+  // D-08. One spec, two consumers: the live estimate and the save path. They cannot
+  // disagree about when a selection is estimable, because there is only one definition of
+  // "estimable" and both read it.
+  const spec = buildSpec(state);
+  const { estimate, error: estimateError, busy } = useLiveEstimate(spec);
+
+  // D-04's chip, directly beneath the dollar figure. Derived from the selection rather than
+  // flagged, and the multiplier itself was computed on the server from the seeded cell
+  // lists — never a literal (Executor Rule 16).
+  const texasSelected =
+    state.mode === 'counties' &&
+    reference.texas.countyIds.length > 0 &&
+    reference.texas.countyIds.every((id) => state.countyIds.includes(id));
+
   function validate(): FieldErrors {
     const errors: FieldErrors = {};
     if (state.displayName.trim() === '') errors.name = PRESET_NAME_MISSING;
@@ -154,7 +170,6 @@ export function PresetForm({
     setFieldErrors(errors);
     if (Object.keys(errors).length > 0) return;
 
-    const spec = buildSpec(state);
     if (spec === null) return;
 
     startSaving(async () => {
@@ -163,6 +178,11 @@ export function PresetForm({
         displayName: state.displayName.trim(),
         spec,
         ...(initial.loadedVersion === undefined ? {} : { loadedVersion: initial.loadedVersion }),
+        // 🔴 ONLY A SETTLED ESTIMATE IS SAVED. `busy` means the figure on screen belongs to
+        // an earlier selection, and a snapshot records what somebody was QUOTED for this
+        // version — attaching a stale one would put a price on a preset nobody was ever
+        // shown. No snapshot is a fine outcome; a wrong one is not.
+        ...(estimate === null || busy ? {} : { estimateSnapshot: estimate }),
       });
 
       if (result.ok) {
@@ -200,7 +220,6 @@ export function PresetForm({
   }
 
   async function copyChanges() {
-    const spec = buildSpec(state);
     const lines = [
       `Preset name: ${state.displayName}`,
       `Clusters: ${state.clusterKeys.join(', ')}`,
@@ -216,8 +235,12 @@ export function PresetForm({
       onSubmit={onSubmit}
       aria-disabled={saving}
       data-testid="preset-editor-form"
-      className="flex flex-col gap-6"
+      className="flex flex-col gap-6 lg:flex-row lg:items-start lg:gap-8"
     >
+      {/* The form column, capped at UI-SPEC's 720px reading measure. The bottom padding
+          below lg clears BOTH phone bars — the estimate and the actions — so the last
+          control is never underneath them. */}
+      <div className="flex min-w-0 flex-1 flex-col gap-6 pb-48 lg:max-w-[720px] lg:pb-0">
       <Field data-invalid={fieldErrors.name !== undefined}>
         <FieldLabel htmlFor="preset-editor-name" className="text-sm font-semibold">
           Preset name
@@ -340,7 +363,13 @@ export function PresetForm({
       {/* Desk: the actions sit inline under the form. Phone: the same two controls are the
           sticky action bar in the thumb zone (MOB-01), on the --card surface with a 1px top
           border, directly above the 64px tab bar and its safe-area inset. */}
-      <Card className="fixed inset-x-0 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-40 flex-row items-center gap-3 rounded-none border-0 border-t p-4 shadow-none sm:static sm:border-0 sm:p-0">
+      {/* 🔴 `sm:bg-transparent sm:ring-0` IS LOAD-BEARING, NOT TIDYING. On a phone this IS
+          a surface — the thumb-zone bar. On desk it is two buttons in a row, and the Card
+          primitive's own `bg-card` AND its `ring-1` both have to be turned off or the
+          actions render inside a floating hairline panel. The first round of built-app
+          screenshots showed exactly that, and a computed-style probe was what identified
+          the second cause: `background` was already transparent and the box was the ring. */}
+      <Card className="fixed inset-x-0 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-40 flex-row items-center gap-3 rounded-none border-0 border-t p-4 shadow-none sm:static sm:border-0 sm:bg-transparent sm:p-0 sm:ring-0">
         <Button
           type="submit"
           variant="default"
@@ -365,6 +394,34 @@ export function PresetForm({
           </Link>
         </Button>
       </Card>
+      </div>
+
+      {/*
+        🔴 ONE ESTIMATE NODE, TWO LAYOUTS, ONE HOOK.
+
+        Desk (≥1024px): a sticky 320px rail on the right, top-aligned 32px from the top of
+        the content area. Phone: a sticky bar on the --card surface with a 1px top border,
+        pinned directly above the sticky action bar — tapping the link inside it opens the
+        assumptions drawer.
+
+        It is the SAME element in both, positioned differently, rather than two copies
+        hidden by breakpoint. `preset-editor-estimate` is the hook UI-SPEC fixes and every
+        spec in this phase looks for; two of them on one page is plan 02-10's deviation 3,
+        where a duplicated hook resolved to two visible elements and reddened four specs —
+        and where `.first()` would have gone green while measuring the wrong one.
+      */}
+      <aside className="fixed inset-x-0 bottom-[calc(4rem+5rem+env(safe-area-inset-bottom))] z-30 lg:sticky lg:inset-x-auto lg:bottom-auto lg:top-8 lg:z-auto lg:w-80 lg:shrink-0">
+        <Card className="rounded-none border-0 border-t p-4 shadow-none lg:rounded-xl lg:border lg:p-6">
+          <EstimatePanel
+            estimate={estimate}
+            error={estimateError}
+            busy={busy}
+            hasClusters={state.clusterKeys.length > 0}
+            hasSpec={spec !== null}
+            texasMultiplier={texasSelected ? reference.texasMultiplier : null}
+          />
+        </Card>
+      </aside>
     </form>
   );
 }
