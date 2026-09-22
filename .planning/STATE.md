@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 02-14-PLAN.md
-last_updated: "2026-09-22T17:55:08.954Z"
-last_activity: 2026-09-22 -- Phase 02 execution started
+stopped_at: "Completed 02-15-PLAN.md — all 15 Phase 2 plans done; PR #1 open and unmerged; awaiting /gsd-verify-work 2"
+last_updated: "2026-09-22T18:52:59.353Z"
+last_activity: 2026-09-22
 progress:
   total_phases: 9
   completed_phases: 1
   total_plans: 27
-  completed_plans: 26
-  percent: 96
+  completed_plans: 27
+  percent: 100
 ---
 
 # Project State
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-09-20)
 ## Current Position
 
 Phase: 02 (budget-governor-search-presets) — EXECUTING
-Plan: 14 of 15
-Status: Executing Phase 02
-Last activity: 2026-09-22 -- Phase 02 execution started
+Plan: 15 of 15 — all executed
+Status: Phase 02 plans complete; awaiting /gsd-verify-work 2. PR #1 open, NOT merged.
+Last activity: 2026-09-22 -- Phase 02 plan 15 closed the validation contract
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -53,6 +53,7 @@ Progress: [░░░░░░░░░░] 0%
 
 *Updated after each plan completion*
 | Phase 02 P14 | 21m | 3 tasks | 4 files |
+| Phase 02 P15 | 42min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -69,6 +70,9 @@ Recent decisions affecting current work:
 - [Phase 02]: RGV city list stands at the 17 as measured (02-14) - danlo confirmed; Raymondville (221 outlets) stays below the 400-outlet line, so Willacy is unrepresented among cities though present among counties — The Phase 2 / Phase 3 shared contract; Phase 3 ingest scope reads this list. src/seed/data/cities.json still carries the next five candidates
 - [Phase 02]: BUDG-03 Google daily quota recorded as BLOCKED, not deferred silently - the requirement says configured and no GCP project exists — docs/runbooks/google-quota.md carries the value, derivation and console path so the artifact survives the blocked answer; nothing in Phase 2 depends on the key (tests/unit/no-google-credential.test.ts)
 - [Phase 02]: Vercel team confirmed on Pro (02-14), resolving research assumption A7 — Unblocks the Phase 9 scheduler (Hobby cron once-a-day jitter would not do); Pro ~20 USD/mo stays infrastructure and is never merged into the 50 USD data cap
+- [Phase 02]: preset-detail.spec.ts self-skips unless E2E_BASE_URL is local (danlo, option 3) — The fixture writes to local siteless_test while the app under test is the deployed one; seeding the deployed database would need the production OWNER credential in CI, which docs/deploy.md section 3 forbids. SRCH-03 is carried in CI by tests/db/versioned-presets.test.ts 'run keeps its version after the preset moves on'.
+- [Phase 02]: BUDG-03 stays OPEN - the Google Cloud daily quota is blocked on a GCP project that does not exist — Carried to Phase 4 where the key is first needed. Blocks nothing in Phase 2, and that is enforced rather than asserted: 'no google credential is read anywhere in src' is green.
+- [Phase 02]: Gate mutation M12b survived the 90-test suite and produced a real defect — A column-level UPDATE grant on search_versions.geo_payload let a tenant rewrite a stored version's geography with every test green. Closed with a has_any_column_privilege assertion in 98d99ff.
 
 ### Pending Todos
 
@@ -93,6 +97,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-22T17:54:57.545Z
-Stopped at: Completed 02-14-PLAN.md
+Last session: 2026-09-22T18:52:59.344Z
+Stopped at: Completed 02-15-PLAN.md — all 15 Phase 2 plans done; PR #1 open and unmerged; awaiting /gsd-verify-work 2
 Resume file: None

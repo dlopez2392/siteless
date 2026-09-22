@@ -123,7 +123,7 @@ Plans:
 - [x] 02-14-PLAN.md — Production migration and seed, Google quota and Vercel Pro checkpoints
 
 **Wave 7** *(blocked on Wave 6, checkpoints)*
-- [ ] 02-15-PLAN.md — Deploy, e2e on the real URL, both-theme screenshot review, gate mutations M7–M12, close VALIDATION
+- [x] 02-15-PLAN.md — Deploy, e2e on the real URL, both-theme screenshot review, gate mutations M7–M12, close VALIDATION
 **UI hint**: yes
 **Security**: /gsd-secure-phase applies — budget enforcement is a spend-control boundary; the reserve→spend→true-up path must be race-free and unbypassable.
 **Notes**: The cost estimator is built against the real cell list as a committed test, not a spreadsheet; its fan-out multiplier is trued up with real invoice data at the Phase 6 gate.
