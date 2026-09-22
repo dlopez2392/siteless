@@ -19,6 +19,7 @@
 import { describe, expect, it } from 'vitest';
 import { freeRemaining, priceRequests, PRICE_BOOK } from '@/lib/budget/price-book';
 import { fieldMaskTier, PLACES_TEXT_SEARCH_FIELD_MASK } from '@/lib/budget/field-mask-tier';
+import { formatUsd, microToCents } from '@/lib/budget/money';
 
 describe('the SKU price table (BUDG-01)', () => {
   it('price book: one Text Search Enterprise request is 35000 micro-USD', () => {
@@ -30,8 +31,12 @@ describe('the SKU price table (BUDG-01)', () => {
 
     expect(priceRequests('ts_enterprise', 1, 0)).toEqual({ billable: 1, microUsd: 35000 });
 
-    // A $50 cap's worth of paid requests, to the exact micro-dollar.
+    // A $50 cap's worth of paid requests, to the exact micro-dollar — and what a human
+    // is shown for it. Exact equality on both: a whole-cent ledger would render $57.12
+    // rounding up or $42.84 rounding down, and both are a plausible-looking $4x–$5x.
     expect(priceRequests('ts_enterprise', 1428, 0).microUsd).toBe(49_980_000);
+    expect(microToCents(priceRequests('ts_enterprise', 1428, 0).microUsd)).toBe(4998);
+    expect(formatUsd(priceRequests('ts_enterprise', 1428, 0).microUsd)).toBe('$49.98');
   });
 
   it('price book free allowance: 68 requests', () => {
