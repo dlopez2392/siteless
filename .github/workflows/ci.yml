@@ -34,6 +34,16 @@ jobs:
           --health-timeout 5s --health-retries 5
     env:
       TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/siteless_test
+      # The NON-OWNER runtime role. Without it tests/db/with-org.test.ts fell back to the
+      # owner above, and as the superuser `set local role authenticated` always succeeds —
+      # so `grant authenticated to app_user` (drizzle/0000_bootstrap.sql) was proven only on
+      # a developer machine whose local env happened to carry this URL. Deleting that line
+      # left CI green and every production request returning 42501.
+      # `pnpm db:migrate` runs before `pnpm test:db` and is what sets this password
+      # (scripts/db.ts, localhost targets only), so the order below already works.
+      # Deliberately NOT named after the production vendor: T-1-19 asserts this file is
+      # greppable-clean of it. This URL reaches the service container and nothing else.
+      RUNTIME_DB_URL: postgres://app_user:app_user@localhost:5432/siteless_test
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4

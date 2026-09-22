@@ -20,18 +20,32 @@ import { withOrg, type OrgClaims } from '@/db/with-org';
  * so a later refactor could reintroduce either with nothing in CI catching it. This is
  * mutation gate M4 in 01-VALIDATION.md.
  *
- * SCOPE: this connects as whatever the URL names — in CI that is the owner. It proves
- * claim LOCALITY only. The non-owner "a connection without set local role is refused
- * 42501" property belongs to plan 05's test and is deliberately not re-proven here.
+ * SCOPE: claim locality, plus the IDENTITY of the connection those claims are set on.
+ * Until WR-04 this file fell back to TEST_DATABASE_URL, which in CI is the owner, and as
+ * the superuser `set local role authenticated` always succeeds — so the membership that
+ * makes the production path work, `grant authenticated to app_user` in
+ * drizzle/0000_bootstrap.sql, was proven only on a developer machine whose .env.local
+ * happened to carry the app_user URL. Deleting that line left CI green and production
+ * returning 42501 on every request. There is no fallback now, and section 3 pins both
+ * ends: `authenticated` inside the wrapper, `app_user` outside it.
+ *
+ * The complementary property — a connection that SKIPS the wrapper is refused 42501 —
+ * belongs to plan 05's test (tests/db/rls-isolation.test.ts) and is not re-proven here.
  */
 
 // Hoisted above every import by vitest: src/env.ts parses process.env at module load and
 // src/db/client.ts opens the pool from it, so this has to run first.
 vi.hoisted(() => {
-  const url = process.env.SUPABASE_DB_POOL_URL ?? process.env.TEST_DATABASE_URL;
+  // Two names, one meaning: the NON-OWNER runtime connection. CI supplies RUNTIME_DB_URL
+  // because T-1-19 asserts .github/workflows/ci.yml is greppable-clean of the production
+  // vendor's name; locally the identical URL arrives from .env.local under the name the
+  // app itself reads. What is NOT in this chain is TEST_DATABASE_URL — that is the owner's
+  // URL, and the fallback to it that used to be here downgraded section 3 into an
+  // assertion the superuser passes for free.
+  const url = process.env.RUNTIME_DB_URL ?? process.env.SUPABASE_DB_POOL_URL;
   if (!url) {
     throw new Error(
-      'tests/db/with-org.test.ts: neither SUPABASE_DB_POOL_URL nor TEST_DATABASE_URL is set. Local dev: .env.local. CI: the postgres:18 service container sets TEST_DATABASE_URL.',
+      'tests/db/with-org.test.ts: neither RUNTIME_DB_URL nor SUPABASE_DB_POOL_URL is set. Either must name the NON-OWNER runtime role (app_user), never the migration owner. Local dev: .env.local. CI: the db job env.',
     );
   }
   if (/supabase\.(co|com)|pooler\.supabase/.test(url)) {
@@ -50,9 +64,12 @@ vi.mock('server-only', () => ({}));
 const A: OrgClaims = { o: { id: 'org_A' }, sub: 'user_A', role: 'authenticated' };
 const B: OrgClaims = { o: { id: 'org_B' }, sub: 'user_B', role: 'authenticated' };
 const READ = sql`select current_setting('request.jwt.claims', true) as claims`;
+const WHO = sql`select current_user as who`;
 
 const claimsOf = (rows: unknown): string =>
   String((rows as Array<{ claims: string | null }>)[0]?.claims ?? '');
+
+const whoOf = (rows: unknown): string => String((rows as Array<{ who: string }>)[0]?.who ?? '');
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -110,4 +127,12 @@ test('withOrg binds the tenant claims and they die with the transaction', async 
   const second = claimsOf(await withOrg(B, (tx) => tx.execute(READ)));
   expect(second).toContain('org_B');
   expect(second).not.toContain('org_A');
+
+  // ---- 3. the identity those claims were set on (WR-04) ----
+  // Both ends, not just one. `authenticated` inside proves `grant authenticated to app_user`
+  // (0000_bootstrap) is actually in place — as the owner this succeeds for free and proves
+  // nothing. `app_user` outside proves the pool is NOT the owner, which is what makes the
+  // RLS suite's refusals mean anything: a table owner bypasses row-level security entirely.
+  expect(whoOf(await withOrg(A, (tx) => tx.execute(WHO)))).toBe('authenticated');
+  expect(whoOf(await db.execute(WHO))).toBe('app_user');
 });
