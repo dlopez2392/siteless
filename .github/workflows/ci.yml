@@ -19,6 +19,26 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm test:unit
+      # `tsc --noEmit` is not `next build`. The build additionally validates route-segment
+      # exports and PageProps/searchParams against generated .next/types, resolves the
+      # server/client boundary (the "a 'use client' module's exports are client REFERENCES
+      # in a server component" class of bug this repo documents twice), and EVALUATES
+      # src/env.ts at collect time — verified here: an unparseable runtime pool URL fails
+      # `next build` with "Failed to collect page data for /" while typecheck stays green.
+      # .vercelignore already records a build that compiled fine and then failed on Vercel;
+      # this is the step that would have caught it.
+      #
+      # Placeholders, not secrets: this job runs on pull_request, and a build needs no real
+      # credential. src/env.ts requires CLERK_SECRET_KEY to be non-empty and a runtime pool
+      # URL that parses; postgres() does not connect at construction, so that URL is never
+      # dialled, and the publishable key only has to be well-formed. RUNTIME_DB_URL is
+      # src/env.ts's vendor-neutral alias — see the note on the db job below.
+      # Verified locally: `next build` succeeds on exactly these three values.
+      - run: pnpm build
+        env:
+          CLERK_SECRET_KEY: sk_test_placeholder_for_build_only
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_cGxhY2Vob2xkZXIuY2xlcmsuYWNjb3VudHMuZGV2JA==
+          RUNTIME_DB_URL: postgres://app_user:x@localhost:5432/unused
 
   db:
     runs-on: ubuntu-latest

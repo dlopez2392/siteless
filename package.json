@@ -17,7 +17,7 @@
     "test:unit": "vitest run tests/unit",
     "test:db": "vitest run --config vitest.db.config.ts --pool=forks",
     "test:e2e": "playwright test",
-    "verify": "pnpm typecheck && pnpm lint && pnpm test:unit && pnpm test:db",
+    "verify": "pnpm typecheck && pnpm lint && pnpm test:unit && pnpm test:db && pnpm build",
     "db:generate": "tsx scripts/db.ts generate",
     "db:custom": "tsx scripts/db.ts custom",
     "db:migrate": "tsx scripts/db.ts migrate --target=test",

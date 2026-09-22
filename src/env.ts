@@ -20,7 +20,25 @@ const serverSchema = z.object({
   SUPABASE_DB_POOL_URL: z.string().url(),
 });
 
-const parsed = serverSchema.safeParse(process.env);
+/**
+ * One concept, two names. SUPABASE_DB_POOL_URL is what Vercel and .env.local carry;
+ * RUNTIME_DB_URL is the vendor-neutral alias GitHub Actions uses, because T-1-19 asserts
+ * `.github/workflows/ci.yml` is greppable-clean of the production project's vendor name —
+ * CI must never be able to reach that project, and a workflow that cannot even spell it
+ * is a stronger guarantee than one that promises not to.
+ *
+ * Both name the NON-OWNER runtime pool (app_user), never the migration owner. The alias is
+ * inert wherever the primary is set, which is everywhere the application actually runs, so
+ * this changes no deployed behaviour. tests/unit/env-alias.test.ts is the guard.
+ *
+ * `||`, not `??`: GitHub Actions substitutes an ABSENT secret or variable as the empty
+ * string rather than leaving it unset, so a nullish check would accept '' as "present" and
+ * hand zod a value that fails with a message about the wrong variable.
+ */
+const parsed = serverSchema.safeParse({
+  ...process.env,
+  SUPABASE_DB_POOL_URL: process.env.SUPABASE_DB_POOL_URL || process.env.RUNTIME_DB_URL,
+});
 
 if (!parsed.success) {
   const missing = Object.keys(parsed.error.flatten().fieldErrors).join(', ');
