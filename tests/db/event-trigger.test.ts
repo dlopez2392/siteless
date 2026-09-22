@@ -28,8 +28,24 @@ const ORG_A_CLAIMS = { o: { id: 'org_A' }, sub: 'user_danlo', role: 'authenticat
  * before/after payload. Bulk ingest writes ONE run-level event instead. Any OTHER
  * state-bearing table added later must appear here, which is what stops Phase 3 shipping a
  * table with no attribution.
+ *
+ * Phase 2 plan 03 adds `searches` and `search_versions` — a preset renamed or archived, and
+ * a version created, are exactly the changes somebody later needs attributed — and adds two
+ * more DELIBERATE exclusions, recorded here for the same reason as source_records:
+ *
+ *   * The six reference tables (industry_clusters, industry_terms, counties, cities,
+ *     geo_presets, outlet_counts). app.log_event resolves app.current_org_id(), which is
+ *     NULL for the seed loader running as the OWNER with no Clerk claim, while events.org_id
+ *     is NOT NULL — a trigger there would fail the seed with 23502. Their history is the
+ *     seed script in version control, not the audit log.
+ *   * `runs`. Run-status volume belongs to Phase 4 and Phase 9, and a row trigger per
+ *     transition is the same write-amplification shape source_records is excluded for. A
+ *     run's spend history is the cost ledger; a run-level event goes through
+ *     app.emit_event() when Phase 4 needs one.
+ *
+ * Plan 02-05 adds `budget_periods`.
  */
-const EVENT_LOGGED = new Set(['orgs', 'businesses']);
+const EVENT_LOGGED = new Set(['orgs', 'businesses', 'searches', 'search_versions']);
 
 type LatestEvent = {
   actor_id: string;
