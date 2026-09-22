@@ -1,0 +1,2039 @@
+{
+  "source": "https://www2.census.gov/geo/docs/reference/codes2020/national_county2020.txt",
+  "fetchedAt": "2026-09-22",
+  "identity": "Texas's 254 county FIPS codes are the contiguous odd integers 1, 3, 5 ... 507, so comptrollerCode = (countyFips + 1) / 2 is an exact bijection and countyFips = 2 * comptrollerCode - 1. Do NOT re-derive the Comptroller code by sorting county names: 15 of 254 break under every collation (El Paso/Ellis, La Salle/Lamar, and the whole Mc* block, which FIPS orders before Ma*). outletCount is the all-NAICS active sales-tax outlet count and is populated on the four RGV counties only; per-cluster counts live in outlet-counts.json.",
+  "counties": [
+    {
+      "fips": "48001",
+      "countyFips": 1,
+      "comptrollerCode": 1,
+      "name": "Anderson",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48003",
+      "countyFips": 3,
+      "comptrollerCode": 2,
+      "name": "Andrews",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48005",
+      "countyFips": 5,
+      "comptrollerCode": 3,
+      "name": "Angelina",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48007",
+      "countyFips": 7,
+      "comptrollerCode": 4,
+      "name": "Aransas",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48009",
+      "countyFips": 9,
+      "comptrollerCode": 5,
+      "name": "Archer",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48011",
+      "countyFips": 11,
+      "comptrollerCode": 6,
+      "name": "Armstrong",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48013",
+      "countyFips": 13,
+      "comptrollerCode": 7,
+      "name": "Atascosa",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48015",
+      "countyFips": 15,
+      "comptrollerCode": 8,
+      "name": "Austin",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48017",
+      "countyFips": 17,
+      "comptrollerCode": 9,
+      "name": "Bailey",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48019",
+      "countyFips": 19,
+      "comptrollerCode": 10,
+      "name": "Bandera",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48021",
+      "countyFips": 21,
+      "comptrollerCode": 11,
+      "name": "Bastrop",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48023",
+      "countyFips": 23,
+      "comptrollerCode": 12,
+      "name": "Baylor",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48025",
+      "countyFips": 25,
+      "comptrollerCode": 13,
+      "name": "Bee",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48027",
+      "countyFips": 27,
+      "comptrollerCode": 14,
+      "name": "Bell",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48029",
+      "countyFips": 29,
+      "comptrollerCode": 15,
+      "name": "Bexar",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48031",
+      "countyFips": 31,
+      "comptrollerCode": 16,
+      "name": "Blanco",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48033",
+      "countyFips": 33,
+      "comptrollerCode": 17,
+      "name": "Borden",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48035",
+      "countyFips": 35,
+      "comptrollerCode": 18,
+      "name": "Bosque",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48037",
+      "countyFips": 37,
+      "comptrollerCode": 19,
+      "name": "Bowie",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48039",
+      "countyFips": 39,
+      "comptrollerCode": 20,
+      "name": "Brazoria",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48041",
+      "countyFips": 41,
+      "comptrollerCode": 21,
+      "name": "Brazos",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48043",
+      "countyFips": 43,
+      "comptrollerCode": 22,
+      "name": "Brewster",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48045",
+      "countyFips": 45,
+      "comptrollerCode": 23,
+      "name": "Briscoe",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48047",
+      "countyFips": 47,
+      "comptrollerCode": 24,
+      "name": "Brooks",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48049",
+      "countyFips": 49,
+      "comptrollerCode": 25,
+      "name": "Brown",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48051",
+      "countyFips": 51,
+      "comptrollerCode": 26,
+      "name": "Burleson",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48053",
+      "countyFips": 53,
+      "comptrollerCode": 27,
+      "name": "Burnet",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48055",
+      "countyFips": 55,
+      "comptrollerCode": 28,
+      "name": "Caldwell",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48057",
+      "countyFips": 57,
+      "comptrollerCode": 29,
+      "name": "Calhoun",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48059",
+      "countyFips": 59,
+      "comptrollerCode": 30,
+      "name": "Callahan",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48061",
+      "countyFips": 61,
+      "comptrollerCode": 31,
+      "name": "Cameron",
+      "isRgv": true,
+      "outletCount": 12313
+    },
+    {
+      "fips": "48063",
+      "countyFips": 63,
+      "comptrollerCode": 32,
+      "name": "Camp",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48065",
+      "countyFips": 65,
+      "comptrollerCode": 33,
+      "name": "Carson",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48067",
+      "countyFips": 67,
+      "comptrollerCode": 34,
+      "name": "Cass",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48069",
+      "countyFips": 69,
+      "comptrollerCode": 35,
+      "name": "Castro",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48071",
+      "countyFips": 71,
+      "comptrollerCode": 36,
+      "name": "Chambers",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48073",
+      "countyFips": 73,
+      "comptrollerCode": 37,
+      "name": "Cherokee",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48075",
+      "countyFips": 75,
+      "comptrollerCode": 38,
+      "name": "Childress",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48077",
+      "countyFips": 77,
+      "comptrollerCode": 39,
+      "name": "Clay",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48079",
+      "countyFips": 79,
+      "comptrollerCode": 40,
+      "name": "Cochran",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48081",
+      "countyFips": 81,
+      "comptrollerCode": 41,
+      "name": "Coke",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48083",
+      "countyFips": 83,
+      "comptrollerCode": 42,
+      "name": "Coleman",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48085",
+      "countyFips": 85,
+      "comptrollerCode": 43,
+      "name": "Collin",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48087",
+      "countyFips": 87,
+      "comptrollerCode": 44,
+      "name": "Collingsworth",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48089",
+      "countyFips": 89,
+      "comptrollerCode": 45,
+      "name": "Colorado",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48091",
+      "countyFips": 91,
+      "comptrollerCode": 46,
+      "name": "Comal",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48093",
+      "countyFips": 93,
+      "comptrollerCode": 47,
+      "name": "Comanche",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48095",
+      "countyFips": 95,
+      "comptrollerCode": 48,
+      "name": "Concho",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48097",
+      "countyFips": 97,
+      "comptrollerCode": 49,
+      "name": "Cooke",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48099",
+      "countyFips": 99,
+      "comptrollerCode": 50,
+      "name": "Coryell",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48101",
+      "countyFips": 101,
+      "comptrollerCode": 51,
+      "name": "Cottle",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48103",
+      "countyFips": 103,
+      "comptrollerCode": 52,
+      "name": "Crane",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48105",
+      "countyFips": 105,
+      "comptrollerCode": 53,
+      "name": "Crockett",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48107",
+      "countyFips": 107,
+      "comptrollerCode": 54,
+      "name": "Crosby",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48109",
+      "countyFips": 109,
+      "comptrollerCode": 55,
+      "name": "Culberson",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48111",
+      "countyFips": 111,
+      "comptrollerCode": 56,
+      "name": "Dallam",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48113",
+      "countyFips": 113,
+      "comptrollerCode": 57,
+      "name": "Dallas",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48115",
+      "countyFips": 115,
+      "comptrollerCode": 58,
+      "name": "Dawson",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48117",
+      "countyFips": 117,
+      "comptrollerCode": 59,
+      "name": "Deaf Smith",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48119",
+      "countyFips": 119,
+      "comptrollerCode": 60,
+      "name": "Delta",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48121",
+      "countyFips": 121,
+      "comptrollerCode": 61,
+      "name": "Denton",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48123",
+      "countyFips": 123,
+      "comptrollerCode": 62,
+      "name": "DeWitt",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48125",
+      "countyFips": 125,
+      "comptrollerCode": 63,
+      "name": "Dickens",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48127",
+      "countyFips": 127,
+      "comptrollerCode": 64,
+      "name": "Dimmit",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48129",
+      "countyFips": 129,
+      "comptrollerCode": 65,
+      "name": "Donley",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48131",
+      "countyFips": 131,
+      "comptrollerCode": 66,
+      "name": "Duval",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48133",
+      "countyFips": 133,
+      "comptrollerCode": 67,
+      "name": "Eastland",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48135",
+      "countyFips": 135,
+      "comptrollerCode": 68,
+      "name": "Ector",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48137",
+      "countyFips": 137,
+      "comptrollerCode": 69,
+      "name": "Edwards",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48139",
+      "countyFips": 139,
+      "comptrollerCode": 70,
+      "name": "Ellis",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48141",
+      "countyFips": 141,
+      "comptrollerCode": 71,
+      "name": "El Paso",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48143",
+      "countyFips": 143,
+      "comptrollerCode": 72,
+      "name": "Erath",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48145",
+      "countyFips": 145,
+      "comptrollerCode": 73,
+      "name": "Falls",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48147",
+      "countyFips": 147,
+      "comptrollerCode": 74,
+      "name": "Fannin",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48149",
+      "countyFips": 149,
+      "comptrollerCode": 75,
+      "name": "Fayette",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48151",
+      "countyFips": 151,
+      "comptrollerCode": 76,
+      "name": "Fisher",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48153",
+      "countyFips": 153,
+      "comptrollerCode": 77,
+      "name": "Floyd",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48155",
+      "countyFips": 155,
+      "comptrollerCode": 78,
+      "name": "Foard",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48157",
+      "countyFips": 157,
+      "comptrollerCode": 79,
+      "name": "Fort Bend",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48159",
+      "countyFips": 159,
+      "comptrollerCode": 80,
+      "name": "Franklin",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48161",
+      "countyFips": 161,
+      "comptrollerCode": 81,
+      "name": "Freestone",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48163",
+      "countyFips": 163,
+      "comptrollerCode": 82,
+      "name": "Frio",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48165",
+      "countyFips": 165,
+      "comptrollerCode": 83,
+      "name": "Gaines",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48167",
+      "countyFips": 167,
+      "comptrollerCode": 84,
+      "name": "Galveston",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48169",
+      "countyFips": 169,
+      "comptrollerCode": 85,
+      "name": "Garza",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48171",
+      "countyFips": 171,
+      "comptrollerCode": 86,
+      "name": "Gillespie",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48173",
+      "countyFips": 173,
+      "comptrollerCode": 87,
+      "name": "Glasscock",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48175",
+      "countyFips": 175,
+      "comptrollerCode": 88,
+      "name": "Goliad",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48177",
+      "countyFips": 177,
+      "comptrollerCode": 89,
+      "name": "Gonzales",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48179",
+      "countyFips": 179,
+      "comptrollerCode": 90,
+      "name": "Gray",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48181",
+      "countyFips": 181,
+      "comptrollerCode": 91,
+      "name": "Grayson",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48183",
+      "countyFips": 183,
+      "comptrollerCode": 92,
+      "name": "Gregg",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48185",
+      "countyFips": 185,
+      "comptrollerCode": 93,
+      "name": "Grimes",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48187",
+      "countyFips": 187,
+      "comptrollerCode": 94,
+      "name": "Guadalupe",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48189",
+      "countyFips": 189,
+      "comptrollerCode": 95,
+      "name": "Hale",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48191",
+      "countyFips": 191,
+      "comptrollerCode": 96,
+      "name": "Hall",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48193",
+      "countyFips": 193,
+      "comptrollerCode": 97,
+      "name": "Hamilton",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48195",
+      "countyFips": 195,
+      "comptrollerCode": 98,
+      "name": "Hansford",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48197",
+      "countyFips": 197,
+      "comptrollerCode": 99,
+      "name": "Hardeman",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48199",
+      "countyFips": 199,
+      "comptrollerCode": 100,
+      "name": "Hardin",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48201",
+      "countyFips": 201,
+      "comptrollerCode": 101,
+      "name": "Harris",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48203",
+      "countyFips": 203,
+      "comptrollerCode": 102,
+      "name": "Harrison",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48205",
+      "countyFips": 205,
+      "comptrollerCode": 103,
+      "name": "Hartley",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48207",
+      "countyFips": 207,
+      "comptrollerCode": 104,
+      "name": "Haskell",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48209",
+      "countyFips": 209,
+      "comptrollerCode": 105,
+      "name": "Hays",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48211",
+      "countyFips": 211,
+      "comptrollerCode": 106,
+      "name": "Hemphill",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48213",
+      "countyFips": 213,
+      "comptrollerCode": 107,
+      "name": "Henderson",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48215",
+      "countyFips": 215,
+      "comptrollerCode": 108,
+      "name": "Hidalgo",
+      "isRgv": true,
+      "outletCount": 21062
+    },
+    {
+      "fips": "48217",
+      "countyFips": 217,
+      "comptrollerCode": 109,
+      "name": "Hill",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48219",
+      "countyFips": 219,
+      "comptrollerCode": 110,
+      "name": "Hockley",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48221",
+      "countyFips": 221,
+      "comptrollerCode": 111,
+      "name": "Hood",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48223",
+      "countyFips": 223,
+      "comptrollerCode": 112,
+      "name": "Hopkins",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48225",
+      "countyFips": 225,
+      "comptrollerCode": 113,
+      "name": "Houston",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48227",
+      "countyFips": 227,
+      "comptrollerCode": 114,
+      "name": "Howard",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48229",
+      "countyFips": 229,
+      "comptrollerCode": 115,
+      "name": "Hudspeth",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48231",
+      "countyFips": 231,
+      "comptrollerCode": 116,
+      "name": "Hunt",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48233",
+      "countyFips": 233,
+      "comptrollerCode": 117,
+      "name": "Hutchinson",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48235",
+      "countyFips": 235,
+      "comptrollerCode": 118,
+      "name": "Irion",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48237",
+      "countyFips": 237,
+      "comptrollerCode": 119,
+      "name": "Jack",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48239",
+      "countyFips": 239,
+      "comptrollerCode": 120,
+      "name": "Jackson",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48241",
+      "countyFips": 241,
+      "comptrollerCode": 121,
+      "name": "Jasper",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48243",
+      "countyFips": 243,
+      "comptrollerCode": 122,
+      "name": "Jeff Davis",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48245",
+      "countyFips": 245,
+      "comptrollerCode": 123,
+      "name": "Jefferson",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48247",
+      "countyFips": 247,
+      "comptrollerCode": 124,
+      "name": "Jim Hogg",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48249",
+      "countyFips": 249,
+      "comptrollerCode": 125,
+      "name": "Jim Wells",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48251",
+      "countyFips": 251,
+      "comptrollerCode": 126,
+      "name": "Johnson",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48253",
+      "countyFips": 253,
+      "comptrollerCode": 127,
+      "name": "Jones",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48255",
+      "countyFips": 255,
+      "comptrollerCode": 128,
+      "name": "Karnes",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48257",
+      "countyFips": 257,
+      "comptrollerCode": 129,
+      "name": "Kaufman",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48259",
+      "countyFips": 259,
+      "comptrollerCode": 130,
+      "name": "Kendall",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48261",
+      "countyFips": 261,
+      "comptrollerCode": 131,
+      "name": "Kenedy",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48263",
+      "countyFips": 263,
+      "comptrollerCode": 132,
+      "name": "Kent",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48265",
+      "countyFips": 265,
+      "comptrollerCode": 133,
+      "name": "Kerr",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48267",
+      "countyFips": 267,
+      "comptrollerCode": 134,
+      "name": "Kimble",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48269",
+      "countyFips": 269,
+      "comptrollerCode": 135,
+      "name": "King",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48271",
+      "countyFips": 271,
+      "comptrollerCode": 136,
+      "name": "Kinney",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48273",
+      "countyFips": 273,
+      "comptrollerCode": 137,
+      "name": "Kleberg",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48275",
+      "countyFips": 275,
+      "comptrollerCode": 138,
+      "name": "Knox",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48277",
+      "countyFips": 277,
+      "comptrollerCode": 139,
+      "name": "Lamar",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48279",
+      "countyFips": 279,
+      "comptrollerCode": 140,
+      "name": "Lamb",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48281",
+      "countyFips": 281,
+      "comptrollerCode": 141,
+      "name": "Lampasas",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48283",
+      "countyFips": 283,
+      "comptrollerCode": 142,
+      "name": "La Salle",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48285",
+      "countyFips": 285,
+      "comptrollerCode": 143,
+      "name": "Lavaca",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48287",
+      "countyFips": 287,
+      "comptrollerCode": 144,
+      "name": "Lee",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48289",
+      "countyFips": 289,
+      "comptrollerCode": 145,
+      "name": "Leon",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48291",
+      "countyFips": 291,
+      "comptrollerCode": 146,
+      "name": "Liberty",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48293",
+      "countyFips": 293,
+      "comptrollerCode": 147,
+      "name": "Limestone",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48295",
+      "countyFips": 295,
+      "comptrollerCode": 148,
+      "name": "Lipscomb",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48297",
+      "countyFips": 297,
+      "comptrollerCode": 149,
+      "name": "Live Oak",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48299",
+      "countyFips": 299,
+      "comptrollerCode": 150,
+      "name": "Llano",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48301",
+      "countyFips": 301,
+      "comptrollerCode": 151,
+      "name": "Loving",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48303",
+      "countyFips": 303,
+      "comptrollerCode": 152,
+      "name": "Lubbock",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48305",
+      "countyFips": 305,
+      "comptrollerCode": 153,
+      "name": "Lynn",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48307",
+      "countyFips": 307,
+      "comptrollerCode": 154,
+      "name": "McCulloch",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48309",
+      "countyFips": 309,
+      "comptrollerCode": 155,
+      "name": "McLennan",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48311",
+      "countyFips": 311,
+      "comptrollerCode": 156,
+      "name": "McMullen",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48313",
+      "countyFips": 313,
+      "comptrollerCode": 157,
+      "name": "Madison",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48315",
+      "countyFips": 315,
+      "comptrollerCode": 158,
+      "name": "Marion",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48317",
+      "countyFips": 317,
+      "comptrollerCode": 159,
+      "name": "Martin",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48319",
+      "countyFips": 319,
+      "comptrollerCode": 160,
+      "name": "Mason",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48321",
+      "countyFips": 321,
+      "comptrollerCode": 161,
+      "name": "Matagorda",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48323",
+      "countyFips": 323,
+      "comptrollerCode": 162,
+      "name": "Maverick",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48325",
+      "countyFips": 325,
+      "comptrollerCode": 163,
+      "name": "Medina",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48327",
+      "countyFips": 327,
+      "comptrollerCode": 164,
+      "name": "Menard",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48329",
+      "countyFips": 329,
+      "comptrollerCode": 165,
+      "name": "Midland",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48331",
+      "countyFips": 331,
+      "comptrollerCode": 166,
+      "name": "Milam",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48333",
+      "countyFips": 333,
+      "comptrollerCode": 167,
+      "name": "Mills",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48335",
+      "countyFips": 335,
+      "comptrollerCode": 168,
+      "name": "Mitchell",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48337",
+      "countyFips": 337,
+      "comptrollerCode": 169,
+      "name": "Montague",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48339",
+      "countyFips": 339,
+      "comptrollerCode": 170,
+      "name": "Montgomery",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48341",
+      "countyFips": 341,
+      "comptrollerCode": 171,
+      "name": "Moore",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48343",
+      "countyFips": 343,
+      "comptrollerCode": 172,
+      "name": "Morris",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48345",
+      "countyFips": 345,
+      "comptrollerCode": 173,
+      "name": "Motley",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48347",
+      "countyFips": 347,
+      "comptrollerCode": 174,
+      "name": "Nacogdoches",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48349",
+      "countyFips": 349,
+      "comptrollerCode": 175,
+      "name": "Navarro",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48351",
+      "countyFips": 351,
+      "comptrollerCode": 176,
+      "name": "Newton",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48353",
+      "countyFips": 353,
+      "comptrollerCode": 177,
+      "name": "Nolan",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48355",
+      "countyFips": 355,
+      "comptrollerCode": 178,
+      "name": "Nueces",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48357",
+      "countyFips": 357,
+      "comptrollerCode": 179,
+      "name": "Ochiltree",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48359",
+      "countyFips": 359,
+      "comptrollerCode": 180,
+      "name": "Oldham",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48361",
+      "countyFips": 361,
+      "comptrollerCode": 181,
+      "name": "Orange",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48363",
+      "countyFips": 363,
+      "comptrollerCode": 182,
+      "name": "Palo Pinto",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48365",
+      "countyFips": 365,
+      "comptrollerCode": 183,
+      "name": "Panola",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48367",
+      "countyFips": 367,
+      "comptrollerCode": 184,
+      "name": "Parker",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48369",
+      "countyFips": 369,
+      "comptrollerCode": 185,
+      "name": "Parmer",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48371",
+      "countyFips": 371,
+      "comptrollerCode": 186,
+      "name": "Pecos",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48373",
+      "countyFips": 373,
+      "comptrollerCode": 187,
+      "name": "Polk",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48375",
+      "countyFips": 375,
+      "comptrollerCode": 188,
+      "name": "Potter",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48377",
+      "countyFips": 377,
+      "comptrollerCode": 189,
+      "name": "Presidio",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48379",
+      "countyFips": 379,
+      "comptrollerCode": 190,
+      "name": "Rains",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48381",
+      "countyFips": 381,
+      "comptrollerCode": 191,
+      "name": "Randall",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48383",
+      "countyFips": 383,
+      "comptrollerCode": 192,
+      "name": "Reagan",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48385",
+      "countyFips": 385,
+      "comptrollerCode": 193,
+      "name": "Real",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48387",
+      "countyFips": 387,
+      "comptrollerCode": 194,
+      "name": "Red River",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48389",
+      "countyFips": 389,
+      "comptrollerCode": 195,
+      "name": "Reeves",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48391",
+      "countyFips": 391,
+      "comptrollerCode": 196,
+      "name": "Refugio",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48393",
+      "countyFips": 393,
+      "comptrollerCode": 197,
+      "name": "Roberts",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48395",
+      "countyFips": 395,
+      "comptrollerCode": 198,
+      "name": "Robertson",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48397",
+      "countyFips": 397,
+      "comptrollerCode": 199,
+      "name": "Rockwall",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48399",
+      "countyFips": 399,
+      "comptrollerCode": 200,
+      "name": "Runnels",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48401",
+      "countyFips": 401,
+      "comptrollerCode": 201,
+      "name": "Rusk",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48403",
+      "countyFips": 403,
+      "comptrollerCode": 202,
+      "name": "Sabine",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48405",
+      "countyFips": 405,
+      "comptrollerCode": 203,
+      "name": "San Augustine",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48407",
+      "countyFips": 407,
+      "comptrollerCode": 204,
+      "name": "San Jacinto",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48409",
+      "countyFips": 409,
+      "comptrollerCode": 205,
+      "name": "San Patricio",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48411",
+      "countyFips": 411,
+      "comptrollerCode": 206,
+      "name": "San Saba",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48413",
+      "countyFips": 413,
+      "comptrollerCode": 207,
+      "name": "Schleicher",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48415",
+      "countyFips": 415,
+      "comptrollerCode": 208,
+      "name": "Scurry",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48417",
+      "countyFips": 417,
+      "comptrollerCode": 209,
+      "name": "Shackelford",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48419",
+      "countyFips": 419,
+      "comptrollerCode": 210,
+      "name": "Shelby",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48421",
+      "countyFips": 421,
+      "comptrollerCode": 211,
+      "name": "Sherman",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48423",
+      "countyFips": 423,
+      "comptrollerCode": 212,
+      "name": "Smith",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48425",
+      "countyFips": 425,
+      "comptrollerCode": 213,
+      "name": "Somervell",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48427",
+      "countyFips": 427,
+      "comptrollerCode": 214,
+      "name": "Starr",
+      "isRgv": true,
+      "outletCount": 1226
+    },
+    {
+      "fips": "48429",
+      "countyFips": 429,
+      "comptrollerCode": 215,
+      "name": "Stephens",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48431",
+      "countyFips": 431,
+      "comptrollerCode": 216,
+      "name": "Sterling",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48433",
+      "countyFips": 433,
+      "comptrollerCode": 217,
+      "name": "Stonewall",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48435",
+      "countyFips": 435,
+      "comptrollerCode": 218,
+      "name": "Sutton",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48437",
+      "countyFips": 437,
+      "comptrollerCode": 219,
+      "name": "Swisher",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48439",
+      "countyFips": 439,
+      "comptrollerCode": 220,
+      "name": "Tarrant",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48441",
+      "countyFips": 441,
+      "comptrollerCode": 221,
+      "name": "Taylor",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48443",
+      "countyFips": 443,
+      "comptrollerCode": 222,
+      "name": "Terrell",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48445",
+      "countyFips": 445,
+      "comptrollerCode": 223,
+      "name": "Terry",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48447",
+      "countyFips": 447,
+      "comptrollerCode": 224,
+      "name": "Throckmorton",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48449",
+      "countyFips": 449,
+      "comptrollerCode": 225,
+      "name": "Titus",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48451",
+      "countyFips": 451,
+      "comptrollerCode": 226,
+      "name": "Tom Green",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48453",
+      "countyFips": 453,
+      "comptrollerCode": 227,
+      "name": "Travis",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48455",
+      "countyFips": 455,
+      "comptrollerCode": 228,
+      "name": "Trinity",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48457",
+      "countyFips": 457,
+      "comptrollerCode": 229,
+      "name": "Tyler",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48459",
+      "countyFips": 459,
+      "comptrollerCode": 230,
+      "name": "Upshur",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48461",
+      "countyFips": 461,
+      "comptrollerCode": 231,
+      "name": "Upton",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48463",
+      "countyFips": 463,
+      "comptrollerCode": 232,
+      "name": "Uvalde",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48465",
+      "countyFips": 465,
+      "comptrollerCode": 233,
+      "name": "Val Verde",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48467",
+      "countyFips": 467,
+      "comptrollerCode": 234,
+      "name": "Van Zandt",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48469",
+      "countyFips": 469,
+      "comptrollerCode": 235,
+      "name": "Victoria",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48471",
+      "countyFips": 471,
+      "comptrollerCode": 236,
+      "name": "Walker",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48473",
+      "countyFips": 473,
+      "comptrollerCode": 237,
+      "name": "Waller",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48475",
+      "countyFips": 475,
+      "comptrollerCode": 238,
+      "name": "Ward",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48477",
+      "countyFips": 477,
+      "comptrollerCode": 239,
+      "name": "Washington",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48479",
+      "countyFips": 479,
+      "comptrollerCode": 240,
+      "name": "Webb",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48481",
+      "countyFips": 481,
+      "comptrollerCode": 241,
+      "name": "Wharton",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48483",
+      "countyFips": 483,
+      "comptrollerCode": 242,
+      "name": "Wheeler",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48485",
+      "countyFips": 485,
+      "comptrollerCode": 243,
+      "name": "Wichita",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48487",
+      "countyFips": 487,
+      "comptrollerCode": 244,
+      "name": "Wilbarger",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48489",
+      "countyFips": 489,
+      "comptrollerCode": 245,
+      "name": "Willacy",
+      "isRgv": true,
+      "outletCount": 327
+    },
+    {
+      "fips": "48491",
+      "countyFips": 491,
+      "comptrollerCode": 246,
+      "name": "Williamson",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48493",
+      "countyFips": 493,
+      "comptrollerCode": 247,
+      "name": "Wilson",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48495",
+      "countyFips": 495,
+      "comptrollerCode": 248,
+      "name": "Winkler",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48497",
+      "countyFips": 497,
+      "comptrollerCode": 249,
+      "name": "Wise",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48499",
+      "countyFips": 499,
+      "comptrollerCode": 250,
+      "name": "Wood",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48501",
+      "countyFips": 501,
+      "comptrollerCode": 251,
+      "name": "Yoakum",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48503",
+      "countyFips": 503,
+      "comptrollerCode": 252,
+      "name": "Young",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48505",
+      "countyFips": 505,
+      "comptrollerCode": 253,
+      "name": "Zapata",
+      "isRgv": false,
+      "outletCount": 0
+    },
+    {
+      "fips": "48507",
+      "countyFips": 507,
+      "comptrollerCode": 254,
+      "name": "Zavala",
+      "isRgv": false,
+      "outletCount": 0
+    }
+  ]
+}
