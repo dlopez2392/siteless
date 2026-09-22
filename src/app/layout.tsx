@@ -1,5 +1,9 @@
 import { ClerkProvider } from '@clerk/nextjs';
 import { ActivateSoleOrganization } from '@/components/activate-sole-organization';
+import { Geist } from "next/font/google";
+import { cn } from "@/lib/utils";
+
+const geist = Geist({subsets:['latin'],variable:'--font-sans'});
 
 export const metadata = { title: 'Siteless' };
 
@@ -13,7 +17,7 @@ export const metadata = { title: 'Siteless' };
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <ClerkProvider>
-      <html lang="en">
+      <html lang="en" className={cn("font-sans", geist.variable)}>
         <body>
           {/* Renders nothing. Inside ClerkProvider and above every page, so it covers
               each surface a client can reach signed-in but with no active organization —
