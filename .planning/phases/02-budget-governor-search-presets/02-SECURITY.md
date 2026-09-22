@@ -1,8 +1,8 @@
 ---
 phase: 2
 slug: budget-governor-search-presets
-status: open
-threats_open: 2
+status: verified
+threats_open: 0
 asvs_level: 1
 created: 2026-09-22
 ---
@@ -61,7 +61,7 @@ created: 2026-09-22
 
 82 rows across the fifteen plans of this phase (the same Threat ID recurring across plans is a
 separate row per (plan, threat) pair, matching `01-SECURITY.md`'s convention). 80 rows
-`status: closed`. 2 rows `status: open` (production-migration gap, not a code defect — see
+`status: closed`. 2 rows were `status: open` at the auditor's pass (production-migration gap, not a code defect — see
 **Open Threats**). 1 row (`T-2-05`, 02-09) carries `disposition: accept`, not `mitigate` as the
 audit brief summarized; verified against this document's own Accepted Risks Log, which is
 where it is recorded below.
@@ -76,7 +76,7 @@ where it is recorded below.
 | T-2-13 | 02-02 | Tampering | Census Geocoder response | mitigate | `tests/unit/msw/server.ts:2,19,25-28` — four verbatim recorded payloads replayed via msw; CI never issues the real request | closed |
 | Pitfall 1 | 02-02 | Tampering | migration portability | mitigate | `tests/unit/pg17-compat.test.ts:32,68,89-122` — greps `drizzle/*.sql` for `returning old./new.`, `uuidv7(`; comment-stripper has its own two-sided pair (lines 89-122) proving it discriminates a real violation from one mentioned only in prose | closed |
 | T-2-09 | 02-03 | Tampering | reference rows (`org_id IS NULL`) | mitigate | `drizzle/0013_reference_policies_and_grants.sql:43-44` — write policies carry `org_id is not null and org_id = (select app.current_org_id())`; `tests/db/reference-rows.test.ts:127,144` — `42501` on forged INSERT, `23505` on duplicate built-in | closed |
-| T-2-10 | 02-03 | Information Disclosure | cross-org presets, versions, runs | **superseded — see Open Threats** | `02-REVIEW.md` CR-01: `savePresetVersion` inserted a version onto another tenant's search through an FK bypass of RLS. Fixed in `6b1bfd7` / `drizzle/0017_strange_mathemanic.sql` (composite `(search_id, org_id)` FK) + `src/server/actions/save-preset-version.ts:126-129` (ownership SELECT under RLS before insert, `not_found` on miss). Watched red first and green after: `tests/db/versioned-presets.test.ts:366,402` (`tenancy: a version cannot be attached to another org's search` / `... own search is still accepted`) | **open (production)** |
+| T-2-10 | 02-03 | Information Disclosure | cross-org presets, versions, runs | **superseded — see Open Threats** | `02-REVIEW.md` CR-01: `savePresetVersion` inserted a version onto another tenant's search through an FK bypass of RLS. Fixed in `6b1bfd7` / `drizzle/0017_strange_mathemanic.sql` (composite `(search_id, org_id)` FK) + `src/server/actions/save-preset-version.ts:126-129` (ownership SELECT under RLS before insert, `not_found` on miss). Watched red first and green after: `tests/db/versioned-presets.test.ts:366,402` (`tenancy: a version cannot be attached to another org's search` / `... own search is still accepted`) | closed — production migrated 2026-09-22 (journal 17→21; `searches_id_org_uniq`, `search_versions_search_org_fk`, `search_versions_id_org_uniq`, `runs_version_org_fk` all present on prod) and `d582880` deployed (`/api/health` commit match) — see Closure below |
 | T-2-12 | 02-03 | Tampering | `runs.search_version_id`, `search_versions` | mitigate | `drizzle/0013_reference_policies_and_grants.sql:63-65` — `grant select, insert` + `revoke update, delete` on `search_versions` (`42501`); `:88` — `runs` column grant excludes `search_version_id` (comment lines 68-84); `tests/db/grants-audit.test.ts:352` `has_column_privilege(...,'search_version_id','UPDATE')` = false | closed |
 | T-2-11 | 02-03 | Repudiation | actor on a preset or version change | mitigate | `drizzle/0007_event_triggers.sql:12-13,25` — `security definer`, actor `coalesce(app.jwt()->>'sub', current_setting('app.actor_id', true), 'system')`; `drizzle/0013_reference_policies_and_grants.sql:105-108` attaches the trigger to `searches`/`search_versions`; `tests/db/event-trigger.test.ts:52,109,204` `EVENT_LOGGED` set-equality on `tgenabled` | closed |
 | Pitfall 1 | 02-03 | Tampering | migration portability | mitigate | `tests/unit/pg17-compat.test.ts` re-run against `0012`-`0016` (and, currently, `0017`-`0020` too — all clean, confirmed by direct grep, no `returning old./new.`/`uuidv7(` in any Phase 2 migration file) | closed |
@@ -91,7 +91,7 @@ where it is recorded below.
 | T-2-07 | 02-05 | Tampering | negative or overflowing reservation | mitigate | `drizzle/0014_brown_phantom_reporter.sql:15-16` `bp_not_over`/`bp_non_negative`; `:53` `cr_est_positive`; `:35-36` `cl_micro_non_negative`/`cl_units_positive`; `drizzle/0016_...sql:224` `(v_s+v_r)*100 >= v_c*80` (never `/100`) | closed |
 | T-2-02 | 02-05 | Elevation of Privilege | member raises the cap | mitigate | `drizzle/0015_budget_grants_and_triggers.sql:47,50` — `grant select` only, `revoke insert, update, delete` on `budget_periods`; `drizzle/0016_...sql:345-346` `set_budget_cap` raises `42501 set_budget_cap: admin role required` on `current_org_role() ≠ 'admin'`; mutation M10/M10b (02-VALIDATION.md:93-94) proves the two refusals independent | closed |
 | T-2-11 | 02-05 | Repudiation | forged actor on a cap change | mitigate | `drizzle/0015_budget_grants_and_triggers.sql:101-108` `budget_periods_event_upd` fires `app.log_event` only on `cap_micro_usd` change; actor from `app.jwt()->>'sub'`, `authenticated` has no INSERT on `events` (migration 0011, unchanged) | closed |
-| T-2-10 | 02-05 | Information Disclosure | cross-org budget rows | **superseded — see Open Threats** | `02-REVIEW.md` WR-04: `app.reserve_budget` accepted a `p_run` from any org (definer insert bypasses RLS + FK bypass). Fixed in `01f9afe` / `drizzle/0020_yellow_ricochet.sql:38-43` — explicit `exists (select 1 from runs where id = p_run and org_id = v_org)` check, `42501` on mismatch. Watched red first: `reserve_budget refuses a run belonging to another org`, green control: `reserve_budget accepts the caller's own run` (`tests/db/budget-meter.test.ts`) | **open (production) — see reasoning below; not reachable through any current application code path** |
+| T-2-10 | 02-05 | Information Disclosure | cross-org budget rows | **superseded — see Open Threats** | `02-REVIEW.md` WR-04: `app.reserve_budget` accepted a `p_run` from any org (definer insert bypasses RLS + FK bypass). Fixed in `01f9afe` / `drizzle/0020_yellow_ricochet.sql:38-43` — explicit `exists (select 1 from runs where id = p_run and org_id = v_org)` check, `42501` on mismatch. Watched red first: `reserve_budget refuses a run belonging to another org`, green control: `reserve_budget accepts the caller's own run` (`tests/db/budget-meter.test.ts`) | closed — production migrated 2026-09-22; `app.reserve_budget` body md5 `a08582f9` on prod = local (`0020` applied) — see Closure below |
 | T-2-09 | 02-06 | Tampering | built-in reference rows | mitigate | `tests/db/reference-rows.test.ts:127,144,192` — `rowCount === 0` for UPDATE/DELETE, `42501` for forged INSERT, `23505` for duplicate built-in, each in its own rolled-back tx with a positive control | closed |
 | T-2-12 | 02-06 | Tampering | a run re-pointed, a version edited | mitigate | Same grant evidence as 02-03/T-2-12; `tests/db/versioned-presets.test.ts` `run keeps its version after the preset moves on` — direction-checked green under mutation M12 (02-VALIDATION.md:97); M12b (line 99) found the **column-level** grant gap, closed in `98d99ff` — `tests/db/grants-audit.test.ts:305` `has_any_column_privilege('authenticated','public.search_versions','UPDATE')` = false | closed |
 | T-2-11 | 02-06 | Repudiation | version authorship | mitigate | `tests/db/event-trigger.test.ts` — raw SQL insert with no application code in the path still produces an audited row | closed |
@@ -232,6 +232,36 @@ Risks Log already relies on for `T-2-05 (deferred)`. The production copy of that
 stale in exactly the same way as the two rows above, but nothing in this phase can reach it, so
 it is not counted as an open threat here; it is folded into the same migration action item.
 
+### Closure — 2026-09-22 (orchestrator, after the production migration and redeploy)
+
+Both open rows named the same missing evidence: the `0017`–`0020` migrations on production and a
+confirmed deployed commit at or after `6b1bfd7`. danlo approved the migration and redeploy at the
+security gate; the orchestrator ran the 02-14 sequence and measured every fact below directly
+(read-only `begin read only` connections over the session pooler; names, counts and hashes only):
+
+| Evidence | Production (`jahgeqshuesndyscnmjo`, PostgreSQL 17.6) | Local (`siteless_test`, 18.6) |
+|---|---|---|
+| Pre-flight: rows violating `(search_id, org_id) → searches` / `(search_version_id, org_id) → search_versions` / duplicate `(id, org_id)` in `searches` | 0 / 0 / 0 (6 `e2e-*` searches, 6 versions, 0 runs) | — |
+| `db:migrate:prod` run 1 → run 2 | journal 17 → **21** → 21 (second run applied nothing) | 21 |
+| 0017 constraints (`pg_constraint`) | `runs_version_org_fk`(f), `search_versions_id_org_uniq`(u), `search_versions_search_org_fk`(f), `searches_id_org_uniq`(u) | identical |
+| `app.*` functions | 12 incl. `release_expired_reservations` (granted to `authenticated`) | 12, identical |
+| `pg_get_functiondef` md5 (`ensure_budget_period` / `release_expired_reservations` / `reserve_budget` / `settle_reservation`) | 3645dab8 / c95d155b / a08582f9 / cffabf41 | identical |
+| Deployed commit (`vercel --prod`, alias `siteless-iota.vercel.app`) | `/api/health` → `{"ok":true,"db":"up","proxy":"up","commit":"d582880…"}` (≥ `6b1bfd7`; leak scan 0) | — |
+| Deployed e2e against the alias | 16 passed / 5 skipped / 0 failed (51s), incl. `spend: the by-run tab lists a queued run` executing for the first time | — |
+
+One deploy attempt failed before this: three read-only pre-flight scripts written under the
+gitignored `coverage/` directory were uploaded by the Vercel CLI (it does not honour
+`.gitignore` there) and failed Next's project-wide type check; the alias kept serving `6d6c52f`
+throughout. The scripts were moved out of the repo and the same clean commit redeployed.
+Follow-up for a later plan: a `.vercelignore` naming `coverage/`.
+
+Residue the deployed e2e run left on production, reported not cleaned: 9 `e2e-*` searches (was 6),
+1 `queued` run, 1 reservation of 1 µUSD expiring 10 minutes after creation (released by
+`app.release_expired_reservations` on the next read once expired), `budget_periods.reserved` = 1 µUSD.
+
+With both facts the auditor asked for now measured, the two rows are `closed`; the folded-in
+`settle_reservation` (WR-03) body is likewise live on production (md5 `cffabf41` = local).
+
 ---
 
 ## Accepted Risks Log
@@ -249,6 +279,7 @@ it is not counted as an open threat here; it is folded into the same migration a
 | Audit Date | Threats Total | Closed | Open | Run By |
 |------------|----------------|--------|------|--------|
 | 2026-09-22 | 82 | 80 | 2 | gsd-security-auditor |
+| 2026-09-22 | 82 | 82 | 0 | orchestrator — closure after production migration 0017–0020 + redeploy `d582880` (see Open Threats › Closure) |
 
 **Supporting evidence for this run:**
 - `pnpm test:unit --reporter=verbose` (via the pnpm store launcher; bare `pnpm` is the wrong
@@ -318,12 +349,11 @@ a declared `<threat_model>` disposition.)*
 
 - [x] All threats have a disposition (mitigate / accept / transfer) — 81 `mitigate`, 1 `accept`
 - [x] Accepted risks documented in Accepted Risks Log (AR-03)
-- [ ] `threats_open: 0` confirmed — **false; `threats_open: 2`**, both traced to the same
-      unapplied production migration (`0017`–`0020`), not to a missing or untested code
-      mitigation. See **Open Threats** for the exact action that closes each.
-- [ ] `status: verified` set in frontmatter — **not set; `status: open`**, pending the
-      migration + deployment confirmation named above
+- [x] `threats_open: 0` confirmed — the two production-migration rows closed 2026-09-22 after
+      `0017`–`0020` were applied to production (journal 21, constraints and function bodies
+      verified identical to local) and `d582880` was deployed and health-checked
+- [x] `status: verified` set in frontmatter
 
-**Approval:** not verified — 2 threats open, both production-deployment gaps requiring
-danlo's `pnpm db:migrate:prod` decision, consistent with `02-REVIEW-FIX.md`'s own deferral of
-that step. Re-run this audit after the migration and a confirmed-commit deployment check.
+**Approval:** verified — 82/82 threats closed (81 mitigated, 1 accepted: AR-03). danlo approved
+the production migration and redeploy at the security gate on 2026-09-22; the closure evidence
+was measured directly, not taken from a report.
