@@ -12,13 +12,13 @@ A "no website" verdict you can trust enough to pick up the phone — every lead 
 
 ### Validated
 
+- [x] User defines searches as industry cluster(s) × geography (city list / county / radius), saved as versioned presets with RGV seeds and a pre-run cost estimate — *Validated in Phase 2: Budget Governor & Search Presets (2026-09-22): design system born (shadcn, painted tokens, Inter); 17-city RGV seed + 254 counties + 4 clusters on production; live zero-cost estimate with computed Texas multiplier; versioned presets immutable by grant; race-free meter proven by a 40-way burst granted exactly the cap; deployed at siteless-iota.vercel.app; 76 unit + 90 db + 21 e2e tests; BUDG-03 quota carried to Phase 4 (no GCP project yet).*
 - [x] Clerk org-scoped auth; `org_id` on every table with RLS; actor + timestamp on every state change; single org in v1 — *Validated in Phase 1: Foundations & Tenancy (2026-09-22): deployed at siteless-iota.vercel.app; RLS refusal pinned to 42501 through user-role connections; Places retention CHECK/FK constraints; append-only `events` by trigger and grant; platform default grants revoked (gap plan 01-12); 31 DB + 11 unit tests, e2e twice on the real URL.*
 
 ### Active
 
 Detailed, testable requirements with REQ-IDs live in `.planning/REQUIREMENTS.md`. The hypotheses, in one line each:
 
-- [ ] User defines searches as industry cluster(s) × geography (city list / county / radius), saved as versioned presets with RGV seeds and a pre-run cost estimate
 - [ ] The durable business record comes from TX Comptroller sales-tax permits + Overture Maps places for the target counties (Texas side only), with per-field provenance
 - [ ] Google Places API (New) acts as a transient verifier: Enterprise field mask on Text Search only, storing nothing but `place_id`, lat/lng (30-day TTL) and a derived `had_website_uri` boolean; free IDs-Only SKU for nightly change detection; saturation detected and tiles subdivided
 - [ ] Every candidate gets a six-way web-presence verdict (no presence / social-only / directory-only / real site / dead-or-parked / unverifiable) with confidence, from DNS/HTTP/TLS/parked-page probes, the dead `business.site` cohort, and social/directory discovery via web search + Overture `socials[]`
@@ -130,4 +130,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-09-22 after Phase 1 (Foundations & Tenancy) completed and verified 5/5*
+*Last updated: 2026-09-22 after Phase 2 (Budget Governor & Search Presets) completed and verified 6/6*
