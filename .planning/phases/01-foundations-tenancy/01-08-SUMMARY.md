@@ -213,6 +213,13 @@ None new in this plan. Carried forward for plan 10: `NEXT_PUBLIC_CLERK_SIGN_IN_U
 - `/api/health` is ready to be hit in CI after deploy; a missing proxy or an unreachable database shows up there immediately and without leaking either cause.
 - Blocker for plan 11 only: `E2E_BASE_URL`, `E2E_ADMIN_EMAIL` and `CLERK_TESTING_TOKEN` are still unset, by design.
 
+## Self-Check: PASSED
+
+- All 14 claimed files exist on disk (11 created, 2 modified, plus this summary).
+- All 4 claimed commits exist in `git log ba49b64..HEAD`: `3a91b31`, `8cd40f2`, `56c3d43`, `9767f46`.
+- `git status --short` clean; no deletions in any of the four commits (`git diff --diff-filter=D` empty for each).
+- `STATE.md`, `ROADMAP.md`, `REQUIREMENTS.md`, plan 01-07's files, the database schema and the main working tree: all untouched.
+
 ---
 *Phase: 01-foundations-tenancy*
 *Completed: 2026-09-21*
