@@ -43,6 +43,13 @@
       "when": 1790045323473,
       "tag": "0005_retention",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1790045714195,
+      "tag": "0006_retention_constraints",
+      "breakpoints": true
     }
   ]
 }
