@@ -58,9 +58,23 @@ export async function actAs(c: Client, claims: Claims): Promise<void> {
   await c.query('set local role authenticated');
 }
 
-/** Become a role with NO claims — proves a connection that skipped the wrapper is refused. */
-export async function actAsRole(c: Client, role: 'app_user' | 'anon'): Promise<void> {
-  if (role !== 'app_user' && role !== 'anon') throw new Error('actAsRole: refusing role ' + role);
+/**
+ * Become a role with NO claims — proves a connection that skipped the wrapper is refused.
+ *
+ * `authenticated` is in the allow-list for the GRANT-level guards
+ * (`tests/db/grants-audit.test.ts`), where the absence of claims is the point: a TRUNCATE
+ * is exempt from row-level security, so only the grant can refuse it and a claim would
+ * merely make the test look like an RLS test. The list stays an explicit allow-list rather
+ * than a `string` parameter — the role name is concatenated into the statement text below,
+ * because `set role` takes no bound parameter.
+ */
+export async function actAsRole(
+  c: Client,
+  role: 'app_user' | 'anon' | 'authenticated',
+): Promise<void> {
+  if (role !== 'app_user' && role !== 'anon' && role !== 'authenticated') {
+    throw new Error('actAsRole: refusing role ' + role);
+  }
   await c.query('set local role ' + role);
 }
 
