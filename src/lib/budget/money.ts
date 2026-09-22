@@ -53,6 +53,33 @@ export function formatUsd(microUsd: bigint | number): string {
   }).format(Number(microUsd) / MICRO_PER_USD);
 }
 
+/**
+ * µUSD → the BARE dollars-and-cents string a cap input carries: `"50.00"`, never
+ * `"$50.00"`. The budget settings screen puts the `$` in an `InputGroup` addon, so the
+ * control's value must not carry one — and `parseUsdToMicro` has to be able to read the
+ * string straight back, which rules out thousands separators too.
+ *
+ * 🔴 IT LIVES HERE RATHER THAN IN THE FORM BECAUSE TWO MODULES NEED IT AND ONE OF THEM IS
+ * A CLIENT MODULE. The settings page (server) renders the initial value and the cap form
+ * (browser) re-renders it from what `setBudgetCap` actually stored. A second copy of money
+ * formatting is the exact defect this file exists to prevent, and a client module cannot
+ * export the helper back to a server component — its exports would arrive as client
+ * references (UI-SPEC Executor Rule 5).
+ *
+ * 🔴 DISPLAY ONLY, like `formatUsd`. Sub-cent µUSD is truncated, not rounded: a cap is
+ * whole cents by construction (`parseUsdToMicro` composes it from a cents digit string),
+ * so the truncation is unreachable for a cap — and truncating rather than rounding means
+ * a rendered value can never exceed the value it came from, which is the safe direction
+ * for a ceiling. Never parse a rendered string back into a ledger value.
+ */
+export function formatUsdInput(microUsd: bigint): string {
+  const negative = microUsd < 0n;
+  const abs = negative ? -microUsd : microUsd;
+  const dollars = abs / BigInt(MICRO_PER_USD);
+  const cents = (abs % BigInt(MICRO_PER_USD)) / BigInt(MICRO_PER_CENT);
+  return `${negative ? '-' : ''}${dollars.toString()}.${cents.toString().padStart(2, '0')}`;
+}
+
 /** Exactly one decimal — "4.8%" — matching UI-SPEC § Typography. */
 export function formatPct(fraction: number): string {
   return new Intl.NumberFormat(APP_LOCALE, {

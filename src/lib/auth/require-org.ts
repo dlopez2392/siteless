@@ -20,9 +20,21 @@ export async function requireOrg() {
   return { userId, orgId, orgSlug: orgSlug ?? null };
 }
 
+/**
+ * 🔴 THE ROLE TRAVELS WITH THE CLAIMS. Without it `app.current_org_role()` returns NULL and
+ * every role-gated definer in the database refuses the caller — which is exactly what
+ * happened to the cap edit until plan 02-13 first put a screen in front of it: a verified
+ * org admin got `42501` every time. Passed through in Clerk's PREFIXED spelling and
+ * normalised in SQL; see the note on `OrgClaims` for why the strip does not happen here.
+ *
+ * `auth()` is memoized per request, so calling it again beside `requireOrg()` costs nothing.
+ */
 export async function orgClaims(): Promise<OrgClaims> {
   const { userId, orgId } = await requireOrg();
-  return { o: { id: orgId }, sub: userId, role: 'authenticated' };
+  const { orgRole } = await auth();
+  return orgRole
+    ? { o: { id: orgId }, sub: userId, role: 'authenticated', org_role: orgRole }
+    : { o: { id: orgId }, sub: userId, role: 'authenticated' };
 }
 
 /**
