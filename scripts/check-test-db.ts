@@ -2,7 +2,8 @@
  * Connection + server-version probe for TEST_DATABASE_URL.
  *
  *   pnpm db:check              server reachable, PostgreSQL >= 18
- *   pnpm db:check --bootstrap  the above, plus proof that migration 0000 took
+ *   pnpm db:check --bootstrap  the above, plus proof that migration 0000 took and that the
+ *                              applied set still matches the journal
  *
  * Prints only the server banner and `ok` lines. The connection string, the password
  * and the claims payload are never echoed (T-1-22).
@@ -95,31 +96,58 @@ try {
     }
     console.log('ok — app_user has USAGE on schema public');
 
-    // 7. drizzle-kit — and nothing else — recorded the bootstrap migration (D-09).
-    //    `hash` is a SHA-256 of the SQL text, not the filename, so the row is tied back to
-    //    the 0000_bootstrap tag through the journal's `when`, which drizzle-kit writes
-    //    verbatim into created_at.
+    // 7. drizzle-kit — and nothing else — recorded the migrations (D-09).
+    //    `hash` is a SHA-256 of the SQL text, not the filename, so a row is tied back to
+    //    its tag through the journal's `when`, which drizzle-kit writes verbatim into
+    //    created_at.
+    //
+    //    This used to assert `rowCount === 1` and then read `rows[0]`, which was true only
+    //    on the day 0000 was the only migration. With nine entries in the journal it threw
+    //    `expected exactly 1 ... row, got 9` on every CORRECTLY migrated database — the
+    //    `--bootstrap` mode that docs/local-postgres.md and docs/deploy.md point new setups
+    //    at proved the opposite of what it claims. The unordered `rows[0]` was the second
+    //    half of the bug: with no ORDER BY, "the bootstrap row" was whichever row the heap
+    //    happened to return first.
+    //
+    //    Both halves are now counted rather than indexed. Counting 0000 by its `when`
+    //    keeps the original claim (the bootstrap migration is recorded, exactly once), and
+    //    comparing the total against the journal length keeps the stronger one the old
+    //    rowCount check was reaching for: nothing but drizzle-kit has written here, and no
+    //    migration is missing.
     const journal = JSON.parse(
       readFileSync(new URL('../drizzle/meta/_journal.json', import.meta.url), 'utf8'),
     ) as { entries: { tag: string; when: number }[] };
     const bootstrapEntry = journal.entries.find((e) => e.tag === '0000_bootstrap');
     if (!bootstrapEntry) throw new Error('check-test-db: no 0000_bootstrap entry in the journal');
 
-    const applied = await c.query<{ created_at: string }>(
-      'select created_at from drizzle.__drizzle_migrations',
+    const applied = await c.query<{ n: number }>(
+      'select count(*)::int as n from drizzle.__drizzle_migrations where created_at = $1',
+      [String(bootstrapEntry.when)],
     );
-    if (applied.rowCount !== 1) {
+    if (applied.rows[0]?.n !== 1) {
       throw new Error(
-        'check-test-db: expected exactly 1 drizzle.__drizzle_migrations row, got ' +
-          String(applied.rowCount),
+        'check-test-db: 0000_bootstrap is recorded ' +
+          String(applied.rows[0]?.n) +
+          ' times in drizzle.__drizzle_migrations, expected exactly 1',
       );
     }
-    if (applied.rows[0]?.created_at !== String(bootstrapEntry.when)) {
+    const total = await c.query<{ n: number }>(
+      'select count(*)::int as n from drizzle.__drizzle_migrations',
+    );
+    if (total.rows[0]?.n !== journal.entries.length) {
       throw new Error(
-        'check-test-db: the applied migration does not match the 0000_bootstrap journal entry',
+        'check-test-db: ' +
+          String(total.rows[0]?.n) +
+          ' migrations applied, the journal has ' +
+          String(journal.entries.length) +
+          ' — run pnpm db:migrate',
       );
     }
-    console.log('ok — drizzle.__drizzle_migrations has exactly the 0000_bootstrap row');
+    console.log(
+      'ok — drizzle.__drizzle_migrations holds the 0000_bootstrap row and all ' +
+        String(journal.entries.length) +
+        ' journal entries',
+    );
   }
 } finally {
   await c.end();
