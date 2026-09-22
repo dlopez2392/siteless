@@ -99,6 +99,31 @@ jobs:
             echo "::error::Missing repository secret(s):$missing — the e2e gate cannot run"
             exit 1
           fi
+      # A gate that asserts against whatever the alias happens to be serving is not a gate.
+      # `vercel git connect` means a push to main ALSO starts a Vercel deployment,
+      # asynchronously — and nothing here waited for it, so Playwright started as soon as
+      # `pnpm install` finished, typically before the build completed, and exercised the
+      # PREVIOUS deployment. A regression was therefore reported green by the very push that
+      # introduced it, and only a later unrelated push would surface it.
+      #
+      # docs/deploy.md already names this check for the manual path ("confirm the commit it
+      # names equals git rev-parse --short HEAD") and /api/health already exposes `commit`;
+      # the workflow simply did not use it.
+      #
+      # `|| true` on the curl is load-bearing: the default shell is `bash -e`, /api/health
+      # answers 503 while the database or the proxy probe is still down, and `-f` would make
+      # the first poll abort the step instead of retrying. 60 x 10s = 10 minutes.
+      - name: Wait for this commit to be the one being served
+        run: |
+          got=""
+          for i in $(seq 1 60); do
+            body=$(curl -sS --max-time 10 "$E2E_BASE_URL/api/health" || true)
+            got=$(printf '%s' "$body" | sed -n 's/.*"commit":"\([0-9a-f]*\)".*/\1/p')
+            if [ "$got" = "$GITHUB_SHA" ]; then echo "serving $got"; exit 0; fi
+            sleep 10
+          done
+          echo "::error::$E2E_BASE_URL never served $GITHUB_SHA within 10 minutes (last: ${got:-none})"
+          exit 1
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm test:e2e
       # Both paths. `playwright-report/` alone did not exist — the `list` reporter writes

@@ -156,6 +156,12 @@ vercel deploy --prod --scope team_8zjV46sJxQDsVzikNQa1JaO2
 A push is never assumed to have deployed. Read the build log, confirm the commit it names
 equals `git rev-parse --short HEAD` taken before the deploy, and only then smoke it.
 
+CI now enforces the same rule for the `e2e` job: because `vercel git connect` makes a push to
+`main` start a deployment asynchronously, the job polls `/api/health` until its `commit`
+field equals `GITHUB_SHA` before Playwright runs, and fails after ten minutes. Without it the
+suite asserted against whatever the alias was still serving — the previous deployment — so a
+regression was reported green by the very push that introduced it.
+
 ## 8. Smoke the deployment
 
 ```sh
