@@ -16,10 +16,20 @@
  *          leaves `cap at exactly spent plus reserved is accepted` GREEN
  *   M9  `alter table cost_ledger drop constraint cost_ledger_request_id_key`
  *          reds `settlement idempotency: settle twice with one request_id` and only that
- *   M-self-heal  `create or replace function app.reserve_budget(...)` with step 1 removed
- *          reds `self-heal: a crashed worker's expired reservations are released by the
- *          next reserve` and only that; `self-heal does not release a live reservation`
- *          stays GREEN, because a healer that released everything would pass the first alone
+ *   M-self-heal  `create or replace function app.release_expired_reservations(...)` with the
+ *          body replaced by `return 0` — the release lives in ONE function since WR-01
+ *          (migration 0018) and both the meter and every read path call it, so that function
+ *          is now the mutation target rather than step 1 of app.reserve_budget.
+ *          Executed 2026-09-22 against the live local database. Reds exactly four:
+ *            self-heal: a crashed worker's expired reservations are released by the next reserve
+ *            a read after the TTL no longer counts the expired hold
+ *            set_budget_cap: an expired hold no longer holds the cap floor up (admin-gate)
+ *            concurrent burst survives a crashed worker holding the whole cap (concurrency)
+ *          and leaves BOTH live-hold controls green — `self-heal does not release a live
+ *          reservation` and `a read does not release a live hold` — because a healer that
+ *          released everything would pass the four above and breach the cap for real.
+ *          Reverted by re-executing the definition out of drizzle/0018; `git diff --stat`
+ *          over drizzle/ stayed empty throughout, so the mutation never touched the file.
  *
  * One refused statement per `withRollback` (a refusal aborts the transaction and the next
  * statement reports 25P02, not its own reason), two orgs always, and a positive control
@@ -257,6 +267,64 @@ describe('the budget meter, one worker at a time', () => {
       );
       expect(still.rows[0]?.released).toBe(false);
       expect(await totals(c, period)).toMatchObject({ reserved: '10000' });
+    }));
+
+  it('a read after the TTL no longer counts the expired hold', () =>
+    withRollback(async (c) => {
+      const { a } = await seedTwoOrgs(c);
+      // One worker took the whole cap and died. In Phase 2 NOTHING settles a reservation —
+      // there is no executor until Phase 4 — so every "Run this preset" is a hold that
+      // expires after ten minutes and then sits in reserved_micro_usd.
+      const period = await seedPeriod(c, a, { cap: 100000, reserved: 100000 });
+      await c.query(
+        `insert into cost_reservations (org_id, budget_period_id, sku, est_micro_usd, expires_at)
+         values ($1, $2, $3, 100000, now() - interval '1 hour')`,
+        [a, period, SKU],
+      );
+
+      await actAs(c, ORG_A_CLAIMS);
+      // 🔴 THIS IS WHAT A PAGE VIEW DOES, AND NOTHING MORE. `readCurrentPeriod` calls
+      // app.ensure_budget_period and then selects the row; the banner, the /spend header and
+      // the settings gauge are all that read. Until WR-01 the release lived ONLY inside
+      // app.reserve_budget, so a dead hold was displayed as committed money — "reserved by
+      // runs in flight", about a run that crashed an hour ago — and held up the cap floor
+      // bp_not_over enforces, until somebody happened to queue another run.
+      await c.query('select app.ensure_budget_period($1, $2::date)', [PROVIDER, PERIOD]);
+
+      expect(await totals(c, period)).toMatchObject({ reserved: '0' });
+      const released = await c.query<{ n: number }>(
+        `select count(*)::int as n from cost_reservations
+          where budget_period_id = $1 and released_at is not null`,
+        [period],
+      );
+      expect(released.rows[0]?.n).toBe(1);
+    }));
+
+  it('a read does not release a live hold', () =>
+    withRollback(async (c) => {
+      const { a } = await seedTwoOrgs(c);
+      const period = await seedPeriod(c, a, { cap: 100000, reserved: 100000 });
+      const live = await c.query<{ id: string }>(
+        `insert into cost_reservations (org_id, budget_period_id, sku, est_micro_usd, expires_at)
+         values ($1, $2, $3, 100000, now() + interval '1 hour') returning id`,
+        [a, period, SKU],
+      );
+      const liveId = live.rows[0]?.id;
+      expect(liveId).toBeTruthy();
+
+      await actAs(c, ORG_A_CLAIMS);
+      // The other half of the pair, and the reason the test above cannot stand alone: a
+      // release that ran on every read and ignored expires_at would pass it while handing an
+      // IN-FLIGHT paid call's budget to somebody else — breaching the cap for real, on the
+      // read path, where nobody would look for it.
+      await c.query('select app.ensure_budget_period($1, $2::date)', [PROVIDER, PERIOD]);
+
+      expect(await totals(c, period)).toMatchObject({ reserved: '100000' });
+      const still = await c.query<{ released: boolean }>(
+        'select (released_at is not null) as released from cost_reservations where id = $1',
+        [liveId],
+      );
+      expect(still.rows[0]?.released).toBe(false);
     }));
 
   it('threshold: the 80 percent crossing emits exactly one events row per period', () =>

@@ -52,12 +52,17 @@ async function currentRole(c: Client): Promise<string | null> {
 }
 
 /** Inserted as the OWNER: `authenticated` holds SELECT and nothing else on budget_periods. */
-async function seedPeriod(c: Client, orgId: string, cap: number): Promise<string> {
+async function seedPeriod(
+  c: Client,
+  orgId: string,
+  cap: number,
+  reserved = 0,
+): Promise<string> {
   await actAsOwner(c);
   const r = await c.query<{ id: string }>(
-    `insert into budget_periods (org_id, provider, period_start, cap_micro_usd)
-     values ($1, $2, ${CHICAGO_MONTH}, $3) returning id`,
-    [orgId, PROVIDER, cap],
+    `insert into budget_periods (org_id, provider, period_start, cap_micro_usd, reserved_micro_usd)
+     values ($1, $2, ${CHICAGO_MONTH}, $3, $4) returning id`,
+    [orgId, PROVIDER, cap, reserved],
   );
   const id = r.rows[0]?.id;
   if (!id) throw new Error('seedPeriod: insert returned no row');
@@ -138,6 +143,56 @@ describe('the cap is admin-only in the database', () => {
         [a, PROVIDER],
       );
       expect(row.rows[0]?.cap).toBe('75000000');
+    }));
+
+  it('set_budget_cap: an expired hold no longer holds the cap floor up', () =>
+    withRollback(async (c) => {
+      const { a } = await seedTwoOrgs(c);
+      // $50 cap, $20 of it reserved by a run that died over an hour ago.
+      const period = await seedPeriod(c, a, 50000000, 20000000);
+      await c.query(
+        `insert into cost_reservations (org_id, budget_period_id, sku, est_micro_usd, expires_at)
+         values ($1, $2, $3, 20000000, now() - interval '1 hour')`,
+        [a, period, SKU],
+      );
+
+      await actAs(c, V2_ADMIN);
+      // 🔴 THE FLOOR bp_not_over ENFORCES IS spent + reserved, AND reserved MUST BE LIVE.
+      // Lowering the cap to $10 is legitimate here: nothing is spent and nothing is actually
+      // in flight. Before WR-01 this was refused with 23514 against a hold that had expired
+      // an hour earlier, and CAP_BELOW_SPEND quoted that dead money back to the admin as the
+      // minimum they were allowed to set — with no way to clear it but to queue another run.
+      const r = await c.query<{ cap: string }>(
+        'select app.set_budget_cap($1, $2)::text as cap',
+        [PROVIDER, 10000000],
+      );
+      expect(r.rows[0]?.cap).toBe('10000000');
+      const row = await c.query<{ cap: string; reserved: string }>(
+        `select cap_micro_usd::text as cap, reserved_micro_usd::text as reserved
+           from budget_periods where id = $1`,
+        [period],
+      );
+      expect(row.rows[0]).toEqual({ cap: '10000000', reserved: '0' });
+    }));
+
+  it('set_budget_cap: a LIVE hold still holds the cap floor up', () =>
+    withRollback(async (c) => {
+      const { a } = await seedTwoOrgs(c);
+      const period = await seedPeriod(c, a, 50000000, 20000000);
+      await c.query(
+        `insert into cost_reservations (org_id, budget_period_id, sku, est_micro_usd, expires_at)
+         values ($1, $2, $3, 20000000, now() + interval '1 hour')`,
+        [a, period, SKU],
+      );
+
+      await actAs(c, V2_ADMIN);
+      // The control for the test above, resting on the SAME constraint but the opposite
+      // side of expires_at. Money promised to a call that is happening right now is
+      // committed spend that has not landed in the ledger yet, and a release that ignored
+      // the TTL would let an admin lower the cap underneath it. Do not "fix" this one.
+      const attempt = c.query('select app.set_budget_cap($1, $2)', [PROVIDER, 10000000]);
+      await expect(attempt).rejects.toMatchObject({ code: '23514' });
+      await expect(attempt).rejects.toThrow(/bp_not_over/);
     }));
 
   it('budget_periods holds no direct UPDATE for authenticated', () =>
