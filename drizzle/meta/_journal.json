@@ -64,6 +64,13 @@
       "when": 1790050069242,
       "tag": "0008_revoke_platform_grants",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1790071024913,
+      "tag": "0009_ensure_org_no_write",
+      "breakpoints": true
     }
   ]
 }
