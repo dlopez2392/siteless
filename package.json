@@ -22,6 +22,9 @@
     "db:custom": "tsx scripts/db.ts custom",
     "db:migrate": "tsx scripts/db.ts migrate --target=test",
     "db:migrate:prod": "tsx scripts/db.ts migrate --target=prod",
+    "db:seed": "tsx scripts/seed.ts --target=test",
+    "db:seed:prod": "tsx scripts/seed.ts --target=prod",
+    "refresh:outlet-counts": "tsx scripts/refresh-outlet-counts.ts",
     "db:check": "tsx scripts/check-test-db.ts"
   },
   "dependencies": {
