@@ -59,8 +59,8 @@ Plans:
 **Wave 1**
 - [x] 01-01-PLAN.md — Repo scaffold, pinned toolchain, fail-loudly env guard (wave 0)
 - [x] 01-02-PLAN.md — Local PostgreSQL 18 + Supabase/Clerk credentials and dashboard settings (wave 0, checkpoints)
-- [ ] 01-03-PLAN.md — Test harness: vitest configs pinned to UTC, DB fixtures, Playwright, CI (wave 1)
-- [ ] 01-04-PLAN.md — drizzle-kit bootstrap migration: Supabase-shaped roles, app schema, app.jwt() (wave 1)
+- [x] 01-03-PLAN.md — Test harness: vitest configs pinned to UTC, DB fixtures, Playwright, CI (wave 1)
+- [x] 01-04-PLAN.md — drizzle-kit bootstrap migration: Supabase-shaped roles, app schema, app.jwt() (wave 1)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 - [ ] 01-05-PLAN.md — Tenancy schema, RLS policies and the refused cross-org statement (wave 2)
