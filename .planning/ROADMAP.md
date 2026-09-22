@@ -112,7 +112,7 @@ Plans:
 - [x] 02-09-PLAN.md — Six server actions, two query modules, and the requireOrg-first static guard
 
 **Wave 4** *(blocked on Wave 3)*
-- [ ] 02-10-PLAN.md — App shell, persistent budget banner, organization settings, the e2e testid move
+- [x] 02-10-PLAN.md — App shell, persistent budget banner, organization settings, the e2e testid move
 
 **Wave 5** *(blocked on Wave 4)*
 - [ ] 02-11-PLAN.md — Preset list and preset editor with the live debounced estimate
