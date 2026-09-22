@@ -67,8 +67,8 @@ Plans:
 - [x] 01-06-PLAN.md — Internal-annotation sentinel, timezone discipline, sole-organization port (wave 2)
 
 **Wave 3** *(blocked on Wave 2 completion)*
-- [ ] 01-07-PLAN.md — Places retention constraints and the durable-cites-durable composite FK (wave 3)
-- [ ] 01-08-PLAN.md — Clerk shell: proxy, withOrg, requireOrg, JIT org, /no-access, /api/health (wave 3)
+- [x] 01-07-PLAN.md — Places retention constraints and the durable-cites-durable composite FK (wave 3)
+- [x] 01-08-PLAN.md — Clerk shell: proxy, withOrg, requireOrg, JIT org, /no-access, /api/health (wave 3)
 
 **Wave 4** *(blocked on Wave 3 completion)*
 - [ ] 01-09-PLAN.md — Event triggers, updated_at/updated_by, append-only grants, CONVENTIONS.md (wave 4)
