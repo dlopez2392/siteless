@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation';
 import { PresetForm, type EditorInitial } from '@/components/preset-editor/preset-form';
 import { orgClaims } from '@/lib/auth/require-org';
+import { isUuid } from '@/lib/ids';
 import { getEditorReference } from '@/server/queries/preset-editor';
 import { getPreset } from '@/server/queries/presets';
 
@@ -30,6 +31,18 @@ export default async function EditPresetPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+
+  // 🔴 WR-08. THE SIBLING ROUTE HAD THIS GUARD AND THIS ONE DID NOT, so `/presets/xyz` was a
+  // 404 while `/presets/xyz/edit` was a 500 on the same mistyped url. PostgreSQL answers a
+  // malformed uuid with `22P02 invalid input syntax for type uuid`, and `getPreset`
+  // interpolates the segment straight into an id comparison.
+  //
+  // The regex now lives in `src/lib/ids.ts` and `tests/unit/ids.test.ts` WALKS every `[id]`
+  // route to prove each one calls it — because the defect was never the regex, it was that
+  // the regex had to be remembered a second time, by somebody writing this page from the
+  // shape of that one.
+  if (!isUuid(id)) notFound();
+
   const claims = await orgClaims();
 
   // Sequential, never nested: `src/db/client.ts` pools with max: 1, so a second withOrg

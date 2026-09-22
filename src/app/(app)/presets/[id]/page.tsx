@@ -32,6 +32,7 @@ import {
 import { withOrg } from '@/db/with-org';
 import { orgClaims } from '@/lib/auth/require-org';
 import { formatUsd } from '@/lib/budget/money';
+import { isUuid } from '@/lib/ids';
 import { ESTIMATE_SKU } from '@/lib/estimate/assumptions';
 import { estimatePreset, type EstimateRange } from '@/lib/estimate/estimate';
 import type { RunStatus } from '@/lib/ui/run-tone';
@@ -76,11 +77,6 @@ export const dynamic = 'force-dynamic';
  * secondary. The phone's sticky-bottom placement and the desk's title-row placement are
  * the same element moved by CSS, not two buttons with one hidden.
  */
-
-/** A uuid, before it reaches a `where id = ...`. Postgres answers a malformed uuid with
- *  `22P02 invalid input syntax`, which would surface as a 500 on a mistyped URL — a
- *  crash where the honest answer is "we couldn't find that preset". */
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Cluster ids -> display names. A key (`auto_retail`) is never shown to a person
  *  (CONVENTIONS § Naming), so this resolves to `clusters.display_name` and falls back to
@@ -159,7 +155,9 @@ export default async function PresetDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  if (!UUID.test(id)) notFound();
+  // WR-08: shared with /presets/[id]/edit, which had no guard at all and answered a 500
+  // where this route answered a 404, on the same mistyped url.
+  if (!isUuid(id)) notFound();
 
   const claims = await orgClaims();
 
