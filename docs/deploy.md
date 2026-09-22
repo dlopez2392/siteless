@@ -96,12 +96,71 @@ list, the schema list, and the table list for `public`. If `public` already hold
 tables, **stop**: something other than drizzle-kit has written to the database and D-09 is
 already broken.
 
-After the run, read it again and compare against the local test database, count for count:
-four tables with row-level security enabled, an equal policy count, the six retention
-constraints, the five non-internal triggers, the five `app.*` functions, and `app_user` with
-`login` and `NOINHERIT`. Then run `pnpm db:migrate:prod` a second time — it must apply
-nothing. A mismatch means development and production have diverged, which is the exact
-failure D-09 exists to prevent.
+After the run, read it again — as a **separate, later, read-only connection**, never by
+re-reading the migrating script's own output — and compare against the local test database
+count for count: every table with row-level security enabled, an equal policy count, the
+named constraints, the non-internal triggers **scoped to schema `public`**, the `app.*`
+functions, and `app_user` with `login` and `NOINHERIT`. Then run `pnpm db:migrate:prod` a
+second time — it must apply nothing. A mismatch means development and production have
+diverged, which is the exact failure D-09 exists to prevent.
+
+> 🔴 **Scope every catalog count to `public`.** Supabase ships its own non-internal triggers
+> in `realtime` (1) and `storage` (7), so an unscoped trigger count reads 8 higher on
+> production than on a local Postgres and a correct database looks broken. Plan 01-10 hit
+> this first; plan 02-14 hit it again with the numbers 27 versus 19, and 19 versus 19 once
+> scoped.
+
+> 🔴 **`drizzle-kit migrate` prints `[✓] migrations applied successfully!` whether or not it
+> applied anything.** The banner and the exit code are the same on a no-op run, so neither
+> proves idempotency. Read `select count(*) from drizzle.__drizzle_migrations` before and
+> after instead: it must be unchanged. (A re-applied `create table` would also have raised
+> `42P07`, so a clean exit is a second witness — but the journal count is the direct one.)
+
+### The migration files, by phase
+
+| Phase | Files | Applied to production |
+| ----- | ----- | --------------------- |
+| 1 | `0000_bootstrap` … `0011_events_no_caller_insert` — twelve | 2026-09-22, plans 01-10 and 01-12 |
+| 2 | `0012_eager_vertigo`, `0013_reference_policies_and_grants`, `0014_brown_phantom_reporter`, `0015_budget_grants_and_triggers`, `0016_budget_meter_functions` — five | 2026-09-22, plan 02-14 |
+
+Production Supabase is **PostgreSQL 17.6** while local and CI are 18. `NULLS NOT DISTINCT`,
+stored generated columns and `FOR UPDATE ... SKIP LOCKED` are all fine there;
+`RETURNING old.` / `RETURNING new.`, `uuidv7()` and virtual generated columns are not, and
+`tests/unit/pg17-compat.test.ts` refuses them before they can reach a migration file. Run
+that test and `pnpm test:db -t "server version"` immediately before any production migrate —
+the point of the gate is that it is fresh, not that it once passed.
+
+### The reference rows: `pnpm db:seed:prod`
+
+```sh
+pnpm db:seed:prod        # tsx scripts/seed.ts --target=prod
+```
+
+`scripts/seed.ts` loads the committed JSON under `src/seed/data/` into the six reference
+tables as `org_id IS NULL` built-ins: 254 Texas counties, 4 industry clusters, 33 industry
+terms, the 17 RGV cities, 20 outlet-count rows and 3 geo presets.
+
+- **Run it after every migration that adds or changes a reference table**, and after any
+  deliberate edit to a file under `src/seed/data/`. It is not part of `db:migrate:prod`;
+  a migration that creates a reference table leaves it empty until this runs.
+- **It is idempotent.** Every upsert names its constraint (`on conflict on constraint …`),
+  which is what makes `NULLS NOT DISTINCT` apply to the `org_id IS NULL` built-ins. A second
+  run must report **0 inserted** for every table. If it reports inserts, the unique
+  constraint has lost `nulls not distinct` and the loader is doubling rows — stop.
+- **It connects as the migration owner, deliberately.** `referencePolicies()` excludes
+  `org_id IS NULL` from every write policy, so `authenticated` cannot write a built-in at
+  all. That asymmetry is the whole mechanism behind "a tenant reads a built-in and can never
+  change one".
+- It runs the whole load in one transaction and exits non-zero if any reference table ends
+  with zero built-in rows — a loader that wrote nothing and exited 0 is indistinguishable
+  from a working one until the cost estimator prices everything at zero.
+
+> 🔴 **`scripts/refresh-outlet-counts.ts` is never run in CI, and never against production
+> without a fresh human review of the numbers it rewrites.** It re-queries Socrata and
+> overwrites the committed `src/seed/data/outlet-counts.json` — the counts the budget
+> estimator multiplies by. Run it locally, read the diff, commit the JSON, and only then
+> `pnpm db:seed:prod`. Letting it run unattended would move production's cost estimates with
+> no reviewed commit behind them.
 
 ## 5. Give `app_user` its password
 
