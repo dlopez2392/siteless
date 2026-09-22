@@ -68,10 +68,16 @@ export function ByProvider({
                 {PROVIDER_LABEL[row.provider]}
               </ItemTitle>
               {/* 4px, painted, no chart library. `aria-hidden` because the figure and the
-                  call count beside it already say everything the bar encodes. */}
+                  call count beside it already say everything the bar encodes.
+
+                  🔴 CAPPED AT 240px RATHER THAN SPANNING THE ROW. At full row width a bar
+                  reading 0% is indistinguishable from a horizontal rule, and the first
+                  screenshots of this screen showed exactly that — three providers each
+                  looking like they had a divider under their name. The width is the same
+                  for all three, so the comparison the bar exists for still holds. */}
               <div
                 aria-hidden="true"
-                className="h-1 w-full overflow-hidden rounded-full bg-muted"
+                className="h-1 w-full max-w-[240px] overflow-hidden rounded-full bg-muted"
               >
                 <div
                   className="h-full rounded-full bg-muted-foreground"

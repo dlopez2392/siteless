@@ -13,7 +13,7 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from '@/components/ui/empty';
-import { Separator } from '@/components/ui/separator';
+import { Card, CardContent } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { orgClaims } from '@/lib/auth/require-org';
 import { formatUsd } from '@/lib/budget/money';
@@ -98,17 +98,27 @@ async function SpendBody() {
           {/* 🔴 THE THREE ROWS RENDER WHETHER OR NOT ANYTHING WAS SPENT. The empty state
               explains the month; it does not replace the readings, because a provider
               that is absent from this list reads as one nobody is measuring (D-14). */}
-          {nothingSpent ? (
-            <>
-              <NothingSpent capMicroUsd={period.capMicroUsd} />
-              <Separator />
-            </>
-          ) : null}
-          <ByProvider rows={providers} capMicroUsd={period.capMicroUsd} />
+          {nothingSpent ? <NothingSpent capMicroUsd={period.capMicroUsd} /> : null}
+          {/* The rows live on a raised surface like the header card above them. Floating
+              them on the page background made the tab read as a different screen from the
+              figure it breaks down — the two have to read as one system. */}
+          <Card>
+            <CardContent>
+              <ByProvider rows={providers} capMicroUsd={period.capMicroUsd} />
+            </CardContent>
+          </Card>
         </TabsContent>
 
         <TabsContent value="by-run">
-          {runs.length === 0 ? <NoRuns /> : <ByRun runs={runs} />}
+          {runs.length === 0 ? (
+            <NoRuns />
+          ) : (
+            <Card>
+              <CardContent>
+                <ByRun runs={runs} />
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
       </Tabs>
     </div>

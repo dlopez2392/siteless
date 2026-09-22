@@ -110,8 +110,12 @@ export function CapForm({
           Monthly cap
         </FieldLabel>
         {/* h-11 so the control clears the 44px thumb-zone floor, and the input is 16px
-            (`text-base`) so iOS Safari does not zoom the viewport on focus. */}
-        <InputGroup className="h-11">
+            (`text-base`) so iOS Safari does not zoom the viewport on focus.
+
+            Width-capped on desk: a field for five characters stretched across a 1120px
+            card reads as a search box, not as a dollar amount. Full width on phone, where
+            it is the whole screen anyway. */}
+        <InputGroup className="h-11 sm:max-w-[220px]">
           <InputGroupAddon>
             <InputGroupText className="text-base">$</InputGroupText>
           </InputGroupAddon>

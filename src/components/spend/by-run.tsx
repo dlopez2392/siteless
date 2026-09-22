@@ -129,7 +129,7 @@ export function ByRun({ runs }: { runs: RunSpend[] }) {
           </TableHeader>
           <TableBody>
             {runs.map((run) => (
-              <TableRow key={run.runId} data-testid="spend-run-row">
+              <TableRow key={run.runId} data-testid="spend-run-row" className="align-top">
                 <TableCell className="text-sm font-normal">{runName(run)}</TableCell>
                 <TableCell className="text-sm font-normal tabular-nums">
                   {startedLabel(run.startedAt)}
@@ -143,8 +143,13 @@ export function ByRun({ runs }: { runs: RunSpend[] }) {
                 <TableCell className="text-right text-sm font-semibold tabular-nums">
                   {formatUsd(run.microUsd)}
                 </TableCell>
-                <TableCell>
-                  <div className="flex flex-col gap-1">
+                {/* `TableCell` is `whitespace-nowrap` by default, which pushed the
+                    `partial` reason off the right edge of the table — the first capture
+                    of this screen showed it clipped mid-sentence at "412 of ~1,10". The
+                    reason is the sentence that explains why a month stopped early, so it
+                    wraps inside a reading measure rather than being cropped. */}
+                <TableCell className="align-top whitespace-normal">
+                  <div className="flex max-w-[40ch] flex-col gap-1">
                     <RunStatusBadge status={run.status} />
                     {stoppedReasonOf(run) ? (
                       <span className="text-sm font-normal text-muted-foreground">

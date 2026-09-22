@@ -62,35 +62,42 @@ export default async function BudgetSettingsPage() {
 
       <SettingsNav />
 
-      <Card data-testid="budget-cap-card">
-        <CardHeader>
-          <CardTitle className="text-xl font-semibold">Monthly data cap</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {isAdmin ? (
-            <CapForm provider="places" initialCapUsd={formatUsdInput(cap)} />
-          ) : (
-            <MemberView capMicroUsd={cap} orgLabel={orgSlug ?? orgId} />
-          )}
-        </CardContent>
-      </Card>
+      {/* UI-SPEC's focal point for this screen is "the cap input with the live gauge
+          immediately beside it (desk) or above it (phone)". Side by side from `lg` up puts
+          the gauge literally beside the field; below that they stack in the order the
+          plan enumerates them. `items-start` so the short period card does not stretch to
+          the height of the tall cap card and sit mostly empty. */}
+      <div className="grid items-start gap-6 lg:grid-cols-2">
+        <Card data-testid="budget-cap-card">
+          <CardHeader>
+            <CardTitle className="text-xl font-semibold">Monthly data cap</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {isAdmin ? (
+              <CapForm provider="places" initialCapUsd={formatUsdInput(cap)} />
+            ) : (
+              <MemberView capMicroUsd={cap} orgLabel={orgSlug ?? orgId} />
+            )}
+          </CardContent>
+        </Card>
 
-      <Card data-testid="budget-period-card">
-        <CardHeader>
-          <CardTitle className="text-xl font-semibold">Current period</CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4">
-          <BudgetGauge
-            capMicroUsd={cap}
-            committedMicroUsd={committed}
-            testId="budget-period-gauge"
-          />
-          <p data-testid="budget-period-line" className="text-base font-normal tabular-nums">
-            {formatUsd(committed)} of {formatUsd(cap)} used · {formatUsd(left)} left · resets{' '}
-            {resetDate}
-          </p>
-        </CardContent>
-      </Card>
+        <Card data-testid="budget-period-card">
+          <CardHeader>
+            <CardTitle className="text-xl font-semibold">Current period</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-4">
+            <BudgetGauge
+              capMicroUsd={cap}
+              committedMicroUsd={committed}
+              testId="budget-period-gauge"
+            />
+            <p data-testid="budget-period-line" className="text-base font-normal tabular-nums">
+              {formatUsd(committed)} of {formatUsd(cap)} used · {formatUsd(left)} left · resets{' '}
+              {resetDate}
+            </p>
+          </CardContent>
+        </Card>
+      </div>
 
       <SecondWallCard />
     </div>
