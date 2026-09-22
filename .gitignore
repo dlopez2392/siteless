@@ -6,3 +6,10 @@ node_modules/
 .DS_Store
 *.log
 .vercel
+/.next/
+/out/
+/coverage/
+/playwright-report/
+/test-results/
+/drizzle/meta/_journal.json.bak
+*.tsbuildinfo

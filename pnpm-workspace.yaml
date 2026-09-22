@@ -1,0 +1,12 @@
+# pnpm settings. As of pnpm 12 the `pnpm` field in package.json is no longer read
+# (it warns and ignores the keys) — this file is the home for every setting that
+# used to live there or in .npmrc.
+#
+# pnpm blocks dependency build scripts by default, and an un-allowed package that
+# needs one makes `pnpm install --frozen-lockfile` exit 1 with
+# ERR_PNPM_IGNORED_BUILDS — which fails CI rather than degrading quietly.
+# esbuild's postinstall links its platform binary, and tsx, vite, vitest and
+# drizzle-kit all run through it. Allow-list esbuild by name; never re-enable
+# dependency scripts globally.
+allowBuilds:
+  esbuild: true
