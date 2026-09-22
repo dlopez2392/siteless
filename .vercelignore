@@ -1,0 +1,14 @@
+# Keep the deployment bundle to the application only.
+# Same syntax as .gitignore. Applies to CLI and Git deployments alike.
+
+.planning/
+docs/
+tests/
+drizzle/
+*.md
+.github/
+
+# drizzle/ is excluded deliberately, not incidentally: migrations are applied from a
+# developer machine by `pnpm db:migrate:prod` against the session pooler, never at build
+# time and never at runtime. Shipping the migration files would put a build-time or
+# preview-deploy migration one line of config away from running against production.
