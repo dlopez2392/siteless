@@ -63,8 +63,8 @@ Plans:
 - [x] 01-04-PLAN.md — drizzle-kit bootstrap migration: Supabase-shaped roles, app schema, app.jwt() (wave 1)
 
 **Wave 2** *(blocked on Wave 1 completion)*
-- [ ] 01-05-PLAN.md — Tenancy schema, RLS policies and the refused cross-org statement (wave 2)
-- [ ] 01-06-PLAN.md — Internal-annotation sentinel, timezone discipline, sole-organization port (wave 2)
+- [x] 01-05-PLAN.md — Tenancy schema, RLS policies and the refused cross-org statement (wave 2)
+- [x] 01-06-PLAN.md — Internal-annotation sentinel, timezone discipline, sole-organization port (wave 2)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 - [ ] 01-07-PLAN.md — Places retention constraints and the durable-cites-durable composite FK (wave 3)
