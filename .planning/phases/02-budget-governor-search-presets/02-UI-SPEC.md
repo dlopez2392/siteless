@@ -315,7 +315,7 @@ How this is estimated →                         ← accent text link
 ```
 
 Single-line form, used wherever the estimate appears inline (preset detail, run confirmation):
-`~68 requests · ~$2.40 · ~1,100 businesses · 4.8% of this month's remaining $47.60`
+`~68 requests · ~$2.40 · ~1,100 businesses · 4.8% of this month's remaining $47.60` *(format only — the figures are illustrative; the dollar value applies the monthly free allowance and reads `$0.00` while it lasts, and the Texas chip shows the computed multiplier — Executor Rule 16)*
 
 - Debounce **400ms** after the last change to clusters or geography; no Estimate button (D-08).
 - While recomputing: the previous values stay on screen at 60% opacity with an inline `Spinner` beside the dollar figure and `aria-busy="true"` on the region. **Never a skeleton, never a blank.**
@@ -640,6 +640,7 @@ These are recorded defects from BIS, Cobija and 956 Woodworks. Each one cost a p
 13. **`tailwind.config` stays empty.** Tailwind v4 is configured in `globals.css` with `@theme`; no `tailwind.config.ts` is created.
 14. **This phase's UI must not depend on the Google Cloud key existing.** The quota card is a human-action checkpoint, not a live integration; nothing on any screen reads a Google credential.
 15. **After `shadcn init`, the font is Inter, not the preset's Geist.** The `nova` preset binds `font: geist` and `init` writes that import into `layout.tsx`; swap it for Inter (`variable: '--font-sans'`) in the same task and never add a `geist` package (Components § Step 1b).
+16. **The estimate figures in this document are illustrative copy, not arithmetic.** `×38 vs RGV`, `~68 requests · ~$2.40` and `4.8% of … $47.60` show the *format*. The Texas multiplier is **computed** as `estimate(texas).requestsHi / estimate(rgvBaseline).requestsHi` and rendered as `×{computed}` (02-RESEARCH.md § The Estimator measures ≈15× by cells); the dollar figure **applies the monthly free allowance** (the first 1,000 Text Search Enterprise requests each calendar month are free, so an early-month preset reads `$0.00`); and the ledger records **every paid-SKU call, including zero-cost ones** (`micro_usd = 0`, `units` set) or the free allowance cannot be tracked. Never hard-code any of these numbers.
 
 ---
 
