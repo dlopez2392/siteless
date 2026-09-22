@@ -24,9 +24,32 @@ import { soleOrganizationToActivate } from '@/lib/auth/sole-organization';
  * but unactivated — /, /no-access and /sign-in — rather than only the one page someone
  * remembered to put it on. See lib/auth/sole-organization.ts for which organization gets
  * picked and why "more than one" is deliberately left alone.
+ *
+ * 🔴 `treatPendingAsSignedOut: false` on the useAuth() call below is load-bearing, and it
+ * is the whole reason this component did nothing on the first deployed run (plan 11).
+ *
+ * This Clerk version (@clerk/nextjs 7.9.4, @clerk/react 6.16.1) implements "organization
+ * required" as a SESSION TASK. A user who signs in without an active organization does
+ * not get a signed-in session with a null org — they get a session whose status is
+ * PENDING, parked on the `choose-organization` task, and Clerk's hooks report a pending
+ * session as SIGNED OUT by default (`treatPendingAsSignedOut` defaults to `true`, in
+ * @clerk/shared PendingSessionOptions). So `isSignedIn` was `false`,
+ * soleOrganizationToActivate returned null on its very first line, and the component
+ * that exists to rescue this exact user rescued nobody — while rendering, mounted, and
+ * throwing no error. Deployed, danlo saw Clerk's "Choose an organization" screen: the
+ * 2026-09-16 BIS incident again, in a new costume.
+ *
+ * Reading through the pending state is what lets us RESOLVE it: setActive({ organization })
+ * is how the choose-organization task is completed, after which the session goes active
+ * and the server's auth() sees a real org claim.
+ *
+ * The SERVER deliberately does NOT do this. requireOrg() calls a bare auth(), so a pending
+ * session stays signed-out there and is redirected — deny by default, and no page can
+ * render a query for a session Clerk has not finished. Seeing through pending is a
+ * client-side repair affordance, never a server-side authorization decision.
  */
 export function ActivateSoleOrganization() {
-  const { isLoaded: authLoaded, isSignedIn, orgId } = useAuth();
+  const { isLoaded: authLoaded, isSignedIn, orgId } = useAuth({ treatPendingAsSignedOut: false });
   const {
     isLoaded: listLoaded,
     setActive,
