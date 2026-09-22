@@ -265,6 +265,22 @@ None. Nothing on this screen reads a Google credential (Executor Rule 14); the r
 2. 🟠 **The timestamptz-is-a-string trap is repo-wide**, not local to this screen. `readPresets` (02-11's list, which renders "Last run {date}") and `readSpendByRun` (02-13's spend view) read timestamps the same raw way. Each will 500 the moment it formats one. The structural fix belongs in `src/server/queries/`, in one place, after the wave merges.
 3. 🟠 **Two `budget-banner` specs stay skipped** until `/settings/budget` lands with 02-13; they self-enable, with no flag to remember.
 
+## Self-Check: PASSED
+
+All 10 claimed files exist on disk, and all three commits exist on
+`worktree-agent-a917ec3ba235901ad`, rooted on the expected base `ea296e1`:
+
+```
+5a74af6 docs(02-12): complete preset detail, version history and run drawer plan
+3f7aced feat(02-12): duplicate dialog and a run drawer that takes a real reservation
+6c633c5 feat(02-12): preset detail with version history and a real diff sentence
+ea296e1 docs(phase-02): update tracking after wave 4
+```
+
+Neither task commit deleted a tracked file (`git diff --diff-filter=D` empty for both).
+`.env.local` was copied in and never staged. STATE.md and ROADMAP.md were not touched —
+the orchestrator owns those after the wave merges.
+
 ---
 *Phase: 02-budget-governor-search-presets · Plan 12*
 *Completed: 2026-09-22*
