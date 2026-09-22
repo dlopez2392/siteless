@@ -363,3 +363,15 @@ Things a downstream plan in this phase should know:
 
 _Phase: 02-budget-governor-search-presets_
 _Completed: 2026-09-22_
+
+## Self-Check: PASSED
+
+- All 14 files under `key-files.created` exist on disk (`[ -f ]` each), plus the 3 modified files.
+- All four commits resolve in `git log 39a27b9..HEAD`: `0af6845`, `83910bc`, `dda2d9f`, `c70d8d9`.
+- `git diff --diff-filter=D --name-only 39a27b9..HEAD` is **empty** — no file deleted anywhere in this plan.
+- `git diff --name-only 39a27b9..HEAD` lists **17 files and neither `STATE.md` nor `ROADMAP.md`** — the orchestrator owns those, per the parallel-execution contract.
+- `git ls-files .env.local` returns nothing; `.env.local` is covered by `.gitignore` (`.env.*`) and was never staged.
+- `git status --short` is clean.
+- No stray process: port 3111 has no listener, and only the PID I started was ever killed.
+- The local `budget_periods` row was restored to its pre-flight values and re-read to confirm (`cap 50000000, spent 0, reserved 0`).
+- Re-ran every `<verification>` item after the last task commit: typecheck clean, lint clean, 67/67 unit tests, build clean with the `Proxy (Middleware)` entry and all three required routes, and 9 passed / 2 skipped / 0 failed in the e2e smoke.
