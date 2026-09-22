@@ -43,7 +43,19 @@ import { Client } from 'pg';
  * would have its rows removed underneath it by a burst running in another file.
  */
 export const CONCURRENCY_ORG_CLERK_ID = 'org_concurrency_fixture';
-export const CONCURRENCY_PROVIDER = 'places_concurrency_fixture';
+/**
+ * 🔴 NOT a made-up provider string. `bp_provider_known` admits exactly
+ * ('places','firecrawl','anthropic'), and app.ensure_budget_period refuses anything else
+ * with 22023 BEFORE the constraint ever sees it (migration 0016) — so a dedicated
+ * `places_concurrency_fixture` value cannot be inserted at all, and the burst would fail on
+ * its own fixture rather than on the meter.
+ *
+ * The isolation this file needs comes from the dedicated ORG plus the 2099 period instead,
+ * which is stricter than a provider name would have been: every other test in the suite runs
+ * inside a rolled-back transaction under org_A / org_B, so nothing else can see or be seen by
+ * these rows. `anthropic` is the provider no other Phase 2 test writes.
+ */
+export const CONCURRENCY_PROVIDER = 'anthropic';
 /** A period start far outside any real budget month, so a burst can never collide with a
  *  fixture that seeds "this month" or with a figure a human is reading off a screen. */
 export const CONCURRENCY_PERIOD_START = '2099-01-01';
@@ -185,27 +197,49 @@ export async function cleanupConcurrencyRows(): Promise<void> {
     if (!orgId) return;
 
     // FK order: ledger rows reference reservations, reservations reference the period.
-    const steps: Array<[string, string]> = [
+    //
+    // 🔴 cost_reservations HAS NO `provider` COLUMN — the provider lives on the budget
+    // period it points at (migration 0014), and cost_ledger denormalises it while
+    // cost_reservations deliberately does not. Scoping that delete by provider raised
+    // `42703 column "provider" does not exist` and aborted cleanup, leaving the burst's rows
+    // behind for the next run to collide with. Scope it by the period instead.
+    //
+    // events LAST and deliberately: deleting the budget_periods row fires app.log_event's
+    // AFTER DELETE arm, which INSERTS one more events row for this org. Removing them before
+    // the period would leave that row behind, and every run would add one more audit row for
+    // an org no human will ever look at. (Deleting an events row is safe — nothing
+    // references it. Deleting the ORG is not, and never happens here: Pitfall 8.)
+    // Each step carries its OWN parameter list. A single shared [org, provider] list looked
+    // tidier and silently broke the moment one statement needed only the org: pg binds
+    // positionally and reports `08P01 bind message supplies 2 parameters, but prepared
+    // statement "" requires 1` from inside a `finally`, where it masks whatever the test was
+    // actually failing on.
+    const steps: Array<[string, string, unknown[]]> = [
       [
         'cost_ledger',
         `delete from cost_ledger where org_id = $1 and provider = $2`,
+        [orgId, CONCURRENCY_PROVIDER],
       ],
       [
         'cost_reservations',
-        `delete from cost_reservations where org_id = $1 and provider = $2`,
+        `delete from cost_reservations where org_id = $1 and budget_period_id in (
+           select id from budget_periods where org_id = $1 and provider = $2)`,
+        [orgId, CONCURRENCY_PROVIDER],
       ],
       [
         'budget_periods',
         `delete from budget_periods where org_id = $1 and provider = $2`,
+        [orgId, CONCURRENCY_PROVIDER],
       ],
+      ['events', `delete from events where org_id = $1`, [orgId]],
     ];
 
-    for (const [table, sql] of steps) {
+    for (const [table, sql, params] of steps) {
       const exists = await c.query<{ reg: string | null }>('select to_regclass($1) as reg', [
         'public.' + table,
       ]);
       if (!exists.rows[0]?.reg) continue;
-      await c.query(sql, [orgId, CONCURRENCY_PROVIDER]);
+      await c.query(sql, params);
     }
   } finally {
     await c.end();
