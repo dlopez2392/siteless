@@ -23,19 +23,18 @@ import {
 const cities: CitiesFile = citiesJson;
 const counties: CountiesFile = countiesJson;
 
-/** A geography unit the estimator prices against. One cluster x one unit = one cell. */
-export type CityRef = { name: string; countyFips: string };
+/**
+ * The spec types are RE-EXPORTED from the estimator, never redeclared here.
+ *
+ * They were declared inline in this file before `src/lib/estimate/` existed. Two
+ * structurally-identical declarations of the same contract is the second-source-of-truth
+ * this file's own header warns about: TypeScript is structural, so the two would go on
+ * type-checking against each other while drifting in meaning, and the fixture could start
+ * describing a preset shape the estimator no longer prices. One declaration, one meaning.
+ */
+import type { CityRef, GeoSpec, PresetSpec } from '@/lib/estimate/expand-cells';
 
-export type GeoSpec =
-  | { kind: 'cities'; cities: CityRef[] }
-  | { kind: 'counties'; counties: string[] }
-  | { kind: 'radius'; lat: number; lng: number; countyFips: string; radiusMiles: number };
-
-export type PresetSpec = {
-  name: string;
-  clusterKeys: ClusterKey[];
-  geo: GeoSpec;
-};
+export type { CityRef, GeoSpec, PresetSpec };
 
 /** cells = clusters x geography units. The estimator's entire unit of work, and the only
  *  arithmetic a caller should ever need to reproduce by hand when reading a test. */
