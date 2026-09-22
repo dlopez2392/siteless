@@ -81,34 +81,55 @@ test('spend: the by-run tab reports its own state', async ({ page }) => {
 /**
  * The plan's second spec: queue a run from a preset and watch the row appear.
  *
- * 🔴 IT SELF-SKIPS UNTIL PLAN 02-12 SHIPS THE RUN DRAWER, and that is the same arrangement
- * `budget-banner.spec.ts` used while waiting for this plan's own cap control — a skip that
- * names the owning plan, with no flag anybody has to remember to unset. Nothing in Phase 2
- * can queue a run until `run-confirm` exists.
+ * 🔴 THIS TEST HAD NEVER ONCE EXECUTED (WR-09), AND IT READ AS A PASS. Both of its hooks
+ * were wrong, and each one alone was enough to skip it silently:
  *
- * 🔴 IF 02-12 NAMES ITS DRAWER TRIGGER SOMETHING THIS PROBE DOES NOT FIND, THE SKIP
- * PERSISTS SILENTLY. Plan 02-15 runs this suite against the deployed build and must
- * re-check that this test actually executes; a permanently skipped test is indistinguishable
- * from a passing one in a summary line.
+ *   * `'[data-testid^="preset-card-"] a, a[href^="/presets/"]'` — the card IS the anchor
+ *     (`preset-card.tsx`), so the first alternative matched nothing, and the second matched
+ *     `href="/presets/new"` on the header Create-preset CTA, which precedes the cards in DOM
+ *     order. The click landed on the new-preset form.
+ *   * `preset-run-cta` exists nowhere in `src/`. The trigger plan 02-12 shipped is
+ *     `run-preset`. So the drawer never opened, `run-confirm` — which is mounted only while
+ *     the drawer is open — was always count 0, and the `test.skip` below fired every time.
+ *
+ * The file's own header warned about exactly this ("if 02-12 names its trigger something
+ * this probe does not find, the skip persists silently") and it came true anyway, because a
+ * skipped test and a passing test are the same line in a summary: the phase gate's
+ * "15 passed, 6 skipped" included this one.
+ *
+ * 🔴 THE "SHIPS IN PLAN 02-12" SKIP IS GONE, DELIBERATELY. 02-12 has shipped. A conditional
+ * that can no longer be false is a conditional nobody will ever revisit. What remains is the
+ * one legitimate precondition — there is no preset to run — which is a real state of the
+ * database this suite points at and not a statement about unfinished work.
+ *
+ * 🔴 THIS TEST QUEUES A REAL RUN AND TAKES A REAL RESERVATION against whatever
+ * `E2E_BASE_URL` is. That is the point — the meter is exercised from the UI months before
+ * the first billed call — but it means one `runs` row and one `cost_reservations` hold per
+ * execution, the hold released by the TTL sweep (migration 0018). It belongs with the
+ * `e2e-*` row cleanup already logged in deferred-items.md, and is the reason a teardown path
+ * is owed alongside it.
  */
 test('spend: the by-run tab lists a queued run', async ({ page }) => {
   await page.goto('/presets');
-  const presetLink = page.locator('[data-testid^="preset-card-"] a, a[href^="/presets/"]').first();
-  const hasPreset = (await presetLink.count()) > 0;
-  test.skip(!hasPreset, 'no preset to run; the preset list ships in plan 02-11');
 
-  await presetLink.click();
+  // The card is the link. `data-preset-name` carries the user's own data, so the assertion
+  // at the end matches on that rather than on rendered copy every other part of the phase is
+  // still restyling — and it is read HERE, before the navigation, because it lives on the
+  // list item and not on the detail page.
+  const card = page.locator('[data-testid^="preset-card-"]').first();
+  test.skip((await card.count()) === 0, 'no preset to run');
+  const presetName = (await card.getAttribute('data-preset-name'))?.trim() ?? '';
+  expect(presetName, 'the card must carry the preset name as an attribute').not.toBe('');
+
+  await card.click();
+
+  // No `if (count > 0)` around this. A probe that tolerates a missing trigger is how the
+  // previous version of this test passed for a fortnight without opening anything: if
+  // `run-preset` is not there, this must FAIL and name it.
+  await page.getByTestId('run-preset').click();
   const confirm = page.getByTestId('run-confirm');
-  const runTrigger = page.getByTestId('preset-run-cta');
-  if ((await confirm.count()) === 0 && (await runTrigger.count()) > 0) {
-    await runTrigger.click();
-  }
-  test.skip(
-    (await confirm.count()) === 0,
-    'the run drawer ships in plan 02-12; nothing can queue a run yet',
-  );
+  await expect(confirm).toBeVisible();
 
-  const presetName = (await page.locator('h1').first().innerText()).trim();
   await confirm.click();
 
   await page.goto(SPEND);
