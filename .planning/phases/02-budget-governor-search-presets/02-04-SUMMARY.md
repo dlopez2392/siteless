@@ -287,6 +287,13 @@ Ready for the rest of wave 1 and for 02-05:
 
 Carry-forward for the verifier: the `src/db/schema/orgs.ts` grep hit described under Issues, and the note that the price-book free-allowance test is also killed by the price mutation.
 
+## Self-Check: PASSED
+
+All 9 files this plan claims to have created exist on disk. All three commits exist in
+`git log` on `worktree-agent-a62016f707553635f`: `603a0c7`, `b6796aa`, `843c690` (the last
+being this SUMMARY's own commit). `git status --short` is empty and `.env.local` is matched
+by `.gitignore:4` (`.env.*`), so it was never staged.
+
 ---
 *Phase: 02-budget-governor-search-presets*
 *Completed: 2026-09-22*
