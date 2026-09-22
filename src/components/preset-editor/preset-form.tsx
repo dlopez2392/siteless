@@ -178,11 +178,15 @@ export function PresetForm({
         displayName: state.displayName.trim(),
         spec,
         ...(initial.loadedVersion === undefined ? {} : { loadedVersion: initial.loadedVersion }),
-        // 🔴 ONLY A SETTLED ESTIMATE IS SAVED. `busy` means the figure on screen belongs to
-        // an earlier selection, and a snapshot records what somebody was QUOTED for this
-        // version — attaching a stale one would put a price on a preset nobody was ever
-        // shown. No snapshot is a fine outcome; a wrong one is not.
-        ...(estimate === null || busy ? {} : { estimateSnapshot: estimate }),
+        // 🔴 NO ESTIMATE SNAPSHOT IS SENT FROM HERE, AND THE ACTION NO LONGER ACCEPTS ONE
+        // (WR-05). The `busy` check that used to guard it was not enough: `useLiveEstimate`
+        // marks a key settled on its ERROR branch too — deliberately, so the panel keeps the
+        // last good figure instead of blanking — so `busy` was false while the number on
+        // screen belonged to a different selection, and that number was stored as this
+        // version's quote. Beyond staleness it was client-authored data saved as "what the
+        // estimator quoted", shape-validated and nothing more. `savePresetVersion` prices the
+        // spec it is actually saving, inside its own transaction, against the same seed and
+        // the same meter the panel's figure came from.
       });
 
       if (result.ok) {

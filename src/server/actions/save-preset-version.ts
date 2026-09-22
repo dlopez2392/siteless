@@ -13,8 +13,8 @@ import {
   UNEXPECTED_ERROR,
 } from '@/lib/ui/copy';
 import {
-  estimateRangeSchema,
   geoPayloadOf,
+  getSeedTables,
   presetSpecSchema,
   readCurrentVersionNumber,
   readReferenceIndex,
@@ -22,7 +22,9 @@ import {
   toStoredEstimate,
 } from '@/server/queries/presets';
 import { sql } from 'drizzle-orm';
-import { rowsOf } from '@/server/queries/budget';
+import { ESTIMATE_SKU } from '@/lib/estimate/assumptions';
+import { estimatePreset as computeEstimate } from '@/lib/estimate/estimate';
+import { readCurrentPeriod, readUnitsUsedThisPeriod, rowsOf } from '@/server/queries/budget';
 import { isUniqueViolationOn } from './_pg';
 import { fail, ok, type ActionResult } from './_result';
 
@@ -56,7 +58,6 @@ const saveInputSchema = z.strictObject({
   spec: presetSpecSchema,
   /** The version the form was loaded from. Absent when creating; required when editing. */
   loadedVersion: z.number().int().min(1).max(1_000_000).optional(),
-  estimateSnapshot: estimateRangeSchema.optional(),
 });
 
 /**
@@ -84,7 +85,7 @@ export async function savePresetVersion(input: unknown): Promise<
   const parsed = saveInputSchema.safeParse(input);
   if (!parsed.success) return fail('validation', validationCopy(parsed.error));
 
-  const { searchId, displayName, spec, loadedVersion, estimateSnapshot } = parsed.data;
+  const { searchId, displayName, spec, loadedVersion } = parsed.data;
   if (searchId !== undefined && loadedVersion === undefined) {
     // Without it there is no version to insert AFTER, and picking one by reading the current
     // maximum would be exactly the check-then-write this path exists to avoid.
@@ -95,8 +96,6 @@ export async function savePresetVersion(input: unknown): Promise<
   }
 
   const { kind: geoKind, payload: geoPayload } = geoPayloadOf(spec.geo);
-  const snapshotJson =
-    estimateSnapshot === undefined ? null : JSON.stringify(toStoredEstimate(estimateSnapshot));
 
   try {
     const result = await withOrg(claims, async (tx) => {
@@ -172,6 +171,44 @@ export async function savePresetVersion(input: unknown): Promise<
         resolved.clusterIds.map((id) => sql`${id}`),
         sql`, `,
       )}]::uuid[]`;
+
+      // 🔴 WR-05. THE SNAPSHOT IS PRICED HERE, FROM THE SPEC BEING SAVED, INSIDE THIS
+      // TRANSACTION. It used to arrive from the browser, and two things were wrong with that.
+      //
+      // The first is staleness. `useLiveEstimate` keeps the last GOOD range when a recompute
+      // fails — correct for display, so the panel never blanks — and marks the key settled on
+      // the error branch, so `busy` goes false. The form's `busy` check therefore passed while
+      // the figure on screen belonged to a DIFFERENT selection, and that figure was stored as
+      // this version's quote. The preset list then reads "Est. ~$X" for a preset nobody was
+      // ever quoted $X for.
+      //
+      // The second is simpler and worse: it was client-authored data stored as "what the
+      // estimator quoted". `estimateRangeSchema` validated its SHAPE and nothing else, so any
+      // browser could name any price.
+      //
+      // Recomputing costs one meter read and one units read on a path that is already a
+      // transaction, and it is the same arithmetic `estimate-preset.ts` runs — same seed, same
+      // period, same allowance. `null` when the estimator refuses: a preset genuinely costing
+      // $0.00 early in the month is a real answer, so "no snapshot" must stay distinguishable
+      // from "$0.00" (preset-card.tsx renders them differently on purpose).
+      let snapshotJson: string | null = null;
+      try {
+        const period = await readCurrentPeriod(tx, 'places');
+        const units = await readUnitsUsedThisPeriod(tx, ESTIMATE_SKU, period.id);
+        const range = computeEstimate(resolved.spec, {
+          seed: getSeedTables(),
+          unitsUsedThisPeriod: units,
+          capMicroUsd: period.capMicroUsd,
+          spentMicroUsd: period.spentMicroUsd,
+          reservedMicroUsd: period.reservedMicroUsd,
+        });
+        snapshotJson = JSON.stringify(toStoredEstimate(range));
+      } catch {
+        // The estimator throws on a cluster-geography pair the seed cannot price. A save is
+        // not the moment to refuse over it — the preset is still a preset — so the version is
+        // stored without a quote rather than not stored at all.
+        snapshotJson = null;
+      }
 
       // 🔴 `created_by` is the Clerk `sub`, and the audit row is NOT written here: the
       // `app.log_event` trigger on `search_versions` writes it, takes neither org nor actor

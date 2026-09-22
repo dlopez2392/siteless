@@ -123,6 +123,46 @@ describe('server actions', () => {
     expect(offenders, 'Next refuses a non-async export from a server module').toEqual([]);
   });
 
+  it('no server action takes a price from the client', () => {
+    const files = actionFiles();
+    expect(files.length).toBeGreaterThanOrEqual(6);
+
+    // 🔴 WR-05. `savePresetVersion` accepted `estimateSnapshot` in its input schema and
+    // stored it verbatim as "what the estimator quoted for this version". Two defects in one
+    // field: the browser sent a figure that could belong to a DIFFERENT selection (the live
+    // hook marks a key settled on its error branch, so the form's `busy` guard was false
+    // while the panel showed the previous spec's price), and the figure was client-authored
+    // data recorded as the product's own quote — `estimateRangeSchema` checked its shape and
+    // nothing else, so any browser could name any price.
+    //
+    // A money value that a caller supplies and the product then attributes to itself is the
+    // shape, not the field name, so this walks the whole directory rather than one file: the
+    // next action to store a cost — Phase 4's settle path is the obvious one — is the reason
+    // this test exists rather than a one-line assertion about the schema that was fixed.
+    // Prices are DERIVED, from the seed and the meter, inside the transaction that writes them.
+    const forbidden = [
+      'estimateSnapshot:',
+      'costMicroUsd:',
+      'microUsd:',
+      'capMicroUsd:',
+      'actualMicroUsd:',
+    ];
+    const offenders: string[] = [];
+    for (const file of files) {
+      const source = read(file);
+      // Only the INPUT contract. An action may compute, name and return these freely; what it
+      // may not do is let a caller hand one in. The schemas are the `z.strictObject({...})`
+      // literals, and every action in this directory declares exactly one.
+      for (const match of source.matchAll(/z\.strictObject\(\{([\s\S]*?)\}\)/g)) {
+        const shape = match[1] ?? '';
+        for (const token of forbidden) {
+          if (shape.includes(token)) offenders.push(`${file}: ${token}`);
+        }
+      }
+    }
+    expect(offenders, 'a price a caller supplies is not a price the product measured').toEqual([]);
+  });
+
   it('no server action reads a Google credential', () => {
     const files = actionFiles();
     expect(files.length).toBeGreaterThanOrEqual(6);
