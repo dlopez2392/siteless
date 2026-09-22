@@ -92,6 +92,65 @@ database is a guaranteed drift bug.
 - **No Supabase CLI migrations. No MCP `apply_migration`.** The Supabase CLI is installed for
   `supabase start` only.
 
+## Grants
+
+**Row-level security is the second layer, not the first.** Postgres checks the GRANT before it
+evaluates a single policy, and two table privileges are exempt from RLS entirely:
+
+- **`TRUNCATE` ignores row-level security by design.** A policy-scoped session holding it can
+  erase every tenant's rows *and the audit log* in one statement, and no policy sees it happen.
+- **`MAINTAIN`** (PostgreSQL 17+) carries `VACUUM FULL`, `CLUSTER` and `REINDEX`, each of which
+  takes an `ACCESS EXCLUSIVE` lock on a tenant table — denial of service on demand.
+
+**This is not hypothetical.** Supabase ships
+`alter default privileges ... grant all on tables to anon, authenticated, service_role` for
+schema `public`, so every table drizzle-kit created as `postgres` inherited `arwdDxtm` — the
+full set — for `anon` and `authenticated` on the production project. 01-10's production-vs-local
+side-by-side found it; `truncate public.events` as `authenticated` **succeeded** on production,
+and so did `truncate orgs, businesses, source_records, events cascade` as both `authenticated`
+and `anon`. A green migration, a green build and a green local suite all agreed it did not
+exist. `drizzle/0008_revoke_platform_grants.sql` closes it on both databases.
+
+**The rules, from migration 0008 onward:**
+
+- **A new table inherits nothing.** 0008 ends the default ACL for `anon` and `authenticated` on
+  tables in `public` — including migration 0002's own
+  `alter default privileges ... grant select, insert, update, delete on tables to authenticated`.
+  **Do not rely on it; it is gone.** The migration that creates a table **grants the DML its
+  policies need explicitly, in that same migration**, exactly as it declares `org_id`, the RLS
+  policies and the `_org_idx`. A table created without its grant fails loudly with
+  `42501 permission denied for table <t>` on the first user-role statement — which is the
+  intended failure mode, and the reason the default was retired rather than narrowed.
+- **`authenticated` gets DML and nothing else.** `select, insert, update, delete` where the
+  policies need them; never `truncate`, `references`, `trigger` or `maintain`. `events` is the
+  exception in the other direction — `select, insert` only, because D-06 makes it immutable by
+  grant (see Audit and attribution).
+- **`anon` gets nothing, on any table, ever.** It is not a Siteless caller: `app_user` is
+  `NOINHERIT` and holds `authenticated` alone. `anon` appearing in a grant is a defect.
+- **`service_role` is server-side only** — `bypassrls`, never held by a browser session, and
+  nothing in `src/` connects as it. Its privileges and its default privileges are deliberately
+  left in place; revoking from it is not a security improvement, it is a future outage.
+- **Sequences are not touched.** `authenticated` keeps `usage, select` on sequences in `public`
+  (migration 0002). `events.id` is an identity column and an INSERT needs the sequence; the
+  events insert test is what would catch its loss.
+- **One default ACL on production cannot be fixed and does not need to be.** Alongside the
+  `postgres`-owned entry, Supabase keeps a `supabase_admin`-owned default ACL for `public` that
+  still grants `arwdDxtm` to `anon` and `authenticated`. `postgres` is not a member of
+  `supabase_admin` and cannot alter it (`permission denied to change default privileges`,
+  attempted on production and rolled back). It is inert here: it governs only tables created
+  **by** `supabase_admin`, which owns none, while drizzle-kit creates every table as `postgres`.
+  The guard is scoped to the default ACLs of the roles that actually own tables in `public`.
+
+**`tests/db/grants-audit.test.ts` is the guard, and a new table must extend it.** Add the table
+name to its `TENANT_TABLES` array — an array literal in the test file, never a config file, so
+widening it is a diff a reviewer sees. Test 1 asserts that array equals the live contents of
+`public`, so *forgetting* to add it is red rather than silently unguarded.
+
+**Assert the attempt, not only the catalog.** `has_table_privilege` reports what the catalog
+holds; only issuing the statement inside a rolled-back transaction reports what the server does.
+The TRUNCATE guards do both, and they run as `actAsRole('authenticated')` with **no claims** on
+purpose — these are grant refusals, and a claim would only make them look like RLS tests.
+
 ## Audit and attribution
 
 The audit trail is **enforced, not conventional** (D-06 + D-08). A raw SQL write that no
