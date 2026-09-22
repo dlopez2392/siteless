@@ -49,9 +49,12 @@ const TENANT_TABLES = [
   'searches',
   'search_versions',
   'runs',
-  // NOT budget_periods / cost_reservations / cost_ledger: plan 02-05 creates those and
-  // widens this array again. Listing a table that does not exist yet makes test 1 red
-  // for a correct reason.
+  // Phase 2 plan 05. The meter. All three grant SELECT and nothing else (drizzle/0015) —
+  // every write is a SECURITY DEFINER function — so they are the first tables here whose
+  // DML row in the matrix below is a single `true`.
+  'budget_periods',
+  'cost_reservations',
+  'cost_ledger',
 ];
 
 const valuesOf = (xs: string[]) => xs.map((x) => `('${x}')`).join(',');
@@ -96,7 +99,7 @@ describe('grants audit', () => {
       expect(live.map((r) => r.tbl)).toEqual([...TENANT_TABLES].sort());
 
       const { rows } = await c.query<PrivRow>(privilegeMatrix('authenticated', NON_DML));
-      // 13 tables x 4 privileges. If this number moves, the enumeration stopped enumerating.
+      // 16 tables x 4 privileges. If this number moves, the enumeration stopped enumerating.
       expect(rows).toHaveLength(TENANT_TABLES.length * NON_DML.length);
       expect(rows.filter((r) => r.held)).toEqual([]);
     }));
@@ -207,7 +210,7 @@ describe('grants audit', () => {
     }));
 
   /**
-   * The other direction for the nine tables plan 02-03 adds. The two tests above prove
+   * The other direction for the twelve tables plans 02-03 and 02-05 add. The two above prove
    * `authenticated` holds nothing DANGEROUS; this proves it holds exactly what each
    * table's policies need and nothing more — which the audit could not otherwise see,
    * because since migration 0008 a new table inherits NO privileges at all and a migration
@@ -225,9 +228,17 @@ describe('grants audit', () => {
    *     zero-row filter a policy-only approach produces.
    *   * `runs` is SELECT + INSERT at table level, and UPDATE is a COLUMN grant (see the
    *     test below). No DELETE: a deleted run is deleted spend history.
+   *   * The three plan 02-05 meter tables are SELECT and NOTHING ELSE. This is the whole
+   *     of D-10 and half of T-2-03 stated as a grant: with no UPDATE on budget_periods a
+   *     member cannot raise the cap by hand (the only path is app.set_budget_cap, which
+   *     re-checks the admin role), and with no INSERT on cost_ledger the only writer is
+   *     app.settle_reservation, which loads a reservation first. Every write to the meter
+   *     is a SECURITY DEFINER function that resolves the caller from its own claims.
    *
    * Mutation: `revoke select on public.counties from authenticated;` against the live
    * database — this test goes red naming counties, and only this one.
+   * Second mutation: `grant update on public.budget_periods to authenticated;` — this test
+   * goes red naming budget_periods, and only this one.
    */
   it('authenticated holds exactly the DML each Phase 2 table needs', () =>
     withRollback(async (c) => {
@@ -244,6 +255,10 @@ describe('grants audit', () => {
         search_versions: [true, true, false, false],
         // UPDATE is column-level, so the TABLE-level answer is false. DELETE is withheld.
         runs: [true, true, false, false],
+        // The meter. SELECT only — no column grant either, unlike runs and orgs.
+        budget_periods: [true, false, false, false],
+        cost_reservations: [true, false, false, false],
+        cost_ledger: [true, false, false, false],
       };
       const names = Object.keys(EXPECTED);
       const { rows } = await c.query<{ tbl: string; s: boolean; i: boolean; u: boolean; d: boolean }>(`
@@ -259,6 +274,31 @@ describe('grants audit', () => {
       expect(rows).toHaveLength(names.length);
       const actual = Object.fromEntries(rows.map((r) => [r.tbl, [r.s, r.i, r.u, r.d]]));
       expect(actual).toEqual(EXPECTED);
+
+      // D-10 says "no UPDATE grant on budget_periods AT ALL", and has_table_privilege
+      // cannot say that: it reports false for runs and orgs too, both of which DO hold a
+      // column-level UPDATE. Without this, migration 0015 could be softened to
+      // `grant update (cap_micro_usd) on budget_periods to authenticated` — restoring
+      // exactly the direct-write path app.set_budget_cap exists to be the only door to —
+      // and every assertion above would stay green.
+      const { rows: cols } = await c.query<{
+        bp_any_update: boolean;
+        cr_any_update: boolean;
+        cl_any_insert: boolean;
+        runs_any_update: boolean;
+      }>(`
+        select has_any_column_privilege('authenticated','public.budget_periods','UPDATE')   as bp_any_update,
+               has_any_column_privilege('authenticated','public.cost_reservations','UPDATE') as cr_any_update,
+               has_any_column_privilege('authenticated','public.cost_ledger','INSERT')       as cl_any_insert,
+               has_any_column_privilege('authenticated','public.runs','UPDATE')              as runs_any_update`);
+      expect(cols[0]).toEqual({
+        bp_any_update: false,
+        cr_any_update: false,
+        cl_any_insert: false,
+        // The positive control: has_any_column_privilege genuinely discriminates on this
+        // database, so the three falses above are a finding and not a broken predicate.
+        runs_any_update: true,
+      });
     }));
 
   /**
