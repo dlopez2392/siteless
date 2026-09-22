@@ -8,6 +8,17 @@ drizzle/
 *.md
 .github/
 
+# The test-harness configs go with the directory they configure. `playwright.config.ts`
+# imports `./tests/e2e/_required-env` at the top level, so with `tests/` excluded and the
+# config shipped, `next build` compiled fine and then FAILED type checking on Vercel with
+# TS2307 — a build error that cannot reproduce locally, because locally `tests/` exists.
+# The two vitest configs reference `tests/` only through string globs and so did not
+# break, but they are harness for an excluded directory just the same and closing the
+# class costs nothing. None of the three is imported by anything under `src/`.
+playwright.config.ts
+vitest.config.ts
+vitest.db.config.ts
+
 # drizzle/ is excluded deliberately, not incidentally: migrations are applied from a
 # developer machine by `pnpm db:migrate:prod` against the session pooler, never at build
 # time and never at runtime. Shipping the migration files would put a build-time or
