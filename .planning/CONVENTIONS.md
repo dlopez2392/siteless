@@ -124,7 +124,7 @@ exist. `drizzle/0008_revoke_platform_grants.sql` closes it on both databases.
 - **`authenticated` gets DML and nothing else.** `select, insert, update, delete` where the
   policies need them; never `truncate`, `references`, `trigger` or `maintain`. `events` is the
   exception in the other direction — `select, insert` only, because D-06 makes it immutable by
-  grant (see Audit and attribution).
+  grant (see Audit and attribution) — and from 0011 it is `select` only.
 - **A key a policy cannot protect is a COLUMN grant, not a table grant** (migration 0010). A
   policy's `WITH CHECK` sees the finished row and has no access to `OLD`, so it can express
   "the row still belongs to me" but never "this column did not change". `orgs_update` protects
@@ -193,12 +193,31 @@ a fix reached exactly one of them.
   enumeration would report full coverage while attribution was silently off.
 - `app.touch_updated_at()` goes on **every mutable table**, and it must be `before update`.
   An `after` attachment recurses — it mutates `NEW` and returns it.
-- `events` is **immutable by GRANT, not by policy**: `grant select, insert on events to
-  authenticated` and `revoke update, delete on events from authenticated`. A missing policy
-  denies by default today, but a later `for all` policy would silently re-open it. The grant
-  refusal is `42501 permission denied for table events` — a different message from the RLS
+- `events` is **immutable by GRANT, not by policy**: `grant select on events to
+  authenticated` and `revoke insert, update, delete on events from authenticated`. A missing
+  policy denies by default today, but a later `for all` policy would silently re-open it. The
+  grant refusal is `42501 permission denied for table events` — a different message from the RLS
   refusal (`new row violates row-level security policy`) and impossible to mistake for the
   silent zero-row filter an RLS-only setup produces. **Pin the message, not only the code.**
+- **`authenticated` holds no INSERT on `events` either** (migration 0011). Append-only
+  protected the PAST and left the present writable: `events_insert` admits any row whose
+  `org_id` matches the caller, so a session could author `actor_id = 'user_someone_else'` and
+  the record of truth would record a state change that never happened. That put D-06's
+  integrity back on "the application tier never issues that statement", which is the exact
+  assumption the trigger design exists to retire. **Every writer is a `SECURITY DEFINER`
+  running as the owner**, and none of them takes `org_id` or `actor_id` as a parameter:
+
+  | Writer | For | Reads the actor from |
+  |---|---|---|
+  | `app.log_event()` | row-level state on `orgs`, `businesses` (Phase 7: `leads`) | `app.jwt()->>'sub'` → `app.actor_id` GUC → `'system'` |
+  | `app.emit_event(text, uuid, text, jsonb)` | the app-tier / bulk-ingest **run-level** event | the same resolution, so both attribute identically |
+
+  **Phase 3's one run-level event goes through `app.emit_event`**, not through a direct
+  insert. The `events_insert` policy is kept although nothing can reach it — the grant layer
+  refuses first, and it is the scope that would still apply if a later migration re-granted
+  INSERT. `usage, select on sequences` (0002) is likewise left in place: `events.id` is an
+  identity column but the only writer is now a definer, so the grant is inert rather than
+  wrong. Retiring it is its own migration with its own test.
 - Every `SECURITY DEFINER` function pins `set search_path = public` on the same statement. A
   definer function whose search_path is attacker-influenced runs as the owner (ASVS V4). Today
   that is `app.current_org_id()`, `app.ensure_org()` and `app.log_event()`.
@@ -314,7 +333,9 @@ grant: `name_internal`, `display_name`, `timezone` and nothing else (0010).
 | `created_at` / `updated_at` | `timestamptz not null` | default `now()` |
 | `updated_by` | `text` | stamped by `app.touch_updated_at()` |
 
-**`events`** — append-only. RLS on; `events_select`, `events_insert` only; UPDATE/DELETE revoked.
+**`events`** — append-only. RLS on; `events_select`, `events_insert` only. `authenticated` holds
+`select` and nothing else: INSERT/UPDATE/DELETE are all revoked (0007, 0011), and every writer is
+a `SECURITY DEFINER` (`app.log_event()`, `app.emit_event()`).
 
 | Column | Type | Notes |
 |---|---|---|

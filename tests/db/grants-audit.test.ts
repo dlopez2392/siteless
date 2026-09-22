@@ -174,7 +174,11 @@ describe('grants audit', () => {
         b_update: true,
         b_delete: true,
         e_select: true,
-        e_insert: true,
+        // WR-01: revoked by 0011. Append-only protected the past and left the present
+        // writable — a session could author an events row with any actor_id it liked. The
+        // app-tier path is app.emit_event(), a SECURITY DEFINER that stamps the actor from
+        // the claims and needs no grant; app.log_event() never needed one either.
+        e_insert: false,
         // D-06 survives migration 0008's blanket `grant all` — 0008 re-asserts 0007.
         e_update: false,
         e_delete: false,
