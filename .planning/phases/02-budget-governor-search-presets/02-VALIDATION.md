@@ -137,21 +137,21 @@ created: 2026-09-22
 | 02-07-T2 | 02-07 | 2 | SRCH-01 | T-2-13 | Census parse: McAllen hit, Rio Grande City hit, empty `addressMatches` → `no_match`, 503 → `unreachable`; axis order pinned by a sign assertion; msw errors on any unhandled request | unit (msw) | `$PNPM test:unit -t "census"` | ❌ W0 | ⬜ pending |
 | 02-07-T2 | 02-07 | 2 | SRCH-01 | T-2-13 | a non-TX match (`STATE !== '48'`) is rejected, with the unmodified fixture as the positive control | unit | `$PNPM test:unit -t "texas only"` | ❌ W0 | ⬜ pending |
 | 02-07-T2 | 02-07 | 2 | SRCH-01 | T-2-13 | the address is only ever a query parameter of a hard-coded host; an over-long or empty address never reaches the network | unit (msw) | `$PNPM test:unit -t "only ever a query parameter"` | ❌ W0 | ⬜ pending |
-| 02-08-T1 | 02-08 | 3 | BUDG-02 | T-2-04 | a denial is **zero rows**, not an exception; nothing throws and no reservation row is created | DB | `$PNPM test:db -t "denied returns null"` | ❌ W0 | ⬜ pending |
-| 02-08-T1 | 02-08 | 3 | BUDG-02 | T-2-07 | `CHECK (spent+reserved<=cap)` refuses a hand-written over-reserve → `23514 bp_not_over` | DB | `$PNPM test:db -t "bp_not_over"` | ❌ W0 | ⬜ pending |
-| 02-08-T1 | 02-08 | 3 | BUDG-02 | T-2-07 | lowering the cap below `spent+reserved` → `23514`; to exactly `spent+reserved` → accepted (positive control) | DB | `$PNPM test:db -t "cap below"` | ❌ W0 | ⬜ pending |
-| 02-08-T1 | 02-08 | 3 | BUDG-02 | T-2-06 | a crashed worker's expired reservations are released by the next reserve; a LIVE reservation is not | DB | `$PNPM test:db -t "self-heal"` | ❌ W0 | ⬜ pending |
-| 02-08-T1 | 02-08 | 3 | BUDG-02 | T-2-11 | the 80 % crossing emits exactly ONE `events` row per period (second reserve does not re-emit); 100 % refuses | DB | `$PNPM test:db -t "threshold"` | ❌ W0 | ⬜ pending |
-| 02-08-T1 | 02-08 | 3 | BUDG-01 | T-2-05 | `settle()` twice with one `request_id` → one ledger row, one balance move, `false` on the replay | DB | `$PNPM test:db -t "settlement idempotency"` | ❌ W0 | ⬜ pending |
-| 02-08-T1 | 02-08 | 3 | BUDG-01 | T-2-03 | a zero-cost paid-SKU call still writes a ledger row (`micro_usd 0`, `units 1`) — the free allowance is otherwise untrackable | DB | `$PNPM test:db -t "zero-cost paid-SKU"` | ❌ W0 | ⬜ pending |
-| 02-08-T1 | 02-08 | 3 | BUDG-01 | — | `micro_usd 35000` renders `cost_cents 3.50`; 1,428 rows sum to `$49.98` | DB | `$PNPM test:db -t "cost_cents"` | ❌ W0 | ⬜ pending |
-| 02-08-T1 | 02-08 | 3 | Pitfall 1 | — | the test database reports `server_version_num >= 170000` | DB | `$PNPM test:db -t "server version"` | ❌ W0 | ⬜ pending |
-| 02-08-T2 | 02-08 | 3 | BUDG-02 | T-2-02 | a non-admin cannot change the cap → `42501 set_budget_cap: admin role required`; an admin can (positive control) | DB | `$PNPM test:db -t "set_budget_cap"` | ❌ W0 | ⬜ pending |
-| 02-08-T2 | 02-08 | 3 | BUDG-02 | T-2-02 | `o.rol` (v2, bare) **and** `org_role` (v1, prefixed) both resolve to `admin`; a member does not | DB | `$PNPM test:db -t "current_org_role"` | ❌ W0 | ⬜ pending |
-| 02-08-T2 | 02-08 | 3 | BUDG-02 | T-2-02 | a direct `update budget_periods` as `authenticated` → `42501 permission denied for table budget_periods` — a DIFFERENT invariant from the role check | DB | `$PNPM test:db -t "no direct UPDATE"` | ❌ W0 | ⬜ pending |
-| 02-08-T2 | 02-08 | 3 | D-10 / FOUND-03 | T-2-11 | a cap change writes an `events` row with actor + timestamp from a RAW SQL write; a reservation does NOT | DB | `$PNPM test:db -t "cap change is audited"` | ❌ W0 | ⬜ pending |
-| 02-08-T2 | 02-08 | 3 | D-11 | — | one instant, two zones, opposite month verdicts in SQL; October's period begins 05:00Z and March's 06:00Z | DB | `$PNPM test:db -t "two zones"` | ✏️ extend Phase 1's | ⬜ pending |
-| 02-08-T3 | 02-08 | 3 | BUDG-02 | T-2-04 | **criterion 5:** 40 concurrent reservations against a cap that fits 10 → exactly 10 granted, 30 denied, `reserved+spent == cap`, 0 errors; and the same under a crashed-worker fixture | DB (multi-conn) | `$PNPM test:db -t "concurrent burst"` | ❌ W0 (harness 02-02-T2) | ⬜ pending |
+| 02-08-T1 | 02-08 | 3 | BUDG-02 | T-2-04 | a denial is **zero rows**, not an exception; nothing throws and no reservation row is created | DB | `$PNPM test:db -t "denied returns null"` | ❌ W0 | ✅ green |
+| 02-08-T1 | 02-08 | 3 | BUDG-02 | T-2-07 | `CHECK (spent+reserved<=cap)` refuses a hand-written over-reserve → `23514 bp_not_over` | DB | `$PNPM test:db -t "bp_not_over"` | ❌ W0 | ✅ green |
+| 02-08-T1 | 02-08 | 3 | BUDG-02 | T-2-07 | lowering the cap below `spent+reserved` → `23514`; to exactly `spent+reserved` → accepted (positive control) | DB | `$PNPM test:db -t "cap below"` | ❌ W0 | ✅ green |
+| 02-08-T1 | 02-08 | 3 | BUDG-02 | T-2-06 | a crashed worker's expired reservations are released by the next reserve; a LIVE reservation is not | DB | `$PNPM test:db -t "self-heal"` | ❌ W0 | ✅ green |
+| 02-08-T1 | 02-08 | 3 | BUDG-02 | T-2-11 | the 80 % crossing emits exactly ONE `events` row per period (second reserve does not re-emit); 100 % refuses | DB | `$PNPM test:db -t "threshold"` | ❌ W0 | ✅ green |
+| 02-08-T1 | 02-08 | 3 | BUDG-01 | T-2-05 | `settle()` twice with one `request_id` → one ledger row, one balance move, `false` on the replay | DB | `$PNPM test:db -t "settlement idempotency"` | ❌ W0 | ✅ green |
+| 02-08-T1 | 02-08 | 3 | BUDG-01 | T-2-03 | a zero-cost paid-SKU call still writes a ledger row (`micro_usd 0`, `units 1`) — the free allowance is otherwise untrackable | DB | `$PNPM test:db -t "zero-cost paid-SKU"` | ❌ W0 | ✅ green |
+| 02-08-T1 | 02-08 | 3 | BUDG-01 | — | `micro_usd 35000` renders `cost_cents 3.50`; 1,428 rows sum to `$49.98` | DB | `$PNPM test:db -t "cost_cents"` | ❌ W0 | ✅ green |
+| 02-08-T1 | 02-08 | 3 | Pitfall 1 | — | the test database reports `server_version_num >= 170000` | DB | `$PNPM test:db -t "server version"` | ❌ W0 | ✅ green |
+| 02-08-T2 | 02-08 | 3 | BUDG-02 | T-2-02 | a non-admin cannot change the cap → `42501 set_budget_cap: admin role required`; an admin can (positive control) | DB | `$PNPM test:db -t "set_budget_cap"` | ❌ W0 | ✅ green |
+| 02-08-T2 | 02-08 | 3 | BUDG-02 | T-2-02 | `o.rol` (v2, bare) **and** `org_role` (v1, prefixed) both resolve to `admin`; a member does not | DB | `$PNPM test:db -t "current_org_role"` | ❌ W0 | ✅ green |
+| 02-08-T2 | 02-08 | 3 | BUDG-02 | T-2-02 | a direct `update budget_periods` as `authenticated` → `42501 permission denied for table budget_periods` — a DIFFERENT invariant from the role check | DB | `$PNPM test:db -t "no direct UPDATE"` | ❌ W0 | ✅ green |
+| 02-08-T2 | 02-08 | 3 | D-10 / FOUND-03 | T-2-11 | a cap change writes an `events` row with actor + timestamp from a RAW SQL write; a reservation does NOT | DB | `$PNPM test:db -t "cap change is audited"` | ❌ W0 | ✅ green |
+| 02-08-T2 | 02-08 | 3 | D-11 | — | one instant, two zones, opposite month verdicts in SQL; October's period begins 05:00Z and March's 06:00Z | DB | `$PNPM test:db -t "two zones"` | ✏️ extend Phase 1's | ✅ green |
+| 02-08-T3 | 02-08 | 3 | BUDG-02 | T-2-04 | **criterion 5:** 40 concurrent reservations against a cap that fits 10 → exactly 10 granted, 30 denied, `reserved+spent == cap`, 0 errors; and the same under a crashed-worker fixture | DB (multi-conn) | `$PNPM test:db -t "concurrent burst"` | ❌ W0 (harness 02-02-T2) | ✅ green |
 | 02-09-T3 | 02-09 | 3 | BUDG-02 | T-2-01 | every server action declares `'use server'` and calls `requireOrg()` BEFORE its first `withOrg(`; the walker is proven non-empty | unit (static) | `$PNPM test:unit -t "every server action"` | ❌ W0 | ⬜ pending |
 | 02-10-T2 | 02-10 | 4 | BUDG-04 | D-12 | ≥80 % renders the persistent banner on **every** route and it is not dismissible; <80 % renders nothing | E2E | `$PNPM test:e2e -g "budget banner"` | ❌ W0 | ⬜ pending |
 | 02-10-T3 | 02-10 | 4 | UI-SPEC R7 | T-2-10 | `signed-in-as` / `org-id` / `org-row-id` resolve on `/settings/organization` | E2E | `$PNPM test:e2e -g "org-scoped"` | ✏️ move spec | ⬜ pending |
@@ -185,6 +185,17 @@ created: 2026-09-22
 | M12 | `grant update on public.search_versions to authenticated` | `versions immutable` only; `run keeps its version` stays green |
 
 Each per CONVENTIONS § Testing: watched failing first, SQLSTATE **and** constraint name pinned, message pinned where two invariants share `42501`, one refused statement per rolled-back transaction, a positive control beside every refusal, and every test's **name** read in the output.
+
+### Executed at plan 02-08 — two of the predictions above are wrong, and here is what happened
+
+| # | Predicted | **Measured** (live local DB, 2026-09-22) |
+|---|---|---|
+| M7 | over-spend: granted 40 of 40, reserved 400 | 🔴 **Only with `bp_not_over` ALSO dropped** (granted 37, reserved 370). With the constraint standing, the naive body granted 10 and raised `23514` for the other 30 — the second wall converts the race into 30 crashed workers rather than an over-spend. Both configurations red all three `concurrent burst` tests and leave **every** single-worker test green (87 passed). M7 must be applied SURGICALLY (swap only the conditional UPDATE): a whole-body rewrite also reds `self-heal` and `threshold`, which proves only that the rewrite deleted them. |
+| M9 | `settlement idempotency` only | 🔴 **Reds FOUR tests.** The UNIQUE index is the arbiter of `on conflict (request_id)`, so dropping it makes every settlement raise `42P10` — the three other settlement tests fail before reaching their own assertion. Use **M9b** for a one-test result: keep the index, delete only the `on conflict … do nothing` clause from `app.settle_reservation`, and a replay raises `23505` while everything else stays green. |
+| M8 · M10 | as predicted | ✅ M8 reds `bp_not_over refuses a hand-written over-reserve` + `cap below current spend is refused`, control green. M10 reds `set_budget_cap refuses a member` + `current_org_role returns null for a member` (two independent properties — the gate and the resolver, exactly as Phase 1's M3/M5), control green. |
+| MGRANT | — (new) | `grant update on public.budget_periods to authenticated` reds `budget_periods holds no direct UPDATE for authenticated` **and** 02-05's `authenticated holds exactly the DML each Phase 2 table needs`, and NOT the role check — the two cap refusals rest on different invariants. |
+
+🔴 **Reverting a function from the migration file must normalise CRLF first.** The files are checked out with Windows line endings while the migrator fed PostgreSQL LF-only text, so a straight re-create stores a semantically identical body that differs from `pg_get_functiondef` by one `\r` per line — and the revert then cannot be proven.
 
 ---
 
