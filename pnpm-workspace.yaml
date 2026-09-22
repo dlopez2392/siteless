@@ -8,5 +8,18 @@
 # esbuild's postinstall links its platform binary, and tsx, vite, vitest and
 # drizzle-kit all run through it. Allow-list esbuild by name; never re-enable
 # dependency scripts globally.
+#
+# msw is DENIED on purpose, and denying it costs nothing here. Its postinstall
+# reads the parent package.json and returns immediately unless `msw.workerDirectory`
+# is set — it exists only to refresh the browser service-worker script. This phase
+# uses msw in the Node unit lane (the Census Geocoder fixtures), never in a browser,
+# so there is no worker to refresh. Writing `false` rather than leaving pnpm's
+# "set this to true or false" placeholder is what keeps `install --frozen-lockfile`
+# from exiting 1 on ERR_PNPM_IGNORED_BUILDS in CI.
 allowBuilds:
   esbuild: true
+  msw: false
+# jsdom@30.1.1 is newer than the configured minimum release age; pinned and excluded
+# deliberately (STACK.md / 02-RESEARCH.md § New in this phase — test harness).
+minimumReleaseAgeExclude:
+  - jsdom@30.1.1

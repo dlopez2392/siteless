@@ -32,7 +32,7 @@ Parallelization is enabled in config.
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Foundations & Tenancy** - Org-scoped auth, RLS proven by a refused cross-org statement, and the schema constraints that keep Places content out of the durable record (completed 2026-09-22)
-- [ ] **Phase 2: Budget Governor & Search Presets** - Nothing spends outside the meter; danlo defines and costs a search before running it
+- [x] **Phase 2: Budget Governor & Search Presets** - Nothing spends outside the meter; danlo defines and costs a search before running it (completed 2026-09-22)
 - [ ] **Phase 3: Free-Data Spine & Entity Resolution** - Overture + TX Comptroller become one deduped, provenance-tracked RGV business record
 - [ ] **Phase 4: Places Transient Verifier** - Google answers "is there a website URI?" under an allow-listed Enterprise field mask, and almost everything is discarded
 - [ ] **Phase 5: Verification & Receipts** - Cheapest-first probe ladder writes immutable receipts, including negative evidence, one tap from the lead
@@ -93,7 +93,37 @@ Plans:
   3. Editing a preset creates a new version, and a past run still points at the version that produced it.
   4. A spend view shows month-to-date spend versus the cap broken down by provider, fed by a ledger row per paid call.
   5. With the cap reached, a concurrent burst of workers is refused at 100% (and warned at 80%) with no over-spend — proven by a concurrency test — and a Google Cloud per-API daily quota stands as an independent second wall.
-**Plans:** TBD
+**Plans:** 15 plans across 7 waves
+
+Plans:
+**Wave 1**
+- [x] 02-01-PLAN.md — Design system birth: shadcn init, painted tokens, Inter, theme, toaster, jsdom lane
+- [x] 02-02-PLAN.md — Seed data (4 clusters, 17 RGV cities, 254 counties, outlet matrix), Census fixtures, concurrency harness, the Google-credential and PG17 guards
+- [x] 02-03-PLAN.md — Search & reference schema: nine tables, org_id IS NULL policies, grants, version immutability, triggers
+- [x] 02-04-PLAN.md — Cost model: SKU price book, fieldMaskTier, micro-USD money, the Chicago budget month
+
+**Wave 2** *(blocked on Wave 1)*
+- [x] 02-05-PLAN.md — Budget schema + the race-free meter: reserve, self-heal, settle, set_budget_cap
+- [x] 02-06-PLAN.md — Idempotent seed loader, and the built-in and preset-versioning proofs
+- [x] 02-07-PLAN.md — Estimator, Census geocoder, server-safe UI maps
+
+**Wave 3** *(blocked on Wave 2)*
+- [x] 02-08-PLAN.md — The meter proofs: 40-way concurrent burst, thresholds, admin gate, Chicago month in SQL
+- [x] 02-09-PLAN.md — Six server actions, two query modules, and the requireOrg-first static guard
+
+**Wave 4** *(blocked on Wave 3)*
+- [x] 02-10-PLAN.md — App shell, persistent budget banner, organization settings, the e2e testid move
+
+**Wave 5** *(blocked on Wave 4)*
+- [x] 02-11-PLAN.md — Preset list and preset editor with the live debounced estimate
+- [x] 02-12-PLAN.md — Preset detail: version history, duplicate, run drawer with its refusal state
+- [x] 02-13-PLAN.md — Spend view and budget settings, including BUDG-03's second-wall card
+
+**Wave 6** *(blocked on Wave 5, checkpoints)*
+- [x] 02-14-PLAN.md — Production migration and seed, Google quota and Vercel Pro checkpoints
+
+**Wave 7** *(blocked on Wave 6, checkpoints)*
+- [x] 02-15-PLAN.md — Deploy, e2e on the real URL, both-theme screenshot review, gate mutations M7–M12, close VALIDATION
 **UI hint**: yes
 **Security**: /gsd-secure-phase applies — budget enforcement is a spend-control boundary; the reserve→spend→true-up path must be race-free and unbypassable.
 **Notes**: The cost estimator is built against the real cell list as a committed test, not a spreadsheet; its fan-out multiplier is trued up with real invoice data at the Phase 6 gate.
@@ -229,7 +259,7 @@ Plan counts below are estimates until `/gsd-plan-phase` runs for each phase.
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Foundations & Tenancy | 12/12 | Complete | 2026-09-22 |
-| 2. Budget Governor & Search Presets | 0/4 | Not started | - |
+| 2. Budget Governor & Search Presets | 15/15 | Complete | 2026-09-22 |
 | 3. Free-Data Spine & Entity Resolution | 0/5 | Not started | - |
 | 4. Places Transient Verifier | 0/4 | Not started | - |
 | 5. Verification & Receipts | 0/4 | Not started | - |

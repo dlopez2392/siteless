@@ -1,25 +1,19 @@
-import { ensureOrgRow, orgClaims, requireOrg } from '@/lib/auth/require-org';
-
-export const dynamic = 'force-dynamic';
+import { redirect } from 'next/navigation';
 
 /**
- * Success criterion 1's application half: who is signed in, and which tenant the request
- * resolved to. The org id comes only from Clerk's server-verified auth(), never from a
- * header, query param or cookie the app set.
+ * `/` is not a screen. UI-SPEC § App shell § Routes makes it a redirect to the preset
+ * list, which is the product's actual front door.
  *
- * The data-testid attributes are how the e2e spec asserts org scoping without depending
- * on copy. There is no CSS here at all, which is the point — Phase 1 is an unstyled shell.
+ * Phase 1's three tenant-identity hooks used to live here; they moved verbatim to
+ * `/settings/organization` in this plan, along with the spec that asserts them
+ * (Executor Rule 7 — a retired testid fails silently, so the hook and its spec move
+ * together or not at all). Nothing identifying is rendered on this route any more,
+ * because nothing is rendered on this route at all.
+ *
+ * No auth check here on purpose: the redirect lands inside the `(app)` group, whose
+ * layout runs `requireOrg()` as its first statement. Duplicating the gate here would be
+ * a second place for it to drift.
  */
-export default async function Home() {
-  const { userId, orgId, orgSlug } = await requireOrg();
-  const claims = await orgClaims();
-  const orgRowId = await ensureOrgRow(claims, orgSlug ?? orgId); // D-03, just-in-time
-  return (
-    <main>
-      <h1>Siteless</h1>
-      <p data-testid="signed-in-as">Signed in as {userId}</p>
-      <p data-testid="org-id">Org {orgId}</p>
-      <p data-testid="org-row-id">Tenant {orgRowId}</p>
-    </main>
-  );
+export default function Home() {
+  redirect('/presets');
 }

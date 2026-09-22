@@ -31,7 +31,31 @@
 import { describe, expect, it } from 'vitest';
 import { actAsOwner, actAsRole, seedTwoOrgs, withRollback } from './_fixtures';
 
-const TENANT_TABLES = ['orgs', 'businesses', 'source_records', 'events'];
+const TENANT_TABLES = [
+  'orgs',
+  'businesses',
+  'source_records',
+  'events',
+  // Phase 2 plan 03. Six reference tables whose built-ins carry org_id IS NULL, the
+  // versioned preset pair, and runs. Every one of them grants its own DML in
+  // drizzle/0013 — since migration 0008 a new table inherits nothing — and the four
+  // non-DML privileges below must be absent from all thirteen.
+  'industry_clusters',
+  'industry_terms',
+  'counties',
+  'cities',
+  'geo_presets',
+  'outlet_counts',
+  'searches',
+  'search_versions',
+  'runs',
+  // Phase 2 plan 05. The meter. All three grant SELECT and nothing else (drizzle/0015) —
+  // every write is a SECURITY DEFINER function — so they are the first tables here whose
+  // DML row in the matrix below is a single `true`.
+  'budget_periods',
+  'cost_reservations',
+  'cost_ledger',
+];
 
 const valuesOf = (xs: string[]) => xs.map((x) => `('${x}')`).join(',');
 
@@ -75,7 +99,7 @@ describe('grants audit', () => {
       expect(live.map((r) => r.tbl)).toEqual([...TENANT_TABLES].sort());
 
       const { rows } = await c.query<PrivRow>(privilegeMatrix('authenticated', NON_DML));
-      // 4 tables x 4 privileges. If this number moves, the enumeration stopped enumerating.
+      // 16 tables x 4 privileges. If this number moves, the enumeration stopped enumerating.
       expect(rows).toHaveLength(TENANT_TABLES.length * NON_DML.length);
       expect(rows.filter((r) => r.held)).toEqual([]);
     }));
@@ -182,6 +206,173 @@ describe('grants audit', () => {
         // D-06 survives migration 0008's blanket `grant all` — 0008 re-asserts 0007.
         e_update: false,
         e_delete: false,
+      });
+    }));
+
+  /**
+   * The other direction for the twelve tables plans 02-03 and 02-05 add. The two above prove
+   * `authenticated` holds nothing DANGEROUS; this proves it holds exactly what each
+   * table's policies need and nothing more — which the audit could not otherwise see,
+   * because since migration 0008 a new table inherits NO privileges at all and a migration
+   * that forgets its grant produces a table nobody can read. That failure is loud in
+   * production (`42501 permission denied for table <t>`) and completely silent here.
+   *
+   * The expectations are a literal, per table, for the same reason TENANT_TABLES is:
+   * widening or narrowing a grant has to be a diff a reviewer sees.
+   *
+   *   * The six reference tables and `searches` take full DML. A built-in is protected by
+   *     the referencePolicies() write policies excluding `org_id IS NULL`, not by
+   *     withholding the grant — a tenant's own rows in those tables are ordinary rows.
+   *   * `search_versions` is SELECT + INSERT only. T-2-12: immutability is a GRANT, so the
+   *     refusal is `42501 permission denied for table search_versions` and not the silent
+   *     zero-row filter a policy-only approach produces.
+   *   * `runs` is SELECT + INSERT at table level, and UPDATE is a COLUMN grant (see the
+   *     test below). No DELETE: a deleted run is deleted spend history.
+   *   * The three plan 02-05 meter tables are SELECT and NOTHING ELSE. This is the whole
+   *     of D-10 and half of T-2-03 stated as a grant: with no UPDATE on budget_periods a
+   *     member cannot raise the cap by hand (the only path is app.set_budget_cap, which
+   *     re-checks the admin role), and with no INSERT on cost_ledger the only writer is
+   *     app.settle_reservation, which loads a reservation first. Every write to the meter
+   *     is a SECURITY DEFINER function that resolves the caller from its own claims.
+   *
+   * Mutation: `revoke select on public.counties from authenticated;` against the live
+   * database — this test goes red naming counties, and only this one.
+   * Second mutation: `grant update on public.budget_periods to authenticated;` — this test
+   * goes red naming budget_periods, and only this one.
+   */
+  it('authenticated holds exactly the DML each Phase 2 table needs', () =>
+    withRollback(async (c) => {
+      const EXPECTED: Record<string, [boolean, boolean, boolean, boolean]> = {
+        // table:            SELECT INSERT UPDATE DELETE
+        industry_clusters: [true, true, true, true],
+        industry_terms: [true, true, true, true],
+        counties: [true, true, true, true],
+        cities: [true, true, true, true],
+        geo_presets: [true, true, true, true],
+        outlet_counts: [true, true, true, true],
+        searches: [true, true, true, true],
+        // Append-only by grant, exactly like events.
+        search_versions: [true, true, false, false],
+        // UPDATE is column-level, so the TABLE-level answer is false. DELETE is withheld.
+        runs: [true, true, false, false],
+        // The meter. SELECT only — no column grant either, unlike runs and orgs.
+        budget_periods: [true, false, false, false],
+        cost_reservations: [true, false, false, false],
+        cost_ledger: [true, false, false, false],
+      };
+      const names = Object.keys(EXPECTED);
+      const { rows } = await c.query<{ tbl: string; s: boolean; i: boolean; u: boolean; d: boolean }>(`
+        select t.tbl,
+               has_table_privilege('authenticated', 'public.' || t.tbl, 'SELECT') as s,
+               has_table_privilege('authenticated', 'public.' || t.tbl, 'INSERT') as i,
+               has_table_privilege('authenticated', 'public.' || t.tbl, 'UPDATE') as u,
+               has_table_privilege('authenticated', 'public.' || t.tbl, 'DELETE') as d
+          from (values ${names.map((n) => `('${n}')`).join(',')}) as t(tbl)
+         order by 1`);
+      // The row count is the control: a typo in a table name would raise, but a table
+      // silently dropped from the literal would leave this green while asserting less.
+      expect(rows).toHaveLength(names.length);
+      const actual = Object.fromEntries(rows.map((r) => [r.tbl, [r.s, r.i, r.u, r.d]]));
+      expect(actual).toEqual(EXPECTED);
+
+      // D-10 says "no UPDATE grant on budget_periods AT ALL", and has_table_privilege
+      // cannot say that: it reports false for runs and orgs too, both of which DO hold a
+      // column-level UPDATE. Without this, migration 0015 could be softened to
+      // `grant update (cap_micro_usd) on budget_periods to authenticated` — restoring
+      // exactly the direct-write path app.set_budget_cap exists to be the only door to —
+      // and every assertion above would stay green.
+      //
+      // 🔴 `search_versions` needs the SAME treatment, and did not have it until the Phase 2
+      // gate (plan 02-15 T3) proved the gap by mutation. M12b —
+      // `grant update (geo_payload) on public.search_versions to authenticated` — left the
+      // ENTIRE 90-test suite green while `has_column_privilege('authenticated',
+      // 'public.search_versions','geo_payload','UPDATE')` read TRUE, i.e. a tenant could
+      // rewrite a stored version's geography. The table-level row above stays [t,t,f,f]
+      // because a column grant is invisible to has_table_privilege, and
+      // `versions immutable: UPDATE as authenticated is refused` stays green because it
+      // updates `geo_kind`, which the column grant did not name. Append-only by grant has to
+      // be asserted at the column level or it is not asserted at all (T-2-12, SRCH-03).
+      const { rows: cols } = await c.query<{
+        bp_any_update: boolean;
+        cr_any_update: boolean;
+        cl_any_insert: boolean;
+        sv_any_update: boolean;
+        runs_any_update: boolean;
+      }>(`
+        select has_any_column_privilege('authenticated','public.budget_periods','UPDATE')   as bp_any_update,
+               has_any_column_privilege('authenticated','public.cost_reservations','UPDATE') as cr_any_update,
+               has_any_column_privilege('authenticated','public.cost_ledger','INSERT')       as cl_any_insert,
+               has_any_column_privilege('authenticated','public.search_versions','UPDATE')   as sv_any_update,
+               has_any_column_privilege('authenticated','public.runs','UPDATE')              as runs_any_update`);
+      expect(cols[0]).toEqual({
+        bp_any_update: false,
+        cr_any_update: false,
+        cl_any_insert: false,
+        // 🔴 UPDATE only. There is deliberately no `sv_any_delete` companion: PostgreSQL
+        // has no column-level DELETE, and `has_any_column_privilege(...,'DELETE')` does not
+        // return false for it — it raises `unrecognized privilege type: "DELETE"` and takes
+        // the whole test with it. (Written, watched red exactly that way, corrected.) The
+        // DELETE half of append-only is therefore fully covered by the table-level row
+        // above plus `versions immutable: DELETE as authenticated is refused`.
+        sv_any_update: false,
+        // The positive control: has_any_column_privilege genuinely discriminates on this
+        // database, so the four falses above are a finding and not a broken predicate.
+        runs_any_update: true,
+      });
+    }));
+
+  /**
+   * T-2-12, the half of SRCH-03 that no policy can express. A policy's WITH CHECK sees the
+   * finished row and has no access to OLD, so it can say "the row still belongs to me" but
+   * never "this column did not change". PostgreSQL checks a COLUMN privilege against the
+   * statement's SET list before any policy runs, which is the only mechanism that can.
+   *
+   * `search_version_id` outside the grant is what makes "a past run still points at the
+   * version that produced it" a database fact rather than a convention. The other half is
+   * the FK's ON DELETE NO ACTION — the cited version cannot be deleted either — asserted
+   * separately from pg_constraint.
+   *
+   * Mutation: `grant update (search_version_id) on runs to authenticated;` — this test
+   * goes red on search_version_id alone.
+   */
+  it('a finished run cannot be re-pointed at another search version', () =>
+    withRollback(async (c) => {
+      const { rows } = await c.query<{
+        tbl_update: boolean;
+        any_col_update: boolean;
+        search_version_id: boolean;
+        org_id: boolean;
+        status: boolean;
+        cost_micro_usd: boolean;
+        updated_by: boolean;
+        fk_action: string;
+      }>(`
+        select has_table_privilege('authenticated','public.runs','UPDATE')                  as tbl_update,
+               has_any_column_privilege('authenticated','public.runs','UPDATE')             as any_col_update,
+               has_column_privilege('authenticated','public.runs','search_version_id','UPDATE') as search_version_id,
+               has_column_privilege('authenticated','public.runs','org_id','UPDATE')        as org_id,
+               has_column_privilege('authenticated','public.runs','status','UPDATE')        as status,
+               has_column_privilege('authenticated','public.runs','cost_micro_usd','UPDATE') as cost_micro_usd,
+               has_column_privilege('authenticated','public.runs','updated_by','UPDATE')    as updated_by,
+               (select confdeltype::text from pg_constraint
+                 where conname = 'runs_search_version_id_search_versions_id_fk')            as fk_action`);
+      expect(rows[0]).toEqual({
+        tbl_update: false,
+        // The positive control: withholding UPDATE entirely would also satisfy the
+        // assertion below while making the run executor unable to record a result.
+        any_col_update: true,
+        search_version_id: false,
+        // org_id is withheld for the same reason it is on orgs — moving a row between
+        // tenants is not an edit.
+        org_id: false,
+        status: true,
+        cost_micro_usd: true,
+        // Stamped by app.touch_updated_at() as the owner; a BEFORE trigger is not subject
+        // to the column check, so attribution survives without being forgeable.
+        updated_by: false,
+        // 'a' = NO ACTION. 'c' would be CASCADE and 'n' SET NULL, either of which would
+        // let a cited version disappear and take SRCH-03 with it.
+        fk_action: 'a',
       });
     }));
 

@@ -1,0 +1,28 @@
+{
+  "source": "data.texas.gov/resource/jrea-zgmq.json",
+  "measuredAt": "2026-09-22",
+  "caveat": "The Comptroller under-counts pure-service businesses - Texas does not tax most personal services, which is why personal care shows 977 RGV outlets against roughly sixteen times that for auto & retail. Expected businesses is a permit-holder count, not a Places result count. The auto & retail RGV total is deliberately not written out here: every column total in this file is derived by summing its four county rows, and a total spelled in prose is a second source of truth that can silently disagree with its own parts.",
+  "statewideScope": "The state rows count outlet_county_code between '001' and '254' ONLY. The dataset carries a 255th sentinel value '000' which belongs to no Texas county and has no FIPS code; including it made the measured statewide figures 120749 (food_hospitality, +1) and 362071 (auto_retail, +2). A statewide figure that cannot be reproduced by summing the 254 seeded counties is not usable by the 'Texas (254 counties)' geo preset, so the sentinel is excluded here and the statewide total is 552275, not 552278.",
+  "outletCounts": [
+    { "scope": "county", "countyFips": "48061", "clusterKey": "home_services", "outlets": 442 },
+    { "scope": "county", "countyFips": "48215", "clusterKey": "home_services", "outlets": 969 },
+    { "scope": "county", "countyFips": "48427", "clusterKey": "home_services", "outlets": 32 },
+    { "scope": "county", "countyFips": "48489", "clusterKey": "home_services", "outlets": 9 },
+    { "scope": "county", "countyFips": "48061", "clusterKey": "food_hospitality", "outlets": 1958 },
+    { "scope": "county", "countyFips": "48215", "clusterKey": "food_hospitality", "outlets": 3329 },
+    { "scope": "county", "countyFips": "48427", "clusterKey": "food_hospitality", "outlets": 224 },
+    { "scope": "county", "countyFips": "48489", "clusterKey": "food_hospitality", "outlets": 61 },
+    { "scope": "county", "countyFips": "48061", "clusterKey": "personal_care_health", "outlets": 303 },
+    { "scope": "county", "countyFips": "48215", "clusterKey": "personal_care_health", "outlets": 628 },
+    { "scope": "county", "countyFips": "48427", "clusterKey": "personal_care_health", "outlets": 43 },
+    { "scope": "county", "countyFips": "48489", "clusterKey": "personal_care_health", "outlets": 3 },
+    { "scope": "county", "countyFips": "48061", "clusterKey": "auto_retail", "outlets": 5861 },
+    { "scope": "county", "countyFips": "48215", "clusterKey": "auto_retail", "outlets": 9355 },
+    { "scope": "county", "countyFips": "48427", "clusterKey": "auto_retail", "outlets": 606 },
+    { "scope": "county", "countyFips": "48489", "clusterKey": "auto_retail", "outlets": 155 },
+    { "scope": "state", "countyFips": null, "clusterKey": "home_services", "outlets": 45612 },
+    { "scope": "state", "countyFips": null, "clusterKey": "food_hospitality", "outlets": 120748 },
+    { "scope": "state", "countyFips": null, "clusterKey": "personal_care_health", "outlets": 23846 },
+    { "scope": "state", "countyFips": null, "clusterKey": "auto_retail", "outlets": 362069 }
+  ]
+}

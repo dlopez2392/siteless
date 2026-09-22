@@ -18,10 +18,10 @@ Requirements for initial release. Each maps to roadmap phases. Success metric: 5
 
 ### Search Presets
 
-- [ ] **SRCH-01**: User can define a search as one or more industry clusters × a geography (named city list, county, or radius around a geocoded point) and save it as a named preset
-- [ ] **SRCH-02**: The four industry clusters, the RGV city list, and the four RGV counties ship as seed data; a Texas-wide preset is expressible as a larger preset with a visible cost multiplier
-- [ ] **SRCH-03**: Presets are versioned — editing creates a new version; past runs keep pointing at the version that produced them
-- [ ] **SRCH-04**: User sees an estimated cost and estimated result count before saving or running a preset
+- [x] **SRCH-01**: User can define a search as one or more industry clusters × a geography (named city list, county, or radius around a geocoded point) and save it as a named preset
+- [x] **SRCH-02**: The four industry clusters, the RGV city list, and the four RGV counties ship as seed data; a Texas-wide preset is expressible as a larger preset with a visible cost multiplier
+- [x] **SRCH-03**: Presets are versioned — editing creates a new version; past runs keep pointing at the version that produced them
+- [x] **SRCH-04**: User sees an estimated cost and estimated result count before saving or running a preset
 
 ### Free-Data Spine
 
@@ -71,10 +71,10 @@ Requirements for initial release. Each maps to roadmap phases. Success metric: 5
 
 ### Budget
 
-- [ ] **BUDG-01**: Every outbound paid API call writes a cost-ledger row `{provider, sku, units, cost_cents, run_id, lead_id?}` — instrumented before the first billable call
-- [ ] **BUDG-02**: A monthly cap (default < $50) is enforced by an atomic reserve → spend → true-up operation that refuses at 100% and warns at 80%, gating both enumeration and verification
+- [x] **BUDG-01**: Every outbound paid API call writes a cost-ledger row `{provider, sku, units, cost_cents, run_id, lead_id?}` — instrumented before the first billable call
+- [x] **BUDG-02**: A monthly cap (default < $50) is enforced by an atomic reserve → spend → true-up operation that refuses at 100% and warns at 80%, gating both enumeration and verification
 - [ ] **BUDG-03**: A Google Cloud per-API daily quota is configured as an independent second wall
-- [ ] **BUDG-04**: The dashboard shows month-to-date spend versus the cap, broken down by provider
+- [x] **BUDG-04**: The dashboard shows month-to-date spend versus the cap, broken down by provider
 
 ### Triage
 
@@ -192,14 +192,14 @@ Which phases cover which requirements. Updated during roadmap creation.
 | FOUND-04 | Phase 1 | Complete |
 | FOUND-05 | Phase 1 | Complete |
 | FOUND-06 | Phase 1 | Complete |
-| SRCH-01 | Phase 2 | Pending |
-| SRCH-02 | Phase 2 | Pending |
-| SRCH-03 | Phase 2 | Pending |
-| SRCH-04 | Phase 2 | Pending |
-| BUDG-01 | Phase 2 | Pending |
-| BUDG-02 | Phase 2 | Pending |
+| SRCH-01 | Phase 2 | Complete |
+| SRCH-02 | Phase 2 | Complete |
+| SRCH-03 | Phase 2 | Complete |
+| SRCH-04 | Phase 2 | Complete |
+| BUDG-01 | Phase 2 | Complete |
+| BUDG-02 | Phase 2 | Complete |
 | BUDG-03 | Phase 2 | Pending |
-| BUDG-04 | Phase 2 | Pending |
+| BUDG-04 | Phase 2 | Complete |
 | DATA-01 | Phase 3 | Pending |
 | DATA-02 | Phase 3 | Pending |
 | DATA-03 | Phase 3 | Pending |

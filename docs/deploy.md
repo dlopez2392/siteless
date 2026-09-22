@@ -96,12 +96,71 @@ list, the schema list, and the table list for `public`. If `public` already hold
 tables, **stop**: something other than drizzle-kit has written to the database and D-09 is
 already broken.
 
-After the run, read it again and compare against the local test database, count for count:
-four tables with row-level security enabled, an equal policy count, the six retention
-constraints, the five non-internal triggers, the five `app.*` functions, and `app_user` with
-`login` and `NOINHERIT`. Then run `pnpm db:migrate:prod` a second time — it must apply
-nothing. A mismatch means development and production have diverged, which is the exact
-failure D-09 exists to prevent.
+After the run, read it again — as a **separate, later, read-only connection**, never by
+re-reading the migrating script's own output — and compare against the local test database
+count for count: every table with row-level security enabled, an equal policy count, the
+named constraints, the non-internal triggers **scoped to schema `public`**, the `app.*`
+functions, and `app_user` with `login` and `NOINHERIT`. Then run `pnpm db:migrate:prod` a
+second time — it must apply nothing. A mismatch means development and production have
+diverged, which is the exact failure D-09 exists to prevent.
+
+> 🔴 **Scope every catalog count to `public`.** Supabase ships its own non-internal triggers
+> in `realtime` (1) and `storage` (7), so an unscoped trigger count reads 8 higher on
+> production than on a local Postgres and a correct database looks broken. Plan 01-10 hit
+> this first; plan 02-14 hit it again with the numbers 27 versus 19, and 19 versus 19 once
+> scoped.
+
+> 🔴 **`drizzle-kit migrate` prints `[✓] migrations applied successfully!` whether or not it
+> applied anything.** The banner and the exit code are the same on a no-op run, so neither
+> proves idempotency. Read `select count(*) from drizzle.__drizzle_migrations` before and
+> after instead: it must be unchanged. (A re-applied `create table` would also have raised
+> `42P07`, so a clean exit is a second witness — but the journal count is the direct one.)
+
+### The migration files, by phase
+
+| Phase | Files | Applied to production |
+| ----- | ----- | --------------------- |
+| 1 | `0000_bootstrap` … `0011_events_no_caller_insert` — twelve | 2026-09-22, plans 01-10 and 01-12 |
+| 2 | `0012_eager_vertigo`, `0013_reference_policies_and_grants`, `0014_brown_phantom_reporter`, `0015_budget_grants_and_triggers`, `0016_budget_meter_functions` — five | 2026-09-22, plan 02-14 |
+
+Production Supabase is **PostgreSQL 17.6** while local and CI are 18. `NULLS NOT DISTINCT`,
+stored generated columns and `FOR UPDATE ... SKIP LOCKED` are all fine there;
+`RETURNING old.` / `RETURNING new.`, `uuidv7()` and virtual generated columns are not, and
+`tests/unit/pg17-compat.test.ts` refuses them before they can reach a migration file. Run
+that test and `pnpm test:db -t "server version"` immediately before any production migrate —
+the point of the gate is that it is fresh, not that it once passed.
+
+### The reference rows: `pnpm db:seed:prod`
+
+```sh
+pnpm db:seed:prod        # tsx scripts/seed.ts --target=prod
+```
+
+`scripts/seed.ts` loads the committed JSON under `src/seed/data/` into the six reference
+tables as `org_id IS NULL` built-ins: 254 Texas counties, 4 industry clusters, 33 industry
+terms, the 17 RGV cities, 20 outlet-count rows and 3 geo presets.
+
+- **Run it after every migration that adds or changes a reference table**, and after any
+  deliberate edit to a file under `src/seed/data/`. It is not part of `db:migrate:prod`;
+  a migration that creates a reference table leaves it empty until this runs.
+- **It is idempotent.** Every upsert names its constraint (`on conflict on constraint …`),
+  which is what makes `NULLS NOT DISTINCT` apply to the `org_id IS NULL` built-ins. A second
+  run must report **0 inserted** for every table. If it reports inserts, the unique
+  constraint has lost `nulls not distinct` and the loader is doubling rows — stop.
+- **It connects as the migration owner, deliberately.** `referencePolicies()` excludes
+  `org_id IS NULL` from every write policy, so `authenticated` cannot write a built-in at
+  all. That asymmetry is the whole mechanism behind "a tenant reads a built-in and can never
+  change one".
+- It runs the whole load in one transaction and exits non-zero if any reference table ends
+  with zero built-in rows — a loader that wrote nothing and exited 0 is indistinguishable
+  from a working one until the cost estimator prices everything at zero.
+
+> 🔴 **`scripts/refresh-outlet-counts.ts` is never run in CI, and never against production
+> without a fresh human review of the numbers it rewrites.** It re-queries Socrata and
+> overwrites the committed `src/seed/data/outlet-counts.json` — the counts the budget
+> estimator multiplies by. Run it locally, read the diff, commit the JSON, and only then
+> `pnpm db:seed:prod`. Letting it run unattended would move production's cost estimates with
+> no reviewed commit behind them.
 
 ## 5. Give `app_user` its password
 
@@ -201,15 +260,27 @@ excluded directory just the same.
 | --- | --- |
 | Production URL (use this) | `https://siteless-iota.vercel.app` |
 | Other alias | `https://siteless-danlopez508-8452s-projects.vercel.app` |
-| Deployment id | `dpl_AxqqohtjnoFzhfJxSvUSWYtrFHkm` |
-| Per-deployment URL | `https://siteless-dqfm2wzg8-danlopez508-8452s-projects.vercel.app` |
-| Verified commit | `311e6b4574cc1973c6307b6d2b1dcb1f24dea876` (`311e6b4`), branch `main` |
+| Deployment id | `dpl_Dk71EVmgcaav2NwhgWQNd65EJBRy` |
+| Per-deployment URL | `https://siteless-o7tcvnsmp-danlopez508-8452s-projects.vercel.app` |
+| Verified commit | `6d6c52f742c2cb5552ea4af533fc5706f55e33c2` (`6d6c52f`), branch `main` |
 | State | READY, target production, region `iad1` |
 | First deployed | 2026-09-22 |
+| Phase 2 deployed | 2026-09-22, plan 02-15 |
 
-The first production deployment was `453c0c4` (`dpl_CAcqW8nAXa2nimyUp65kBsEcgMFQ`). It was
-superseded the same day by `311e6b4`, which is the pending-session fix the e2e suite found
-against it. The alias is unchanged and always points at the newest production deployment.
+### Deployment history
+
+| Commit | Deployment id | Shipped | What it was |
+| --- | --- | --- | --- |
+| `453c0c4` | `dpl_CAcqW8nAXa2nimyUp65kBsEcgMFQ` | 2026-09-22, plan 01-11 | the first production deployment |
+| `311e6b4` | `dpl_AxqqohtjnoFzhfJxSvUSWYtrFHkm` | 2026-09-22, plan 01-11 | the pending-session fix the e2e suite found against `453c0c4` |
+| `6d6c52f` | `dpl_Dk71EVmgcaav2NwhgWQNd65EJBRy` | 2026-09-22, plan 02-15 | Phase 2 — the six new routes, the budget meter and the design system |
+
+The alias is unchanged and always points at the newest production deployment.
+
+The Phase 2 deployment was gated first: `typecheck`, `lint`, `test:unit` (76), `test:db` (90)
+and `build` each run individually and each exit 0, with `git rev-parse --short HEAD` printed
+before and after the five and identical (`6d6c52f`) — a parallel session moving the tree
+mid-gate is how a gate goes silently green on a commit nobody meant to ship.
 
 Use the **alias**, not the per-deployment URL. The per-deployment URL is covered by Vercel
 deployment protection and answers `302` to an unauthenticated request, including on
@@ -224,11 +295,17 @@ has been pushed.
 
 ```
 $ curl -fsS https://siteless-iota.vercel.app/api/health
-{"ok":true,"db":"up","proxy":"up","commit":"311e6b4574cc1973c6307b6d2b1dcb1f24dea876"}
+{"ok":true,"db":"up","proxy":"up","commit":"6d6c52f742c2cb5552ea4af533fc5706f55e33c2"}
 
 $ curl -sS -o /dev/null -w '%{http_code} %{redirect_url}' https://siteless-iota.vercel.app/
-307 https://siteless-iota.vercel.app/sign-in
+307 https://siteless-iota.vercel.app/presets
 ```
+
+Since Phase 2 the signed-out `GET /` redirects to `/presets` rather than straight to
+`/sign-in` — `/presets` is the app's home and it redirects to `/sign-in` in turn, so the
+visitor still lands on the sign-in page and no route on the way there returns the org-scoped
+shell. Plan 02-15 smoked all six new routes signed out; each answered `307` to
+`/sign-in` and none carried `data-testid="org-id"` in its body, followed or unfollowed.
 
 ## 11. Two things the deployed app says that are expected, not defects
 

@@ -1,0 +1,68 @@
+{
+  "source": "NAICS predicates from DATA-SOURCES.md, re-measured against data.texas.gov/resource/jrea-zgmq.json",
+  "measuredAt": "2026-09-22",
+  "clusters": [
+    {
+      "key": "home_services",
+      "displayName": "Home services & trades",
+      "sortOrder": 1,
+      "naicsRanges": [{ "lo": 230000, "hi": 240000 }],
+      "placesTypes": [
+        "plumber",
+        "electrician",
+        "roofing_contractor",
+        "general_contractor",
+        "painter",
+        "locksmith",
+        "moving_company"
+      ],
+      "placesTypesNote": "Phase 4 validates every type against the Places API (New) type table before the first paid call. The estimator prices cells = clusters x geography units and never reads this list, so a wrong entry here changes no Phase 2 number."
+    },
+    {
+      "key": "food_hospitality",
+      "displayName": "Food & hospitality",
+      "sortOrder": 2,
+      "naicsRanges": [{ "lo": 721000, "hi": 723000 }],
+      "placesTypes": ["restaurant", "cafe", "bar", "bakery", "meal_takeaway", "hotel"],
+      "placesTypesNote": "Phase 4 validates every type against the Places API (New) type table before the first paid call. The estimator prices cells = clusters x geography units and never reads this list, so a wrong entry here changes no Phase 2 number."
+    },
+    {
+      "key": "personal_care_health",
+      "displayName": "Personal care & health",
+      "sortOrder": 3,
+      "naicsRanges": [
+        { "lo": 812100, "hi": 812200 },
+        { "lo": 621000, "hi": 622000 }
+      ],
+      "placesTypes": [
+        "hair_salon",
+        "barber_shop",
+        "nail_salon",
+        "spa",
+        "dentist",
+        "doctor",
+        "physiotherapist"
+      ],
+      "placesTypesNote": "Phase 4 validates every type against the Places API (New) type table before the first paid call. The estimator prices cells = clusters x geography units and never reads this list, so a wrong entry here changes no Phase 2 number."
+    },
+    {
+      "key": "auto_retail",
+      "displayName": "Auto & retail",
+      "sortOrder": 4,
+      "naicsRanges": [
+        { "lo": 811100, "hi": 811200 },
+        { "lo": 440000, "hi": 460000 }
+      ],
+      "placesTypes": [
+        "car_repair",
+        "car_wash",
+        "car_dealer",
+        "tire_shop",
+        "auto_parts_store",
+        "furniture_store",
+        "clothing_store"
+      ],
+      "placesTypesNote": "Phase 4 validates every type against the Places API (New) type table before the first paid call. The estimator prices cells = clusters x geography units and never reads this list, so a wrong entry here changes no Phase 2 number."
+    }
+  ]
+}

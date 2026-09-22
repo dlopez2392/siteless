@@ -71,6 +71,14 @@ jobs:
         with: { node-version: 24, cache: pnpm }
       - run: pnpm install --frozen-lockfile
       - run: pnpm db:migrate
+      # Between migrate and test:db, and it has to be both. tests/db/counties-fips.test.ts
+      # and tests/db/reference-rows.test.ts read the 254 LIVE county rows and the four
+      # built-in clusters — an empty database makes every one of their invariants vacuous
+      # (an assertion over zero rows passes), so a missing seed step would not fail the job,
+      # it would silently stop proving anything. The loader reads committed JSON only: no
+      # Socrata call, no Places call, no budget spent. scripts/refresh-outlet-counts.ts is
+      # the script that touches the network and it is never run here.
+      - run: pnpm db:seed
       - run: pnpm test:db
 
   e2e:
