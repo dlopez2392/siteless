@@ -66,13 +66,30 @@ export function rowsOf<T>(result: unknown): T[] {
  * `extract(epoch from ...)` is null-propagating, so a run that never started stays null
  * rather than becoming 1970.
  */
-function instantOf(epochMs: string | null): Date | null {
+export function instantOf(epochMs: string | null): Date | null {
   if (epochMs === null) return null;
   const ms = Number(epochMs);
   if (!Number.isFinite(ms)) {
     throw new Error(`instantOf: expected epoch milliseconds, got ${JSON.stringify(epochMs)}`);
   }
   return new Date(ms);
+}
+
+/**
+ * The same conversion for a NOT NULL column, which every other query module has one or more
+ * of (`searches.updated_at`, `search_versions.created_at`, a run's coalesced timestamp).
+ *
+ * Throws rather than substituting a fallback instant: the column cannot be null, so an empty
+ * value means the cast in the SELECT was forgotten or the driver's text format changed
+ * underneath us. Rendering the epoch instead would be the product lying about when something
+ * happened — quietly, and in a way no gate can see.
+ */
+export function requireInstant(epochMs: string | null, what: string): Date {
+  const at = instantOf(epochMs);
+  if (at === null) {
+    throw new Error(`requireInstant: ${what} came back null from a NOT NULL column`);
+  }
+  return at;
 }
 
 export type BudgetPeriodRow = {

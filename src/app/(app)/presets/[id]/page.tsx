@@ -35,7 +35,12 @@ import { formatUsd } from '@/lib/budget/money';
 import { ESTIMATE_SKU } from '@/lib/estimate/assumptions';
 import { estimatePreset, type EstimateRange } from '@/lib/estimate/estimate';
 import type { RunStatus } from '@/lib/ui/run-tone';
-import { readCurrentPeriod, readUnitsUsedThisPeriod, rowsOf } from '@/server/queries/budget';
+import {
+  readCurrentPeriod,
+  readUnitsUsedThisPeriod,
+  requireInstant,
+  rowsOf,
+} from '@/server/queries/budget';
 import {
   getSeedTables,
   readPreset,
@@ -130,44 +135,23 @@ function diffVersionOf(version: PresetVersionRow, index: ReferenceIndex): DiffVe
 }
 
 /**
- * 🔴 A `timestamptz` READ THROUGH `tx.execute` ARRIVES AS A STRING, NOT A `Date` — AND ITS
- * TYPE SAYS OTHERWISE.
+ * 🔴 THIS PAGE USED TO CARRY ITS OWN `timestamptz` NORMALISER, AND IT IS GONE (WR-07).
  *
- * `tstz` declares `mode: 'date'`, but that mapping is applied by drizzle's COLUMN MAPPER,
- * which only runs for query-builder results. Every read in `src/server/queries/` is raw
- * `tx.execute(sql\`...\`)`, so the value that actually arrives is postgres.js's own text —
- * `2026-09-22 11:49:28.864085-05` — while `PresetVersionRow.createdAt` is declared `Date`.
- * Typecheck, lint and build are all green on that mismatch because nothing checks a cast.
+ * A `timestamptz` read through `tx.execute` arrives as postgres.js's own text —
+ * `2026-09-22 11:49:28.864085-05` — not as a `Date`, because drizzle's column mapper runs
+ * only for query-builder results. `Intl.DateTimeFormat.format(aString)` coerces with
+ * `Number()`, gets `NaN`, and throws `RangeError: Invalid time value`: a 500 on the whole
+ * page, with typecheck, lint and build green.
  *
- * It surfaced here because this is the first screen to FORMAT one:
- * `Intl.DateTimeFormat.format(aString)` coerces with `Number()`, gets `NaN`, and throws
- * `RangeError: Invalid time value` — a 500 on the whole page, found by the first real e2e
- * run and by nothing before it.
- *
- * The normalisation below is deliberate rather than `new Date(raw)`: a space instead of
- * `T` and a two-digit offset are both outside the ISO grammar, and `Date`'s handling of a
- * non-ISO string is implementation-defined. V8 happens to get this one right; that is not
- * a contract. `-05` and `-0500` both become `-05:00`, `Z` is left alone.
- *
- * Throws rather than substituting a fallback instant: the column is NOT NULL, so an
- * unparseable value means the driver's text format changed underneath us, and silently
- * rendering the epoch would be the product lying about when a run happened.
+ * This screen was the first to FORMAT one, so it grew a private normaliser that parsed the
+ * text by hand. That fixed this page and left `listPresets` and the edit page still handing a
+ * string to anything that called `formatLocal`, which is the defect WR-07 names. The cast now
+ * happens once, in SQL, at the boundary in `src/server/queries/` — epoch milliseconds, cast
+ * with the value — so every consumer gets a real `Date` and nobody parses a driver's text
+ * format by hand. `src/server/queries/budget.ts` had already reached that conclusion for
+ * bigint, for `date`, and for its own timestamps.
  */
-function instantOf(value: Date | string, what: string): Date {
-  if (value instanceof Date) return value;
-  const iso = value
-    .replace(' ', 'T')
-    .replace(/([+-]\d{2})(\d{2})?$/, (_m, hours: string, minutes?: string) =>
-      minutes === undefined ? `${hours}:00` : `${hours}:${minutes}`,
-    );
-  const parsed = new Date(iso);
-  if (Number.isNaN(parsed.getTime())) {
-    throw new Error(`preset detail: ${what} is not a parseable timestamp (${value})`);
-  }
-  return parsed;
-}
-
-type RawLastRun = { status: string; cost: string; at: Date | string };
+type RawLastRun = { status: string; cost: string; at_ms: string | null };
 
 export default async function PresetDetailPage({
   params,
@@ -204,7 +188,8 @@ export default async function PresetDetailPage({
         await tx.execute(sql`
           select r.status,
                  r.cost_micro_usd::text as cost,
-                 coalesce(r.finished_at, r.started_at, r.created_at) as at
+                 (extract(epoch from coalesce(r.finished_at, r.started_at, r.created_at))
+                    * 1000)::bigint::text as at_ms
             from runs r
             join search_versions v on v.id = r.search_version_id
            where v.search_id = ${id}
@@ -269,7 +254,7 @@ export default async function PresetDetailPage({
       clusterNames: clusterNamesOf(v.clusterIds, index),
       geo: diffGeoOf(v, index),
       usedByRuns: v.usedByRuns,
-      createdAt: instantOf(v.createdAt, `version ${v.version} created_at`),
+      createdAt: v.createdAt,
       costRange: range ? estimateRangeLabel(range) : null,
       requests: range ? estimateRequestsLabel(range) : null,
     };
@@ -299,7 +284,7 @@ export default async function PresetDetailPage({
   const lastRunProps: LastRun | null = lastRun
     ? {
         status: lastRun.status as RunStatus,
-        at: instantOf(lastRun.at, 'the last run timestamp'),
+        at: requireInstant(lastRun.at_ms, 'the last run timestamp'),
         costMicroUsd: BigInt(lastRun.cost),
       }
     : null;

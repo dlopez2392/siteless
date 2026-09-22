@@ -17,7 +17,7 @@ import type {
   GeoPresetsFile,
   OutletCountsFile,
 } from '@/seed/types';
-import { rowsOf, type Tx } from './budget';
+import { requireInstant, rowsOf, type Tx } from './budget';
 
 /**
  * Presets, versions, and the translation between what a picker sends and what the estimator
@@ -445,6 +445,28 @@ export type PresetSummary = {
   updatedAt: Date;
 };
 
+/**
+ * 🔴 EVERY `timestamptz` IN THIS MODULE IS CAST TO EPOCH MILLISECONDS IN SQL AND CONVERTED
+ * HERE (WR-07).
+ *
+ * `tstz` declares `mode: 'date'`, but that mapping is applied by drizzle's COLUMN MAPPER,
+ * which runs only for query-builder results. Every read here is raw `tx.execute(sql\`...\`)`,
+ * so what actually arrives is postgres.js's own text — `2026-09-22 11:49:28.864085-05` —
+ * while the row types below said `Date`. Typecheck, lint and build are all green on that
+ * mismatch, because nothing checks a cast.
+ *
+ * It does not fail at the boundary. It fails three layers later, as
+ * `RangeError: Invalid time value` out of `Intl`, on whichever screen first FORMATS one —
+ * which in this phase was the detail page, which then grew its own private normaliser while
+ * `listPresets` and the edit page went on handing a string to anything that called
+ * `formatLocal`. `src/server/queries/budget.ts` had already drawn the same conclusion for
+ * bigint, for `date`, and for its own timestamps; this module is now consistent with it, and
+ * the page-level copy is deleted rather than left to drift.
+ *
+ * Epoch milliseconds rather than a formatted string, deliberately: an epoch is an INSTANT and
+ * instants have no zone, so there is no text format to misparse and no zone named anywhere —
+ * `src/lib/time.ts` stays the only file in `src/` that names one.
+ */
 export async function readPresets(tx: Tx): Promise<PresetSummary[]> {
   const rows = rowsOf<{
     id: string;
@@ -453,7 +475,7 @@ export async function readPresets(tx: Tx): Promise<PresetSummary[]> {
     current_version_id: string | null;
     current_version: number | null;
     version_count: number;
-    updated_at: Date;
+    updated_ms: string | null;
   }>(
     await tx.execute(sql`
       select s.id,
@@ -463,7 +485,7 @@ export async function readPresets(tx: Tx): Promise<PresetSummary[]> {
              cv.version                                as current_version,
              (select count(*)::int from search_versions v where v.search_id = s.id)
                                                        as version_count,
-             s.updated_at
+             (extract(epoch from s.updated_at) * 1000)::bigint::text as updated_ms
         from searches s
         left join search_versions cv on cv.id = s.current_version_id
        order by s.updated_at desc`),
@@ -475,7 +497,7 @@ export async function readPresets(tx: Tx): Promise<PresetSummary[]> {
     currentVersionId: r.current_version_id,
     currentVersion: r.current_version,
     versionCount: r.version_count,
-    updatedAt: r.updated_at,
+    updatedAt: requireInstant(r.updated_ms, `searches.updated_at for ${r.id}`),
   }));
 }
 
@@ -521,10 +543,11 @@ export async function readPreset(
     name_internal: string;
     status: string;
     current_version_id: string | null;
-    updated_at: Date;
+    updated_ms: string | null;
   }>(
     await tx.execute(sql`
-      select id, display_name, name_internal, status, current_version_id, updated_at
+      select id, display_name, name_internal, status, current_version_id,
+             (extract(epoch from updated_at) * 1000)::bigint::text as updated_ms
         from searches
        where id = ${searchId}`),
   )[0];
@@ -539,7 +562,7 @@ export async function readPreset(
     geo_kind: string;
     geo_payload: GeoPayload;
     estimate_snapshot: unknown;
-    created_at: Date;
+    created_ms: string | null;
     created_by: string | null;
     used_by_runs: number;
   }>(
@@ -550,7 +573,7 @@ export async function readPreset(
              v.geo_kind,
              v.geo_payload,
              v.estimate_snapshot,
-             v.created_at,
+             (extract(epoch from v.created_at) * 1000)::bigint::text as created_ms,
              v.created_by,
              (select count(*)::int from runs r where r.search_version_id = v.id)
                as used_by_runs
@@ -567,7 +590,7 @@ export async function readPreset(
     geoPayload: r.geo_payload,
     spec: specInputOfVersion(r.cluster_ids, r.geo_kind, r.geo_payload, index),
     estimateSnapshot: fromStoredEstimate(r.estimate_snapshot),
-    createdAt: r.created_at,
+    createdAt: requireInstant(r.created_ms, `search_versions.created_at for ${r.id}`),
     createdBy: r.created_by,
     usedByRuns: r.used_by_runs,
   }));
@@ -580,7 +603,7 @@ export async function readPreset(
     currentVersionId: head.current_version_id,
     currentVersion: versions.find((v) => v.id === head.current_version_id) ?? null,
     versions,
-    updatedAt: head.updated_at,
+    updatedAt: requireInstant(head.updated_ms, `searches.updated_at for ${head.id}`),
   };
 }
 

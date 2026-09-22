@@ -526,6 +526,54 @@ describe('versioned search presets', () => {
       expect(cols.rows.map((r) => r.column_name)).not.toContain('runs_count');
     }));
 
+  it('timestamps: the epoch-ms cast the query module reads is exact and parseable', () =>
+    withRollback(async (c) => {
+      const { a } = await seedTwoOrgs(c);
+      await actAs(c, ORG_A_CLAIMS);
+      const clusters = await builtInClusterIds(c);
+      const search = await makeSearch(c, a);
+      const v1 = await makeVersion(c, {
+        orgId: a,
+        searchId: search,
+        version: 1,
+        clusterIds: clusters,
+        geoKind: 'radius',
+        geoPayload: RADIUS_PAYLOAD,
+      });
+
+      // WR-07. `src/server/queries/presets.ts` typed these columns `Date` and selected them
+      // bare. Through the RUNTIME driver — postgres.js with prepare:false, which the
+      // transaction pooler requires — a timestamptz comes back as TEXT, because drizzle's
+      // column mapper runs only for query-builder results and every read there is raw
+      // `tx.execute`. Nothing fails at the boundary; it fails wherever `Intl` is first handed
+      // the string, as `RangeError: Invalid time value`, with typecheck, lint and build green.
+      //
+      // 🔴 THIS SUITE CANNOT REPRODUCE THE STRING ITSELF, and pretending otherwise would be
+      // the dishonest version of this test: tests/db connects with node-postgres, which DOES
+      // parse oid 1184 into a Date. What it CAN execute is the expression the fix rests on,
+      // which is the half that was never run.
+      const r = await c.query<{ ms: string; iso: string; same: boolean }>(
+        `select (extract(epoch from created_at) * 1000)::bigint::text as ms,
+                to_char(created_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as iso,
+                (extract(epoch from created_at) * 1000)::bigint
+                  = (extract(epoch from created_at) * 1000)::numeric::bigint as same
+           from search_versions where id = $1`,
+        [v1],
+      );
+      const ms = r.rows[0]?.ms ?? '';
+      // Digits only: what `Number()` can parse without a format, a zone or a locale.
+      expect(ms).toMatch(/^\d+$/);
+      expect(Number.isFinite(Number(ms))).toBe(true);
+      // The cast is lossy to the millisecond and no further — the bigint truncation matches
+      // the numeric one, so it is not silently rounding a microsecond into another second.
+      expect(r.rows[0]?.same).toBe(true);
+      // And it is the SAME INSTANT, compared against the row's own rendering rather than
+      // against `now()` in JavaScript: an epoch has no zone, so this discriminates a cast
+      // that dropped the offset — which would land the row hours away and still look valid.
+      const fromMs = new Date(Number(ms)).toISOString().slice(0, 19);
+      expect(r.rows[0]?.iso.slice(0, 19)).toBe(fromMs);
+    }));
+
   it('a version insert writes an events row with the actor', () =>
     withRollback(async (c) => {
       const { a } = await seedTwoOrgs(c);
