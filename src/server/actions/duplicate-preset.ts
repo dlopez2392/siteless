@@ -72,6 +72,34 @@ export async function duplicatePreset(
 
       const name = displayName ?? COPY_OF(source.source_display_name);
 
+      /**
+       * 🔴 A JS ARRAY IN A DRIZZLE `sql` TEMPLATE BECOMES N PLACEHOLDERS, NOT ONE ARRAY.
+       *
+       * `${source.cluster_ids}::uuid[]` does NOT bind one `uuid[]` parameter. Drizzle
+       * expands an array into a comma-separated placeholder list — that is its behaviour
+       * for `in (...)` — so the statement Postgres actually received was
+       * `($2, $3)::uuid[]`, a ROW constructor cast to an array. Measured against this
+       * database, at every arity:
+       *
+       *   2+ clusters -> 42846 cannot cast type record to uuid[]
+       *   1 cluster   -> 22P02 malformed array literal
+       *
+       * So this insert could never succeed, and D-17 failed 100% of the time with the
+       * generic "something broke on our side" — the action's `catch` turns the SQLSTATE
+       * into `unexpected`, which is why nothing upstream ever reported an array problem.
+       * Found by the first e2e run that actually pressed the button (plan 02-12).
+       *
+       * The array-LITERAL string is bound as a single parameter and cast once. It is a
+       * parameter, not interpolated SQL, and every element is a uuid read out of this
+       * same table, so there is no quoting or injection surface to get wrong.
+       *
+       * 🔴 `src/server/actions/save-preset-version.ts` HAS THE IDENTICAL DEFECT on its own
+       * `cluster_ids` insert and is NOT fixed here — it belongs to the preset editor being
+       * built in parallel (plan 02-11), and two worktrees editing one line is the conflict
+       * this partitioning exists to avoid. It is recorded in deferred-items.md.
+       */
+      const clusterIdsLiteral = `{${source.cluster_ids.join(',')}}`;
+
       // Circular FK, so `current_version_id` starts null and is set below — see
       // `./save-preset-version.ts` for the full note. `name_internal` and `display_name` are
       // two columns and both take the typed name (CONVENTIONS § Naming).
@@ -88,7 +116,7 @@ export async function duplicatePreset(
           insert into search_versions
             (org_id, search_id, version, cluster_ids, geo_kind, geo_payload, created_by)
           values
-            (app.current_org_id(), ${created.id}, 1, ${source.cluster_ids}::uuid[],
+            (app.current_org_id(), ${created.id}, 1, ${clusterIdsLiteral}::uuid[],
              ${source.geo_kind}, ${JSON.stringify(source.geo_payload)}::jsonb, ${userId})
           returning id, version`),
       )[0];
