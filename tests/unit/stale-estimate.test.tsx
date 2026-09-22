@@ -193,6 +193,29 @@ describe('stale estimate', () => {
     expect(document.querySelector('[data-slot="skeleton"]')).toBeNull();
   });
 
+  it('stale estimate: clearing the selection removes the figure and restores the prompt', async () => {
+    mocked.mockResolvedValueOnce(okResult(A_MICRO));
+
+    const { rerender } = render(<Harness spec={SPEC_A} />);
+    await waitFor(() => expect(dollars()).toHaveTextContent('~$1.10'));
+
+    // 🔴 UNCHECKING THE LAST CLUSTER IS NOT "RECOMPUTING". Executor Rule 11 — the number
+    // never blanks — is about the window while a NEW figure is being computed. Here there is
+    // nothing to compute and never will be: `buildSpec` returns null, the hook's key is null,
+    // no request is made, `busy` is false. Leaving the previous figure on screen at full
+    // opacity, with no spinner and no prompt, states a price for a preset that now has
+    // nothing to search for.
+    rerender(<Harness spec={null} />);
+
+    await waitFor(() =>
+      expect(screen.getByText(NO_CLUSTER_PROMPT)).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId('preset-editor-estimate-dollars')).toBeNull();
+    expect(screen.queryByText(/\$1\.10/)).toBeNull();
+    // And nothing was asked of the server for a selection that cannot be priced.
+    expect(mocked).toHaveBeenCalledTimes(1);
+  });
+
   it('stale estimate: no cluster selected renders the prompt, not a zero', async () => {
     render(<Harness spec={null} />);
 

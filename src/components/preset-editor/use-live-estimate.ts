@@ -69,7 +69,25 @@ export function useLiveEstimate(
   specRef.current = spec;
 
   useEffect(() => {
-    if (key === null) return;
+    if (key === null) {
+      // 🔴 "NOTHING TO COMPUTE" IS NOT "RECOMPUTING", AND RULE 11 ONLY COVERS THE SECOND.
+      // The number stays on screen while a NEW one is being priced — that is the rule, and
+      // the three tests above it. But when the last cluster is unchecked or the geography is
+      // cleared, `buildSpec` returns null, no request is ever made and `busy` is false, so
+      // the previous figure sat there at full opacity with no spinner and no prompt: a price
+      // for a preset that now has nothing to search for.
+      //
+      // Cleared here rather than in the panel because the panel is handed `estimate` and
+      // cannot tell "the last good value" from "the value for THIS selection"; the hook is
+      // the only place that knows the key changed. `settledKey` goes with it, or `busy` would
+      // stay false against a key that never settled once a selection is picked again.
+      //
+      // Runs once per transition: the effect's only dependencies are `key` and `debounceMs`.
+      setEstimate(null);
+      setError(null);
+      setSettledKey(null);
+      return;
+    }
     const pending = specRef.current;
     if (pending === null) return;
 
