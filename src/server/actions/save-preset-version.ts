@@ -7,6 +7,7 @@ import { requireOrg } from '@/lib/auth/require-org';
 import {
   NO_CLUSTER_SELECTED,
   NO_GEOGRAPHY_SELECTED,
+  NOT_FOUND,
   PRESET_NAME_MISSING,
   SAVE_CONFLICT,
   UNEXPECTED_ERROR,
@@ -106,6 +107,29 @@ export async function savePresetVersion(input: unknown): Promise<
       let targetSearchId = searchId;
       let version = (loadedVersion ?? 0) + 1;
 
+      if (targetSearchId !== undefined) {
+        // 🔴 CR-01. THE EDIT PATH NEVER CHECKED THAT THE CALLER CAN SEE THE SEARCH IT IS
+        // APPENDING TO. RLS confines the `update searches` below to zero rows — silently —
+        // while the version INSERT lands, because the insert policy checks the new row's own
+        // org_id and the FK to `searches` is a referential check, which PostgreSQL evaluates
+        // with the referenced table owner's privileges rather than the caller's. The action
+        // then returned `ok` for a version written onto another tenant's preset.
+        //
+        // ONE STATEMENT, AND IT IS A READ UNDER RLS — never `exists`, never a count. A
+        // foreign id and a deleted id both come back empty and both answer NOT_FOUND, whose
+        // copy already says the link may belong to a different organisation. Anything that
+        // told the two apart would be the existence oracle this closes (T-2-10).
+        //
+        // The database carries the same rule independently: `search_versions_search_org_fk`
+        // (migration 0017) is a composite FK on (search_id, org_id), so hand-written SQL and
+        // any future caller that skips this read are refused with 23503. This read exists to
+        // turn that refusal into the sentence a person should read.
+        const owned = rowsOf<{ id: string }>(
+          await tx.execute(sql`select id from searches where id = ${targetSearchId}`),
+        )[0];
+        if (!owned) return { kind: 'missing' } as const;
+      }
+
       if (targetSearchId === undefined) {
         // 🔴 `current_version_id` IS NULL HERE AND SET IN A SECOND STATEMENT BELOW. The FK
         // pair is circular — `search_versions.search_id -> searches.id` and
@@ -182,6 +206,7 @@ export async function savePresetVersion(input: unknown): Promise<
     });
 
     if (result.kind === 'unresolvable') return fail('validation', result.message);
+    if (result.kind === 'missing') return fail('not_found', NOT_FOUND('preset'));
 
     revalidatePath('/presets');
     revalidatePath(`/presets/${result.searchId}`);

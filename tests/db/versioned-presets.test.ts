@@ -28,9 +28,10 @@
  */
 import { describe, expect, it } from 'vitest';
 import { Client } from 'pg';
-import { actAs, seedTwoOrgs, withRollback } from './_fixtures';
+import { actAs, actAsOwner, seedTwoOrgs, withRollback } from './_fixtures';
 
 const ORG_A_CLAIMS = { o: { id: 'org_A' }, sub: 'user_danlo', role: 'authenticated' } as const;
+const ORG_B_CLAIMS = { o: { id: 'org_B' }, sub: 'user_bravo', role: 'authenticated' } as const;
 
 const INSERT_VERSION = `
   insert into search_versions (org_id, search_id, version, cluster_ids, geo_kind, geo_payload)
@@ -360,6 +361,68 @@ describe('versioned search presets', () => {
       ]);
       await expect(attempt).rejects.toMatchObject({ code: '23505' });
       await expect(attempt).rejects.toThrow(/search_versions_search_version_uniq/);
+    }));
+
+  it('tenancy: a version cannot be attached to another org\'s search', () =>
+    withRollback(async (c) => {
+      const { a, b } = await seedTwoOrgs(c);
+
+      // B's preset, written as B so the log_event trigger has a tenant to attribute to.
+      await actAs(c, ORG_B_CLAIMS);
+      const foreign = await makeSearch(c, b, 'Bravo plumbers');
+      await actAsOwner(c);
+
+      await actAs(c, ORG_A_CLAIMS);
+      const clusters = await builtInClusterIds(c);
+
+      // 🔴 RLS CANNOT REFUSE THIS ONE AND NEVER COULD. `search_versions_insert` checks the
+      // NEW ROW'S OWN org_id, which is A's and therefore correct; the row's PARENT is B's.
+      // The FK to searches is a referential check and PostgreSQL evaluates those with the
+      // referenced table owner's privileges — by design, so RLS does not apply to it. Before
+      // `search_versions_search_org_fk` (migration 0017) this INSERT SUCCEEDED: it made any
+      // real search id from any org an existence oracle (T-2-10), let an attacker squat the
+      // victim's next version number behind the append-only grant, and left rows whose
+      // org_id disagreed with their parent's. Only a COMPOSITE key can say "this parent is
+      // mine", because only a composite key carries the org into the referential check.
+      //
+      // 23503, not 42501: this is the FK refusing, which is what makes the guard survive
+      // hand-written SQL and a future action that forgets its ownership read.
+      const attempt = c.query(INSERT_VERSION, [
+        a,
+        foreign,
+        1,
+        clusters,
+        'radius',
+        JSON.stringify(RADIUS_PAYLOAD),
+      ]);
+      await expect(attempt).rejects.toMatchObject({ code: '23503' });
+      await expect(attempt).rejects.toThrow(/search_versions_search_org_fk/);
+    }));
+
+  it('tenancy: a version on the caller\'s OWN search is still accepted', () =>
+    withRollback(async (c) => {
+      const { a } = await seedTwoOrgs(c);
+      await actAs(c, ORG_A_CLAIMS);
+      const clusters = await builtInClusterIds(c);
+      const own = await makeSearch(c, a);
+
+      // The positive control for the refusal above, and it is not redundant with the
+      // append-only tests: a composite FK written against the wrong columns — or one that
+      // compared org_id to a constant — would refuse EVERY version and red the product
+      // while the cross-tenant test above stayed green for the wrong reason.
+      const v1 = await makeVersion(c, {
+        orgId: a,
+        searchId: own,
+        version: 1,
+        clusterIds: clusters,
+        geoKind: 'radius',
+        geoPayload: RADIUS_PAYLOAD,
+      });
+      const { rows } = await c.query<{ n: number }>(
+        'select count(*)::int as n from search_versions where id = $1',
+        [v1],
+      );
+      expect(rows[0]?.n).toBe(1);
     }));
 
   it('a run cannot be re-pointed at a different version', () =>
