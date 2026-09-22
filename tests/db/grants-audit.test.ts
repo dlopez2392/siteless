@@ -63,6 +63,17 @@ describe('grants audit', () => {
   it('authenticated holds no TRUNCATE, REFERENCES or TRIGGER on any tenant table', () =>
     withRollback(async (c) => {
       await actAsOwner(c);
+      // "any tenant table" is a claim about the database, not about this array. A table
+      // added in Phase 2 or 3 without being listed here would leave the claim false and
+      // the test green, so the list is checked against the live catalog first.
+      const { rows: live } = await c.query<{ tbl: string }>(
+        `select c.relname as tbl
+           from pg_class c join pg_namespace n on n.oid = c.relnamespace
+          where n.nspname = 'public' and c.relkind = 'r'
+          order by 1`,
+      );
+      expect(live.map((r) => r.tbl)).toEqual([...TENANT_TABLES].sort());
+
       const { rows } = await c.query<PrivRow>(privilegeMatrix('authenticated', NON_DML));
       // 4 tables x 4 privileges. If this number moves, the enumeration stopped enumerating.
       expect(rows).toHaveLength(TENANT_TABLES.length * NON_DML.length);
@@ -106,6 +117,16 @@ describe('grants audit', () => {
     withRollback(async (c) => {
       // A lateral aclexplode, not the inline `(aclexplode(x)).grantee` form: PostgreSQL 18
       // rejects that with "set-returning functions are not allowed in WHERE".
+      //
+      // Scoped to the roles that actually OWN tables in public — which is the set of roles
+      // that create them, and therefore the only default ACLs that can reach a future
+      // table here. On Supabase a second default ACL for public is owned by
+      // `supabase_admin` and grants arwdDxtm to anon/authenticated; `postgres` is not a
+      // member of supabase_admin and cannot alter it ("permission denied to change default
+      // privileges", attempted on production and rolled back), and it is inert because
+      // supabase_admin owns zero tables in public while drizzle-kit creates every table as
+      // `postgres`. An unscoped assertion here would be red on production forever, for a
+      // condition no migration this repo can write is able to change.
       const { rows } = await c.query<{ granted: number; total: number }>(`
         select count(*) filter (
                  where a.grantee in ('anon'::regrole, 'authenticated'::regrole)
@@ -114,7 +135,11 @@ describe('grants audit', () => {
           from pg_default_acl d
          cross join lateral aclexplode(d.defaclacl) a
          where d.defaclnamespace = 'public'::regnamespace
-           and d.defaclobjtype = 'r'`);
+           and d.defaclobjtype = 'r'
+           and d.defaclrole in (
+                 select distinct c.relowner
+                   from pg_class c join pg_namespace n on n.oid = c.relnamespace
+                  where n.nspname = 'public' and c.relkind = 'r')`);
       // Control: the catalog read is live. Migration 0008 leaves service_role's default
       // privileges in place, so a zero here would mean the query found nothing at all.
       expect(rows[0]?.total).toBeGreaterThan(0);
