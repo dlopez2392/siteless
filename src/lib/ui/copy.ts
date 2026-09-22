@@ -126,9 +126,34 @@ export const SPEND_FOOTER =
   'One ledger row per paid call. Vercel hosting (~$20/mo) is infrastructure and is ' +
   'deliberately not counted here.';
 
+/**
+ * 🔴 THIS SENTENCE SAID "Applies to Places, Firecrawl and Anthropic together" AND THE
+ * DATABASE HAS NEVER WORKED THAT WAY (WR-02).
+ *
+ * `budget_periods` is keyed `(org_id, provider, period_start)` — migration 0014's
+ * `budget_periods_org_provider_period_uniq` — and `app.reserve_budget`'s conditional UPDATE
+ * matches ONE such row. That single statement is the entire concurrency control, proven
+ * under a 40-way burst, and it is atomic precisely because it touches one row: a ceiling
+ * spanning three rows could not be enforced by it at all. So what is enforced is a cap PER
+ * PROVIDER, and the copy was describing a product that does not exist.
+ *
+ * The number is not wrong today — Places is the only provider that reserves anything in
+ * Phase 2, so the enforced ceiling on real spend is exactly the number on screen. It is the
+ * PROMISE that was wrong, and the first Firecrawl reservation in Phase 5 would have been
+ * metered against a lazily-created row nobody set and no screen displays.
+ *
+ * D-13 ("one cap, no separate ad-hoc allowance") is not abandoned here: honouring it as one
+ * org-wide ceiling means moving the meter off a per-provider row, which changes the burst
+ * proof, `readSpendByProvider`, the banner, the gauge and the spend header together. That is
+ * an architecture decision with an owner (danlo) and a natural moment (Phase 5, when a second
+ * provider first spends), recorded in deferred-items.md. What is fixed NOW is the product
+ * telling the truth about what it enforces, which is the half that costs nothing to get right.
+ */
 export const BUDGET_CAP_HELP =
-  'Applies to Places, Firecrawl and Anthropic together. Resets at 12:00 AM on the 1st, ' +
-  'America/Chicago. Vercel hosting is billed separately and never counts against this.';
+  'Applies to Places, the only provider Siteless spends on today. Firecrawl and Anthropic ' +
+  'are metered separately and get their own cap when verification ships in Phase 5. Resets ' +
+  'at 12:00 AM on the 1st, America/Chicago. Vercel hosting is billed separately and never ' +
+  'counts against this.';
 
 export const BUDGET_AUDIT_NOTE =
   'Changing the cap is recorded with your name and the time, like every other change in ' +

@@ -22,6 +22,7 @@ import { describe, expect, it } from 'vitest';
 import {
   BUDGET_100_BANNER,
   BUDGET_80_BANNER,
+  BUDGET_CAP_HELP,
   GEOCODE_NO_MATCH,
   PHASE4_RUN_NOTICE,
   PRESETS_EMPTY_HEADING,
@@ -103,6 +104,31 @@ describe('the server-safe UI maps (UI-SPEC Executor Rule 5)', () => {
     expect(SPEND_FOOTER).toContain('One ledger row per paid call.');
     // The user's own input is quoted back, because it is the thing that failed.
     expect(GEOCODE_NO_MATCH('Joe’s Taqueria')).toContain('Joe’s Taqueria');
+  });
+
+  it('ui copy: the cap help claims only the scope the meter enforces', () => {
+    // WR-02. The sentence read "Applies to Places, Firecrawl and Anthropic together" while
+    // the database had never worked that way, and nothing could see the contradiction
+    // because copy and schema are never compared. So compare them.
+    const sql = nodeFs
+      .readdirSync(DRIZZLE_DIR)
+      .filter((f) => f.endsWith('.sql'))
+      .map((f) => nodeFs.readFileSync(nodePath.join(DRIZZLE_DIR, f), 'utf8'))
+      .join('\n');
+
+    // The schema fact: a budget period — and therefore a cap — is per (org, provider, month),
+    // and app.reserve_budget's conditional UPDATE matches exactly one such row. A ceiling
+    // spanning three rows could not be enforced atomically by that statement at all.
+    expect(sql).toMatch(/budget_periods_org_provider_period_uniq/);
+    expect(sql).toMatch(/UNIQUE\("org_id","provider","period_start"\)/);
+
+    // The copy fact. "together" is the specific promise the schema refutes; a cap help that
+    // stops naming Places would be just as wrong in the other direction, so both halves are
+    // asserted. Read the whole string rather than a fragment: this exists to fail if somebody
+    // restores the old sentence, and the old sentence is a substring of nothing.
+    expect(BUDGET_CAP_HELP).toContain('Applies to Places');
+    expect(BUDGET_CAP_HELP).not.toMatch(/together/i);
+    expect(BUDGET_CAP_HELP).toContain('metered separately');
   });
 
   it('ui copy: the version notice refuses a version with no predecessor', () => {

@@ -14,6 +14,41 @@ Still open: the nine `e2e-*` presets left in the shared `siteless_test` database
 
 ---
 
+# Logged by the code-review fix pass (WR-02, 2026-09-22)
+
+## D-13 "one cap" as ONE ORG-WIDE CEILING — owner danlo, moment Phase 5
+
+**What shipped and is now told truthfully:** `budget_periods` is keyed
+`(org_id, provider, period_start)` and `app.reserve_budget`'s conditional UPDATE matches ONE
+such row. That single statement is the whole concurrency control — proven under a 40-way
+burst — and it is atomic *because* it touches one row. So the ceiling the database enforces
+is **per provider**, and `BUDGET_CAP_HELP` claimed "Applies to Places, Firecrawl and
+Anthropic together", which was never true of any version of this schema. The copy is fixed
+and `tests/unit/ui-maps.test.ts` › `ui copy: the cap help claims only the scope the meter
+enforces` now compares the sentence to the schema so the two cannot drift apart again.
+
+**What is NOT fixed, deliberately.** D-13 says one cap. Honouring that as a single org-wide
+ceiling means one of:
+
+1. a `provider = 'all'` (or provider-less) meter row that every reserve, settle and read
+   uses — which changes the burst proof, `readSpendByProvider`'s three-row `values` list,
+   the banner, the gauge and the spend header together; or
+2. aggregating three rows on every read — which is **not** the same product: an aggregate
+   ceiling cannot be enforced by the one-row conditional UPDATE, so the atomic guarantee
+   (ROADMAP success criterion 5) would be lost; or
+3. per-provider caps made explicit in the UI (three inputs), which contradicts D-13.
+
+None of those is a review fix, all three are architecture, and the number on screen is not
+wrong today: Places is the only provider that reserves anything before Phase 5, so the
+enforced ceiling on real spend is exactly the cap the admin set.
+
+🔴 **The trap this leaves, named so Phase 5 cannot walk into it silently:** the first
+Firecrawl reservation will be metered against a `budget_periods` row `ensure_budget_period`
+lazily created at the $50 default — a row nobody set and no screen displays. Phase 5 must
+pick one of the three options above BEFORE the first Firecrawl call, not after.
+
+---
+
 # Logged by plan 02-11
 
 ## 🔴 `readSpendByRun` binds a JS `Date` and will 500 the spend screen
