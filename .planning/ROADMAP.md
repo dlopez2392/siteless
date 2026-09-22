@@ -115,9 +115,9 @@ Plans:
 - [x] 02-10-PLAN.md — App shell, persistent budget banner, organization settings, the e2e testid move
 
 **Wave 5** *(blocked on Wave 4)*
-- [ ] 02-11-PLAN.md — Preset list and preset editor with the live debounced estimate
-- [ ] 02-12-PLAN.md — Preset detail: version history, duplicate, run drawer with its refusal state
-- [ ] 02-13-PLAN.md — Spend view and budget settings, including BUDG-03's second-wall card
+- [x] 02-11-PLAN.md — Preset list and preset editor with the live debounced estimate
+- [x] 02-12-PLAN.md — Preset detail: version history, duplicate, run drawer with its refusal state
+- [x] 02-13-PLAN.md — Spend view and budget settings, including BUDG-03's second-wall card
 
 **Wave 6** *(blocked on Wave 5, checkpoints)*
 - [ ] 02-14-PLAN.md — Production migration and seed, Google quota and Vercel Pro checkpoints
