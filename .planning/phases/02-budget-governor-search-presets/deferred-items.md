@@ -162,7 +162,77 @@ db test for.
 
 # Logged by plan 02-15
 
-## 🔴 BLOCKER (awaiting danlo) — `preset-detail.spec.ts` seeds a DIFFERENT DATABASE than the app it drives
+## ✅ RESOLVED 2026-09-22 — danlo chose option 3 — `preset-detail.spec.ts` self-skips unless the target is local
+
+**Decision (danlo, verbatim):** `e2e fixture: 3: self-skip unless local`. Deviation Rule 4
+closed by the owner, not by the executor. Applied in `tests/e2e/preset-detail.spec.ts`:
+a file-level `test.skip(!TARGET_IS_LOCAL, …)` whose predicate parses `E2E_BASE_URL` and
+fires unless the hostname is `localhost` / `127.0.0.1` / `::1` / `[::1]`.
+
+- **No test was deleted and no assertion was weakened.** Against a local server all three
+  tests run exactly as written (02-12 and the 02-15 orchestrator both ran them green there).
+- **Direction checked**, because a guard that fires unconditionally is indistinguishable
+  from a working one: `playwright test --list --reporter=json` reports all three as
+  skip-annotated with the production `E2E_BASE_URL`, and all three as `WILL RUN` with
+  `E2E_BASE_URL=http://localhost:3000`. The predicate flips.
+- **`beforeAll` no longer executes** against a deployed target, which is what removes the
+  `searches_org_id_orgs_id_fk` failure at its cause rather than catching it.
+- **SRCH-03 is carried by a named test that CI actually runs:**
+  `tests/db/versioned-presets.test.ts` → `run keeps its version after the preset moves on`,
+  watched red under plan 02-06's M12 grant mutation and executed by CI's `db` job on every
+  push. The skip reason names it in full, so a reader of the skip line is told where the
+  requirement lives instead of being left to assume it was dropped.
+- **This also closes the never-observed CI failure** described below: `TEST_DATABASE_URL`
+  is undefined on a runner, so this file would have thrown on the first push of the branch.
+
+**Result:** `pnpm test:e2e` against `https://siteless-iota.vercel.app` — **15 passed,
+6 skipped, 0 failed**, 45 s wall clock (the failing run was 53 s).
+
+---
+
+## Deferred to Phase 4 (danlo, 2026-09-22) — the 80 %/100 % banner and refused-run captures
+
+**Decision (danlo, verbatim):** `state shots: defer to Phase 4`.
+
+The four state shots 02-15 Task 2 asks for on the **deployed** app — the 80 % banner, the
+100 % banner, the refused run drawer, the assumptions drawer — are deferred. Driving them
+requires lowering the production budget cap through `/settings/budget` and restoring it,
+and committed spend in production is **$0** until Phase 4 calls Places, so the states are
+synthetic there. The local hex-probed proofs from **02-10** (the banner at both thresholds,
+computed-style probed) and **02-13** (the refusal copy) stand in for the phase gate, and
+the behaviours themselves are pinned by named tests: `budget banner: renders on every route
+at 80 percent` and `budget banner: is not dismissible`, which **self-skip on production
+today for the same reason** — they assert against real committed spend that does not exist
+yet. Phase 4 is where both the shots and those two skips stop being synthetic.
+
+---
+
+## Follow-up for Phase 3/4 planning — `presets.spec.ts` leaves three rows per run, forever
+
+`tests/e2e/presets.spec.ts` creates three real `searches` + `search_versions` rows named
+`e2e-<epoch>-{cities,county,radius}` and **deletes none of them**, because Phase 2 ships no
+archive and no delete path by design (02-CONTEXT § Deferred Ideas) and `search_versions` is
+append-only by GRANT — which is SRCH-03's own mechanism. Against the local database that was
+already logged above (nine rows). It is now also true of **production**: plan 02-15's two
+deployed runs left **six** `e2e-*` presets in production Supabase (prefixes
+`1790100256747` and this run's), plus one lazily-created `budget_periods` row.
+
+🔴 **The CI `e2e` job will add three more on every push**, against whatever `E2E_BASE_URL`
+points at. Nobody has to act today — the rows are harmless, prefixed and identifiable, and
+`/presets` is ordered by `updated_at desc` with nothing asserting a count — but this grows
+without bound and should be closed when a plan owns it. Two ways, either acceptable:
+
+1. Give `presets.spec.ts` an `afterAll` teardown, the way `preset-detail.spec.ts` already
+   has one. Needs a delete path with enough privilege, which is the reason it has none.
+2. Scope the names so they are trivially reclaimable, and add the archive/delete path the
+   product owes anyway — then the teardown is a product call, not a SQL one.
+
+**Owner:** Phase 3 or Phase 4 planning. Recorded here rather than fixed because a delete
+path is a product feature, not a test fix (Rule 4 territory).
+
+---
+
+## 🔴 BLOCKER — RESOLVED ABOVE, kept for the record — `preset-detail.spec.ts` seeds a DIFFERENT DATABASE than the app it drives
 
 **Found during:** plan 02-15, Task 1 — the first time this suite has ever been pointed at a
 DEPLOYED url. Three tests fail; the phase's e2e gate cannot go green without a decision.
@@ -233,3 +303,8 @@ has ever executed this file. The first push of this branch would have gone red.
    warns about in its own header.
 
 **Owner:** danlo. Deviation Rule 4 (architectural / security). Not auto-fixed.
+
+> **Answered 2026-09-22: option 3.** See "RESOLVED" at the top of this plan's section. The
+> three ways out are kept as written because the reasoning for rejecting 1 and 2 is the
+> justification for the skip, and a future reader re-opening this should have to argue with
+> it rather than rediscover it.

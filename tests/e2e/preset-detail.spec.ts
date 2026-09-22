@@ -25,9 +25,73 @@ import { Client } from 'pg';
  * test takes are released so `budget_periods.reserved_micro_usd` returns to what it was.
  * `runs.search_version_id` is `on delete no action` BY DESIGN — that is SRCH-03's
  * mechanism — so the runs must go before the versions or the teardown is refused.
+ *
+ * 🔴 THIS FILE ONLY RUNS AGAINST A LOCAL TARGET, AND THE SKIP BELOW IS DELIBERATE — SEE
+ * `TARGET_IS_LOCAL`. Read that comment before assuming the skip is laziness.
  */
 
 const PREFIX = 'e2e-02-12';
+
+/**
+ * 🔴 THE FIXTURE AND THE APP MUST BE THE SAME DATABASE, AND THEY ONLY ARE WHEN THE TARGET
+ * IS LOCAL. THIS SKIP IS A SCOPE DECISION BY danlo (2026-09-22, plan 02-15 Task 2), NOT A
+ * WORKAROUND FOR A RED TEST.
+ *
+ * This is the only spec in the suite that writes to a database directly. Two lines decide
+ * which one: `withDb()` opens `TEST_DATABASE_URL` — always the LOCAL `siteless_test` — while
+ * `tenantId()` reads the org id out of the app that `E2E_BASE_URL` points at. Against a
+ * local dev server those are one database and the fixture seeds correctly (plan 02-12 ran
+ * this file green that way, and so did the 02-15 orchestrator). Against a DEPLOYED url they
+ * are two different databases: `beforeAll` inserts production's org id into local
+ * `siteless_test`, where no such `orgs` row exists, and PostgreSQL refuses it with
+ * `searches_org_id_orgs_id_fk`. That is a fixture that cannot work, not a product defect —
+ * the three tests below never start.
+ *
+ * Pointing the fixture at the deployed app's database instead is the alternative, and it is
+ * refused on security grounds: the only credential that can seed and tear down rows in
+ * production Supabase is `SUPABASE_DB_URL`, the project OWNER, which bypasses row-level
+ * security. `docs/deploy.md` §3 forbids that credential from ever leaving a developer
+ * machine, and running this file in CI would mean adding it to GitHub Actions secrets.
+ * No test is worth that trade. (The same two lines are also why CI has never executed this
+ * file: `TEST_DATABASE_URL` is undefined on a runner, so `withDb` throws its own named
+ * error. This skip closes that hole too, honestly, instead of leaving it to be discovered.)
+ *
+ * 🔴 WHAT CARRIES SRCH-03 WHEN THIS FILE IS SKIPPED — a permanently skipped test reads the
+ * same as a passing one in a summary line, so name the replacement rather than implying it:
+ *
+ *     tests/db/versioned-presets.test.ts → 'run keeps its version after the preset moves on'
+ *
+ * It is the same claim at the layer that owns it — a finished run still points at the
+ * version that produced it after the preset moves on — it is watched red under plan 02-06's
+ * M12 grant mutation (`grant update on public.search_versions to authenticated` reds
+ * `versions immutable` alone while `run keeps its version` stays green), and it runs on
+ * EVERY push in CI's `db` job, which this file has never run in. The browser-level assertion
+ * here is additional evidence, not the only evidence.
+ *
+ * Nothing below is weakened, deleted or made conditional. `pnpm test:e2e` against a local
+ * server runs all three tests exactly as written.
+ */
+const TARGET_IS_LOCAL = ((): boolean => {
+  const raw = process.env.E2E_BASE_URL;
+  if (!raw) return false;
+  try {
+    // `new URL('http://[::1]:3000').hostname` is the bracketed form — match it as spelled.
+    return ['localhost', '127.0.0.1', '::1', '[::1]'].includes(new URL(raw).hostname);
+  } catch {
+    return false;
+  }
+})();
+
+test.skip(
+  !TARGET_IS_LOCAL,
+  'preset-detail.spec seeds the LOCAL siteless_test database and therefore only runs against a ' +
+    'local E2E_BASE_URL. Against a deployed target the fixture and the app are two different ' +
+    'databases (the org id comes from the app, the rows go to local Postgres, and the FK ' +
+    'searches_org_id_orgs_id_fk refuses it), and the only credential that could seed the ' +
+    "deployed app's database is the project owner, which docs/deploy.md §3 forbids off this " +
+    'machine. SRCH-03 is carried in CI by tests/db/versioned-presets.test.ts → "run keeps its ' +
+    'version after the preset moves on", watched red under 02-06 M12 and run by the db job.',
+);
 
 async function withDb<T>(fn: (c: Client) => Promise<T>): Promise<T> {
   const url = process.env.TEST_DATABASE_URL;

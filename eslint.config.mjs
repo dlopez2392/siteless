@@ -9,6 +9,12 @@ export default tseslint.config(
       'drizzle/**',
       'playwright-report/**',
       'test-results/**',
+      // Generated output, gitignored as `/coverage/` — the one build directory this list
+      // was missing. `vitest --coverage` writes a provider's instrumented copies here, so
+      // without this line any coverage run reds `pnpm lint` on files nobody wrote. Found at
+      // the 02-15 gate, where a gitignored read-only production helper parked here failed
+      // `no-explicit-any` and blocked the phase gate on a file that is not in the repo.
+      'coverage/**',
       'next-env.d.ts',
       // Generated shadcn copy-ins. They are never hand-edited beyond the token pass
       // (02-UI-SPEC.md), so linting them can only produce noise that someone is then
