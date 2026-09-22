@@ -25,9 +25,17 @@ Two reading gotchas, both verified rather than assumed:
 - `vercel teams ls` prints the team **slug** in the column headed `id`, so the team id above
   will never appear in that output. The authoritative check is `.vercel/project.json`, whose
   `orgId` field is the team id.
-- `vercel project inspect` reports `Framework Preset: Other` for this project. That is
-  Vercel's auto-detect default, not a misconfiguration — `bis-platform`, a live Next.js
-  deployment on the same team, reports exactly the same thing.
+- `vercel project inspect` reports `Framework Preset: Other` for this project, and plan 10
+  recorded that as Vercel's harmless auto-detect default because `bis-platform`, a live
+  Next.js deployment on the same team, reports exactly the same thing. **Plan 11 proved it
+  is not harmless.** With no framework declared, Vercel runs the build, `next build`
+  succeeds and prints every route, and the deploy then fails with
+  `No Output Directory named "dist" found` — because a frameworkless project is assumed to
+  emit a static directory. `vercel.json` now declares `"framework": "nextjs"`, which
+  overrides the project setting; the next build log says `Detected Next.js version: 16.3.5`
+  and `Applying modifyConfig from Vercel`, neither of which appears without it. The setting
+  lives in the repository rather than the dashboard so it is reviewable and survives the
+  project being recreated.
 
 ## 2. Create and link the project (one time only)
 
@@ -166,7 +174,48 @@ The signed-out `GET /` must not return the org-scoped shell.
 
 ## 9. What is deliberately not in the bundle
 
-`.vercelignore` keeps `.planning/`, `docs/`, `tests/`, `drizzle/`, `*.md` and `.github/` out
-of the deployment. `drizzle/` is the load-bearing one: with the migration files absent, no
-build and no preview deploy can apply a migration, so production DDL can only ever come from
-a developer machine running `pnpm db:migrate:prod`.
+`.vercelignore` keeps `.planning/`, `docs/`, `tests/`, `drizzle/`, `*.md`, `.github/` and the
+three test-harness configs out of the deployment. `drizzle/` is the load-bearing one: with
+the migration files absent, no build and no preview deploy can apply a migration, so
+production DDL can only ever come from a developer machine running `pnpm db:migrate:prod`.
+
+The test-harness configs were added to that list in plan 11, for a reason worth keeping:
+`playwright.config.ts` imports `./tests/e2e/_required-env` at the top level, `tsconfig.json`
+includes `**/*.ts`, and `next build` type-checks. Exclude the directory but ship the config
+and the Vercel build compiles cleanly and then dies on
+`TS2307: Cannot find module './tests/e2e/_required-env'` — a build error that cannot
+reproduce locally, because locally `tests/` exists. **An exclusion is only as good as the
+files that still reference across it.** The two vitest configs reach `tests/` through string
+globs only and did not break; they are excluded with it because they are harness for an
+excluded directory just the same.
+
+## 10. The live production deployment
+
+| Thing | Value |
+| --- | --- |
+| Production URL (use this) | `https://siteless-iota.vercel.app` |
+| Other alias | `https://siteless-danlopez508-8452s-projects.vercel.app` |
+| Deployment id | `dpl_CAcqW8nAXa2nimyUp65kBsEcgMFQ` |
+| Per-deployment URL | `https://siteless-71ec0prh2-danlopez508-8452s-projects.vercel.app` |
+| Verified commit | `453c0c4b7e2ab34f367c8366928fbf622ca7456f` (`453c0c4`), branch `main` |
+| State | READY, target production, region `iad1` |
+| First deployed | 2026-09-22 |
+
+Use the **alias**, not the per-deployment URL. The per-deployment URL is covered by Vercel
+deployment protection and answers `302` to an unauthenticated request, including on
+`/api/health`; the production alias answers `200`. Point `E2E_BASE_URL` — in `.env.local`
+and as the GitHub Actions repository variable — at the alias for the same reason.
+
+The commit is verified from the running code, not from the build log: the build log names no
+sha, so `/api/health` echoing `VERCEL_GIT_COMMIT_SHA` is the check. A CLI deploy from this
+linked directory carries the local git metadata, so the sha it returns is the sha that was
+`git rev-parse HEAD` before the deploy — and it is `main`'s local HEAD whether or not `main`
+has been pushed.
+
+```
+$ curl -fsS https://siteless-iota.vercel.app/api/health
+{"ok":true,"db":"up","proxy":"up","commit":"453c0c4b7e2ab34f367c8366928fbf622ca7456f"}
+
+$ curl -sS -o /dev/null -w '%{http_code} %{redirect_url}' https://siteless-iota.vercel.app/
+307 https://siteless-iota.vercel.app/sign-in
+```
