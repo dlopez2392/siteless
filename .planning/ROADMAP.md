@@ -108,8 +108,8 @@ Plans:
 - [x] 02-07-PLAN.md — Estimator, Census geocoder, server-safe UI maps
 
 **Wave 3** *(blocked on Wave 2)*
-- [ ] 02-08-PLAN.md — The meter proofs: 40-way concurrent burst, thresholds, admin gate, Chicago month in SQL
-- [ ] 02-09-PLAN.md — Six server actions, two query modules, and the requireOrg-first static guard
+- [x] 02-08-PLAN.md — The meter proofs: 40-way concurrent burst, thresholds, admin gate, Chicago month in SQL
+- [x] 02-09-PLAN.md — Six server actions, two query modules, and the requireOrg-first static guard
 
 **Wave 4** *(blocked on Wave 3)*
 - [ ] 02-10-PLAN.md — App shell, persistent budget banner, organization settings, the e2e testid move
