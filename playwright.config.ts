@@ -18,7 +18,13 @@ export default defineConfig({
   workers: 1,
   forbidOnly: !!process.env.CI,
   retries: 0,
-  reporter: 'list',
+  // `list` writes nothing to disk, so a failed CI run used to leave the console output and
+  // nothing else — while `trace: 'retain-on-failure'` below was quietly writing the traces
+  // that show WHY a signed-in assertion failed against production, into outputDir
+  // (`test-results/`), which the workflow did not upload. In CI, add the HTML report and
+  // upload both. `open: 'never'` matters: the html reporter otherwise tries to spawn a
+  // browser at the end of the run and hangs a headless agent.
+  reporter: process.env.CI ? [['list'], ['html', { open: 'never' }]] : 'list',
   expect: { timeout: 10000 },
   use: {
     baseURL: process.env.E2E_BASE_URL,
