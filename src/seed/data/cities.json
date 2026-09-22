@@ -1,0 +1,50 @@
+{
+  "provenance": {
+    "rule": "the cities in the four RGV counties with at least 400 active sales-tax outlets, name variants folded",
+    "thresholdOutlets": 400,
+    "selectionBasis": "exact outlet_city spelling",
+    "source": "data.texas.gov/resource/jrea-zgmq.json",
+    "measuredAt": "2026-09-22",
+    "rgvTotalOutlets": 34928,
+    "selectedOutletsBeforeFolding": 31693,
+    "coveragePctBeforeFolding": 90.7,
+    "seededOutletsAfterFolding": 31760,
+    "coveragePctAfterFolding": 90.9,
+    "nextCandidates": [
+      { "name": "Roma", "countyFips": "48427", "outlets": 336 },
+      { "name": "La Feria", "countyFips": "48061", "outlets": 324 },
+      { "name": "Alton", "countyFips": "48215", "outlets": 298 },
+      { "name": "Port Isabel", "countyFips": "48061", "outlets": 280 },
+      { "name": "Raymondville", "countyFips": "48489", "outlets": 221 }
+    ]
+  },
+  "cities": [
+    { "name": "Brownsville", "countyFips": "48061", "outletCount": 6678, "nameVariants": ["BROWNSVILLE"] },
+    { "name": "McAllen", "countyFips": "48215", "outletCount": 5985, "nameVariants": ["MCALLEN"] },
+    { "name": "Edinburg", "countyFips": "48215", "outletCount": 3092, "nameVariants": ["EDINBURG"] },
+    { "name": "Mission", "countyFips": "48215", "outletCount": 3034, "nameVariants": ["MISSION"] },
+    { "name": "Harlingen", "countyFips": "48061", "outletCount": 2626, "nameVariants": ["HARLINGEN"] },
+    { "name": "Pharr", "countyFips": "48215", "outletCount": 1942, "nameVariants": ["PHARR"] },
+    { "name": "Weslaco", "countyFips": "48215", "outletCount": 1551, "nameVariants": ["WESLACO"] },
+    { "name": "San Benito", "countyFips": "48061", "outletCount": 948, "nameVariants": ["SAN BENITO"] },
+    { "name": "Donna", "countyFips": "48215", "outletCount": 821, "nameVariants": ["DONNA"] },
+    { "name": "San Juan", "countyFips": "48215", "outletCount": 791, "nameVariants": ["SAN JUAN"] },
+    {
+      "name": "Rio Grande City",
+      "countyFips": "48427",
+      "outletCount": 843,
+      "nameVariants": ["RIO GRANDE CITY", "RIO GRANDE CY", "RIO GRANDE"]
+    },
+    { "name": "Alamo", "countyFips": "48215", "outletCount": 763, "nameVariants": ["ALAMO"] },
+    { "name": "Mercedes", "countyFips": "48215", "outletCount": 748, "nameVariants": ["MERCEDES"] },
+    { "name": "Hidalgo", "countyFips": "48215", "outletCount": 566, "nameVariants": ["HIDALGO"] },
+    { "name": "Los Fresnos", "countyFips": "48061", "outletCount": 490, "nameVariants": ["LOS FRESNOS"] },
+    { "name": "Palmview", "countyFips": "48215", "outletCount": 465, "nameVariants": ["PALMVIEW"] },
+    {
+      "name": "South Padre Island",
+      "countyFips": "48061",
+      "outletCount": 417,
+      "nameVariants": ["SOUTH PADRE ISLAND"]
+    }
+  ]
+}

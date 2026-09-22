@@ -1,0 +1,5 @@
+{
+  "_comment": "HAND-WRITTEN, not recorded. The live geocoder will not produce a 503 on demand, and a fixture that cannot be recorded must say so rather than look like a capture. This is an ENVELOPE, not a response body: the msw handler in plan 02-07 replays it as `new HttpResponse(body, { status })`. Every other file in this directory is a verbatim capture of a 200 body and carries no envelope, so a handler that confuses the two fails loudly instead of replaying `{status, body}` as if it were a geocoder payload.",
+  "status": 503,
+  "body": "Service Unavailable"
+}
