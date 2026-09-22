@@ -90,6 +90,9 @@ completed: 2026-09-22
 2. **Task 2: The US Census Geocoder client and its msw replay harness** — `33b5410` (feat)
 3. **Task 3: The two server-safe UI maps** — `1748083` (feat)
 
+**Plan metadata:** `7d01256` (docs: complete plan)
+**Self-check fix:** `0e09399` (fix: raw NUL bytes made `expand-cells.ts` binary to git — deviation 7)
+
 ## Files Created/Modified
 
 | File | What it does |
@@ -319,6 +322,16 @@ src/lib/ui/copy.ts
 - **Verification:** 5 named tests, all green.
 - **Committed in:** `1748083`
 
+**7. [Rule 1 — Bug] `expand-cells.ts` contained two raw NUL bytes and git classified it as binary**
+
+- **Found during:** self-check, after the SUMMARY commit
+- **Issue:** `const SEP` — the separator used to build composite Map keys — was written as a *literal* U+0000 rather than an escape, and the doc comment above it quoted one too. Two raw NUL bytes in the file made git treat the whole module as **binary**: `git diff --stat` reported `src/lib/estimate/expand-cells.ts | Bin 0 -> 10333 bytes`, with no line diff at all. Every gate was green — `tsc`, `eslint` and all 63 tests — because the *character* is correct; only the encoding was. The cost is real and immediate: a binary-classified source file is invisible to review, produces no `git diff`, and cannot be three-way merged, and two sibling plans are merging into this branch's base.
+- **Fix:** Replaced both with the escape `' '`, which denotes the same character. Behaviour is bit-identical.
+- **Files modified:** `src/lib/estimate/expand-cells.ts`
+- **Verification:** `NUL bytes in the COMMITTED blob: 0` (10,341 bytes); `git grep -n "const SEP" HEAD -- src/lib/estimate/expand-cells.ts` → `HEAD:src/lib/estimate/expand-cells.ts:69:const SEP = ' ';` — git only greps a file it reads as text. Full suite 63/63, typecheck and lint clean after the change.
+- **Committed in:** `0e09399` (`fix`)
+- **Note:** the one historical diff `1748083..0e09399` still prints `Bin`, because the *old* side is the binary blob. Everything from `0e09399` forward diffs as text.
+
 ### Deviations from stated criteria (not code changes)
 
 **A. Mutation 1 reds three tests, not the two the criterion predicts.** The criterion names `cost model: the RGV baseline …` and `cost model: Texas exceeds the cap …`; `cost model: the RGV county baseline` also reds (`expected 288 to be 144`). Every dollar figure scales off `FAN_OUT` by design, so all three county/city cost models depend on it. More coverage of the mutation, not less; both predicted tests did red, with exact numbers.
@@ -327,8 +340,10 @@ src/lib/ui/copy.ts
 
 ---
 
-**Total deviations:** 6 auto-fixed (2 bugs, 2 missing-critical, 2 blocking) + 2 criteria observations.
-**Impact on plan:** No scope creep. Deviations 1 and 2 were required for the plan's own named tests to be satisfiable against the committed seed; 4 was required for the plan's own file to be testable. 3, 5 and 6 remove second sources of truth and add a guard the plan asked for but supplied no check for. All three tasks completed as specified.
+**Total deviations:** 7 auto-fixed (3 bugs, 2 missing-critical, 2 blocking) + 2 criteria observations.
+**Impact on plan:** No scope creep. Deviations 1 and 2 were required for the plan's own named tests to be satisfiable against the committed seed; 4 was required for the plan's own file to be testable. 3, 5 and 6 remove second sources of truth and add a guard the plan asked for but supplied no check for. 7 was caught only by the self-check — every gate was green on a file git could not diff. All three tasks completed as specified.
+
+🔴 **The one worth carrying forward:** deviation 7 is the second time in this plan that *a file's own bytes defeated a check that was otherwise working* — the first being deviation 5, where three modules tripped their own greps by naming the token. Both were invisible to typecheck, lint and the test suite. A green suite proves nothing that an inspection of the artefact has not.
 
 ## Issues Encountered
 
@@ -371,6 +386,17 @@ None — no external service configuration. The Census Geocoder takes no API key
 3. ⚠️ **02-10 / 02-11: import the copy constants, never retype a string.** `GEOCODE_NO_MATCH` uses UI-SPEC's typographic quotes (decision 7).
 4. ⚠️ **`vitest.config.ts` merge hunk** — see deviation 4.
 5. `FAN_OUT` and `RADIUS_REFERENCE_MILES` remain **unmeasured by design** and are due to be trued up against a real invoice at the Phase 6 gate.
+
+---
+## Self-Check: PASSED
+
+- All 11 files listed under `key-files.created` exist on disk (`[ -f ]` each).
+- All 5 commits resolve in `git log`: `9c017eb`, `33b5410`, `1748083`, `7d01256`, `0e09399`.
+- `git status --short` clean; `.env.local` is covered by `.gitignore:4` (`.env.*`) and was never staged.
+- `git diff --diff-filter=D --name-only 901bb7d..HEAD` empty — **no file deleted anywhere in this plan**.
+- No write outside this worktree. `STATE.md` and `ROADMAP.md` untouched, per the parallel-execution contract.
+- Re-ran every plan-level `<verification>` item after the final commit: 63/63 unit tests, typecheck clean, lint clean, all greps as tabulated above.
+- One finding, fixed and committed before returning: deviation 7.
 
 ---
 *Phase: 02-budget-governor-search-presets*
