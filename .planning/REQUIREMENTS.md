@@ -18,10 +18,10 @@ Requirements for initial release. Each maps to roadmap phases. Success metric: 5
 
 ### Search Presets
 
-- [ ] **SRCH-01**: User can define a search as one or more industry clusters × a geography (named city list, county, or radius around a geocoded point) and save it as a named preset
-- [ ] **SRCH-02**: The four industry clusters, the RGV city list, and the four RGV counties ship as seed data; a Texas-wide preset is expressible as a larger preset with a visible cost multiplier
+- [x] **SRCH-01**: User can define a search as one or more industry clusters × a geography (named city list, county, or radius around a geocoded point) and save it as a named preset
+- [x] **SRCH-02**: The four industry clusters, the RGV city list, and the four RGV counties ship as seed data; a Texas-wide preset is expressible as a larger preset with a visible cost multiplier
 - [ ] **SRCH-03**: Presets are versioned — editing creates a new version; past runs keep pointing at the version that produced them
-- [ ] **SRCH-04**: User sees an estimated cost and estimated result count before saving or running a preset
+- [x] **SRCH-04**: User sees an estimated cost and estimated result count before saving or running a preset
 
 ### Free-Data Spine
 
@@ -192,10 +192,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | FOUND-04 | Phase 1 | Complete |
 | FOUND-05 | Phase 1 | Complete |
 | FOUND-06 | Phase 1 | Complete |
-| SRCH-01 | Phase 2 | Pending |
-| SRCH-02 | Phase 2 | Pending |
+| SRCH-01 | Phase 2 | Complete |
+| SRCH-02 | Phase 2 | Complete |
 | SRCH-03 | Phase 2 | Pending |
-| SRCH-04 | Phase 2 | Pending |
+| SRCH-04 | Phase 2 | Complete |
 | BUDG-01 | Phase 2 | Pending |
 | BUDG-02 | Phase 2 | Pending |
 | BUDG-03 | Phase 2 | Pending |

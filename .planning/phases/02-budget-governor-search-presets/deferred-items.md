@@ -69,10 +69,13 @@ same `sql.join` form.
 
 ---
 
-## Three `e2e-*` presets remain in the shared `siteless_test` database
+## Nine `e2e-*` presets remain in the shared `siteless_test` database
 
 `tests/e2e/presets.spec.ts` creates real `searches` + `search_versions` rows named
-`e2e-<epoch>-{cities,county,radius}`. **They were not deleted.** Phase 2 ships no archive
+`e2e-<epoch>-{cities,county,radius}`. Plan 02-11 ran the spec three times end to end while
+debugging two blocking defects, so **nine** rows exist, across three run prefixes:
+`1790096442647`, `1790096478427`, `1790097027886`. The list reads
+`9 presets · none run this month`. **They were not deleted.** Phase 2 ships no archive
 and no delete path by design (02-CONTEXT § Deferred Ideas), and `search_versions` is
 append-only by GRANT — `revoke update, delete` in `drizzle/0013`, which is the mechanism
 behind SRCH-03. So the product itself cannot remove them, and the only way to clean up is a
