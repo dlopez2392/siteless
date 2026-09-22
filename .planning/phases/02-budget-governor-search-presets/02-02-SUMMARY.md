@@ -329,3 +329,14 @@ None for this plan. Note that **BUDG-03's second wall — the Google Cloud "Requ
 ---
 *Phase: 02-budget-governor-search-presets*
 *Completed: 2026-09-22*
+
+## Self-Check: PASSED
+
+Run after the SUMMARY commit, from the worktree root.
+
+- All 17 claimed files exist on disk; the four spot-checked ones are **tracked by git**, not merely present.
+- All four claimed commits resolve: `76711d6`, `b3fe9c6`, `8b8b2a8`, `b966b3e`.
+- Both planted violations are absent (`src/scratch-planted-credential.ts`, `drizzle/9999_scratch.sql`); `drizzle/` holds exactly the 12 Phase 1 migrations.
+- `.env.local` is **not tracked**.
+- `.planning/STATE.md` and `.planning/ROADMAP.md` are **unmodified** against the plan base `131bf02` — the orchestrator owns those.
+- `git status --short` is **empty**.
