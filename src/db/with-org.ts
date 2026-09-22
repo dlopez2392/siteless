@@ -5,7 +5,34 @@ import { db } from './client';
 /** Never interpolate a role that came from input. */
 const ROLES = new Set(['authenticated', 'anon']);
 
-export type OrgClaims = { o: { id: string }; sub: string; role: 'authenticated' };
+/**
+ * The claims a request hands the database.
+ *
+ * 🔴 `org_role` CARRIES THE PREFIXED CLERK SPELLING, VERBATIM, AND IS NOT OPTIONAL IN
+ * PRACTICE — it is optional in the type only because Phase 1 shipped without it. Every
+ * role-gated function in the database reads the role out of these claims, and until plan
+ * 02-13 nothing put one in: `orgClaims()` synthesized `{ o: { id } }` with no role at all,
+ * so `app.current_org_role()` returned NULL for everybody and `app.set_budget_cap` raised
+ * `42501` at danlo — a verified org ADMIN — on every attempt. The db tests could not see
+ * it because their fixtures supply the role directly; the defect lives in the claims the
+ * APP builds, and it only became reachable when a screen first called the action
+ * (plan 02-13, deviation 2).
+ *
+ * 🔴 THE PREFIX IS STRIPPED IN SQL, NEVER IN TYPESCRIPT. Clerk session token v2 nests the
+ * BARE role under `o.rol` ('admin'), while `@clerk/shared` builds `auth().orgRole` as
+ * `org:${o.rol}` ('org:admin'). `app.current_org_role()` (migration 0016) exists precisely
+ * to normalise both spellings, and its flat `org_role` branch does the `org:` strip. So
+ * what goes in here is whatever `auth()` returned, untouched: any `.replace('org:', '')`
+ * on this side would be a second place to get the trap wrong, and the trap is a silent
+ * pass-or-fail rather than an error.
+ */
+export type OrgClaims = {
+  o: { id: string };
+  sub: string;
+  role: 'authenticated';
+  /** `auth().orgRole` as Clerk spells it — `'org:admin'`, `'org:basic_member'`. */
+  org_role?: string;
+};
 
 /**
  * THE runtime database entry point. Everything a request touches goes through here.

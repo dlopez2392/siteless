@@ -46,13 +46,25 @@ const setCapInputSchema = z.strictObject({
 export async function setBudgetCap(input: unknown): Promise<ActionResult<{ capMicroUsd: string }>> {
   // 🔴 T-2-01. First statement.
   const { userId, orgId, orgSlug } = await requireOrg();
-  const claims: OrgClaims = { o: { id: orgId }, sub: userId, role: 'authenticated' };
 
   // The PREFIXED form, because this is the TypeScript side. See the header.
   const { orgRole } = await auth();
   if (orgRole !== 'org:admin') {
     return fail('forbidden', BUDGET_ADMIN_ONLY(orgSlug ?? 'this organisation'));
   }
+
+  // 🔴 AND THE ROLE GOES TO THE DATABASE TOO, OR THE BOUNDARY REFUSES THE ADMIN. The
+  // claims this action used to build carried no role at all, so `app.current_org_role()`
+  // read NULL and `app.set_budget_cap` raised 42501 on every call — the affordance above
+  // passed and the boundary below refused, which is the worst possible combination because
+  // the screen offers a control that can never work. Prefixed and normalised in SQL; see
+  // the note on `OrgClaims` (plan 02-13, deviation 2).
+  const claims: OrgClaims = {
+    o: { id: orgId },
+    sub: userId,
+    role: 'authenticated',
+    org_role: orgRole,
+  };
 
   const parsed = setCapInputSchema.safeParse(input);
   if (!parsed.success) {
