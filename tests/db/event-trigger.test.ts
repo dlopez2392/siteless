@@ -55,6 +55,19 @@ const EVENT_LOGGED = new Set([
   'searches',
   'search_versions',
   'budget_periods',
+  // Phase 3 plan 05. State-bearing and low volume (~10,000 rows); a merge is exactly the
+  // change somebody later needs attributed. Attached in drizzle/0023.
+  //
+  // FOUR Phase 3 tables are DELIBERATELY EXCLUDED, each with a `comment on table` in 0023:
+  //   * ingest_runs — the run's own row IS the event; a row trigger would duplicate it on
+  //     every counter update. One run-level app.emit_event('ingest_runs', ...) instead.
+  //   * merge_candidates — ~30,000 rows per resolve pass: the source_records
+  //     write-amplification argument. The decision becomes audited state here, in
+  //     business_merges.
+  //   * business_aliases — derived from the merge, which is logged.
+  //   * overture_category_map — reference rows; the seed loader has no org claim and
+  //     events.org_id is NOT NULL, same as the six Phase 2 reference tables.
+  'business_merges',
 ]);
 
 /**
@@ -70,9 +83,9 @@ const EVENT_LOGGED = new Set([
  * tolerance bounded. Comparing distinct names alone would silently accept a second,
  * UNNARROWED update trigger on budget_periods — which is the exact defect the split
  * exists to avoid, and it would restore the write amplification while leaving the name
- * set identical. 5 tables, 6 triggers.
+ * set identical. 6 tables, 7 triggers (Phase 3 plan 05 adds business_merges_event — one).
  */
-const LOG_EVENT_TRIGGER_ROWS = 6;
+const LOG_EVENT_TRIGGER_ROWS = 7;
 
 type LatestEvent = {
   actor_id: string;

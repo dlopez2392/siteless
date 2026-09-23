@@ -55,6 +55,15 @@ const TENANT_TABLES = [
   'budget_periods',
   'cost_reservations',
   'cost_ledger',
+  // Phase 3 plan 05. The spine. Grants in drizzle/0023: the first four are SELECT-only
+  // with INSERT/UPDATE/DELETE revoked (every writer is a desk ETL or a SECURITY DEFINER
+  // that reads the actor itself — T-3-08); overture_category_map takes the full
+  // reference-table DML line, safe because referencePolicies() excludes the built-ins.
+  'ingest_runs', // Phase 3 plan 05. grant select; revoke insert, update, delete.
+  'merge_candidates', // Phase 3 plan 05. grant select; revoke insert, update, delete.
+  'business_merges', // Phase 3 plan 05. grant select; revoke insert, update, delete.
+  'business_aliases', // Phase 3 plan 05. grant select; revoke insert, update, delete.
+  'overture_category_map', // Phase 3 plan 05. grant select, insert, update, delete.
 ];
 
 const valuesOf = (xs: string[]) => xs.map((x) => `('${x}')`).join(',');
@@ -99,7 +108,7 @@ describe('grants audit', () => {
       expect(live.map((r) => r.tbl)).toEqual([...TENANT_TABLES].sort());
 
       const { rows } = await c.query<PrivRow>(privilegeMatrix('authenticated', NON_DML));
-      // 16 tables x 4 privileges. If this number moves, the enumeration stopped enumerating.
+      // 21 tables x 4 privileges. If this number moves, the enumeration stopped enumerating.
       expect(rows).toHaveLength(TENANT_TABLES.length * NON_DML.length);
       expect(rows.filter((r) => r.held)).toEqual([]);
     }));
@@ -318,6 +327,64 @@ describe('grants audit', () => {
         // The positive control: has_any_column_privilege genuinely discriminates on this
         // database, so the four falses above are a finding and not a broken predicate.
         runs_any_update: true,
+      });
+    }));
+
+  /**
+   * Phase 3 plan 05, T-3-08. `business_merges.merged_by` and `merge_candidates.decided_by`
+   * must be unforgeable, which means no tenant session may write either table directly —
+   * every merge, unmerge and review decision goes through a SECURITY DEFINER (03-11) that
+   * reads the actor itself. `ingest_runs` is written by the desk ETL and `business_aliases`
+   * only by the merge definers.
+   *
+   * 🔴 has_table_privilege alone CANNOT see a column grant. That is how the Phase 2 M12b
+   * defect survived 90 green tests: `grant update (geo_payload) on search_versions` left
+   * the table-level answer false. So INSERT and UPDATE are asserted at the column level too.
+   * DELETE has no column-level form — has_any_column_privilege(..., 'DELETE') RAISES
+   * `unrecognized privilege type` rather than returning false (see the test above) — so the
+   * table-level row is the whole DELETE assertion.
+   *
+   * Positive control: overture_category_map holds full DML on the same database, so the
+   * falses below are a finding and not a predicate that returns false for everything.
+   *
+   * Mutation M22: `grant update on public.ingest_runs to authenticated;` — this test goes red
+   * naming ingest_runs. Column variant: `grant update (score) on public.merge_candidates to
+   * authenticated;` — red on the column half only.
+   */
+  it('the four select-only spine tables hold no write privilege', () =>
+    withRollback(async (c) => {
+      const SELECT_ONLY = ['ingest_runs', 'merge_candidates', 'business_merges', 'business_aliases'];
+      const { rows } = await c.query<{
+        tbl: string;
+        s: boolean;
+        i: boolean;
+        u: boolean;
+        d: boolean;
+        col_i: boolean;
+        col_u: boolean;
+      }>(`
+        select t.tbl,
+               has_table_privilege('authenticated', 'public.' || t.tbl, 'SELECT')      as s,
+               has_table_privilege('authenticated', 'public.' || t.tbl, 'INSERT')      as i,
+               has_table_privilege('authenticated', 'public.' || t.tbl, 'UPDATE')      as u,
+               has_table_privilege('authenticated', 'public.' || t.tbl, 'DELETE')      as d,
+               has_any_column_privilege('authenticated', 'public.' || t.tbl, 'INSERT') as col_i,
+               has_any_column_privilege('authenticated', 'public.' || t.tbl, 'UPDATE') as col_u
+          from (values ${valuesOf([...SELECT_ONLY, 'overture_category_map'])}) as t(tbl)
+         order by 1`);
+      // Row count is the control: a table silently dropped from the list would assert less.
+      expect(rows).toHaveLength(SELECT_ONLY.length + 1);
+      const actual = Object.fromEntries(
+        rows.map((r) => [r.tbl, { s: r.s, i: r.i, u: r.u, d: r.d, col_i: r.col_i, col_u: r.col_u }]),
+      );
+      const selectOnly = { s: true, i: false, u: false, d: false, col_i: false, col_u: false };
+      expect(actual).toEqual({
+        ingest_runs: selectOnly,
+        merge_candidates: selectOnly,
+        business_merges: selectOnly,
+        business_aliases: selectOnly,
+        // The positive control.
+        overture_category_map: { s: true, i: true, u: true, d: true, col_i: true, col_u: true },
       });
     }));
 
