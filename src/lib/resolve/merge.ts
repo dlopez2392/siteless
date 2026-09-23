@@ -419,35 +419,63 @@ export async function mergePair(tx: EtlExecutor, input: MergePairInput): Promise
  * definer's pinned `42501 undo_merge: merge not in this org`, never a different error from here.
  */
 export async function unmergeBusinesses(tx: EtlExecutor, input: { mergeId: string }): Promise<void> {
-  const { rows } = await tx.query<{ loser_id: string }>(
-    `select loser_id from business_merges
+  const { rows } = await tx.query<{ winner_id: string; loser_id: string }>(
+    `select winner_id, loser_id from business_merges
       where id = $1::uuid and org_id = app.current_org_id()`,
     [input.mergeId],
   );
-  const loserId = rows[0]?.loser_id;
+  const merge = rows[0];
 
-  let fields: Record<string, unknown> = {};
-  if (loserId !== undefined) {
-    const parents = await readParents(
+  // Every business whose live merge chain runs through the loser: they leave with it.
+  const underLoser = `with recursive under_loser(id) as (
+       select $1::uuid
+       union
+       select m.loser_id from business_merges m
+         join under_loser u on m.winner_id = u.id
+        where m.org_id = app.current_org_id() and m.undone_at is null
+     )`;
+
+  let loserFields: Record<string, unknown> = {};
+  let winnerFields: Record<string, unknown> | null = null;
+  if (merge !== undefined) {
+    const ctx = await loadDerivationContext(tx);
+    const loserParents = await readParents(
       tx,
-      `with recursive under_loser(id) as (
-         select $1::uuid
-         union
-         select m.loser_id from business_merges m
-           join under_loser u on m.winner_id = u.id
-          where m.org_id = app.current_org_id() and m.undone_at is null
-       )
+      `${underLoser}
        select b.id, b.comptroller_key from businesses b
          join under_loser u on u.id = b.id
         where b.org_id = app.current_org_id()`,
-      [loserId],
+      [merge.loser_id],
+      ctx,
     );
-    fields = survivorshipJson(survive(parents), parents.length);
+    loserFields = survivorshipJson(survive(loserParents), loserParents.length);
+
+    // 🔴 A-WR-05: the WINNER is re-derived too — from its remaining cluster (every member
+    // minus the loser's subtree), in complete mode — instead of being restored from the
+    // pre-merge snapshot, which erased anything a closures run, a Census answer or a
+    // re-ingest had changed on the winner since the merge. No remaining parent (cannot happen
+    // for a business the ingest created) falls back to the snapshot inside the definer.
+    const winnerParents = await readParents(
+      tx,
+      `${underLoser}
+       select b.id, b.comptroller_key from businesses b
+        where b.org_id = app.current_org_id()
+          and (b.id = $2::uuid or b.merged_into_id = $2::uuid)
+          and b.id not in (select id from under_loser)`,
+      [merge.loser_id, merge.winner_id],
+      ctx,
+    );
+    if (winnerParents.length > 0) {
+      winnerFields = survivorshipJson(survive(winnerParents), winnerParents.length, {
+        complete: true,
+      });
+    }
   }
 
-  await tx.query('select app.undo_merge($1::uuid, $2::jsonb)', [
+  await tx.query('select app.undo_merge($1::uuid, $2::jsonb, $3::jsonb)', [
     input.mergeId,
-    JSON.stringify(fields),
+    JSON.stringify(loserFields),
+    winnerFields === null ? null : JSON.stringify(winnerFields),
   ]);
 }
 

@@ -182,7 +182,25 @@ end $$;
 -- business_merges row itself is read FOR UPDATE, so of two concurrent unmerges of one merge
 -- the second waits and then reads `undone_at` — "merge already undone" — instead of a stale
 -- row that fails with the wrong message ("undo the later merge first").
-create or replace function app.undo_merge(p_merge_id uuid, p_loser_fields jsonb)
+--
+-- A-WR-05 (same function). The winner used to be restored from `winner_fields_before`, which is
+-- exact only while nothing but merges touched it — and the LIFO check covers merges only. A
+-- closures run (or a Census answer, or a re-ingest) that changed the winner after the merge was
+-- erased by the restore: the review's case was a winner whose OWN closure record set closed_at
+-- after the merge, reopened by the unmerge. The caller (src/lib/resolve/merge.ts) now re-derives
+-- the winner the way it re-derives the loser — survive() over the winner's remaining cluster,
+-- every member minus the loser's subtree — and passes it as p_winner_fields. The snapshot is
+-- kept, and still applied when p_winner_fields is NULL (a raw two-argument call), so the audit
+-- trail and the old behaviour both survive.
+--
+-- The signature grows a third, defaulted argument, so the two-argument function is DROPPED
+-- first — two overloads would make every two-argument call ambiguous — and the grants that
+-- belonged to it are re-issued below the create.
+drop function if exists app.undo_merge(uuid, jsonb);
+--> statement-breakpoint
+
+create or replace function app.undo_merge(
+  p_merge_id uuid, p_loser_fields jsonb, p_winner_fields jsonb default null)
 returns void language plpgsql security definer set search_path = public, pg_temp as $$
 declare
   v_org uuid;
@@ -239,8 +257,11 @@ begin
     raise exception 'undo_merge: undo the later merge first' using errcode = '55000';
   end if;
 
-  -- 1. The winner, back to exactly what it was.
-  perform app.apply_survivorship(v_org, v_merge.winner_id, v_merge.winner_fields_before, 'undo_merge');
+  -- 1. The winner: re-derived from its remaining cluster when the caller supplied it (A-WR-05),
+  -- else the pre-merge snapshot.
+  perform app.apply_survivorship(v_org, v_merge.winner_id,
+                                 coalesce(p_winner_fields, v_merge.winner_fields_before),
+                                 'undo_merge');
 
   -- 2. The loser, live again, with its fields re-derived from its own source records.
   update businesses
@@ -299,6 +320,15 @@ begin
   perform app.emit_event('businesses', v_merge.loser_id, 'unmerge', jsonb_build_object(
     'merge_id', v_merge.id, 'winner_id', v_merge.winner_id, 'loser_id', v_merge.loser_id));
 end $$;
+--> statement-breakpoint
+
+-- The grants 0024 gave the two-argument function, re-issued for the three-argument one. The
+-- schema default (0000) hands a new app.* function to anon as well; it is taken back, as 0024
+-- took it back.
+revoke execute on function app.undo_merge(uuid, jsonb, jsonb) from public, anon;
+--> statement-breakpoint
+
+grant execute on function app.undo_merge(uuid, jsonb, jsonb) to authenticated;
 --> statement-breakpoint
 
 -- 3. A-WR-01. businesses and source_records become SELECT-only for authenticated.
