@@ -33,7 +33,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Foundations & Tenancy** - Org-scoped auth, RLS proven by a refused cross-org statement, and the schema constraints that keep Places content out of the durable record (completed 2026-09-22)
 - [x] **Phase 2: Budget Governor & Search Presets** - Nothing spends outside the meter; danlo defines and costs a search before running it (completed 2026-09-22)
-- [ ] **Phase 3: Free-Data Spine & Entity Resolution** - Overture + TX Comptroller become one deduped, provenance-tracked RGV business record
+- [x] **Phase 3: Free-Data Spine & Entity Resolution** - Overture + TX Comptroller become one deduped, provenance-tracked RGV business record (completed 2026-09-23)
 - [ ] **Phase 4: Places Transient Verifier** - Google answers "is there a website URI?" under an allow-listed Enterprise field mask, and almost everything is discarded
 - [ ] **Phase 5: Verification & Receipts** - Cheapest-first probe ladder writes immutable receipts, including negative evidence, one tap from the lead
 - [ ] **Phase 6: Classifier, Scorer & Vertical-Slice Gate** - Six-way verdict and glass-box score over stored receipts, proven by hand on ~50 real verdicts
@@ -139,7 +139,46 @@ Plans:
   3. The same business arriving from both sources resolves into one lead at ≥95 confidence on a trusted identifier; 80–95 lands in a review queue danlo can work; below 80 is ignored — with names, addresses and phones normalized (case, accents, suite noise, E.164) before matching.
   4. A merge can be undone, every parent record survives the merge, and the external lead key is unchanged by merge or unmerge.
   5. A city, county or radius search never returns a Mexican-side result — proven against a naive RGV bounding box, which is 42% Mexico.
-**Plans:** TBD
+**Plans:** 22 plans across 8 waves
+
+Plans:
+**Wave 1**
+- [x] 03-01-PLAN.md — Toolchain, the extensions migration (pg_trgm + unaccent, FIRST of the phase) and `app.distance_m()`
+- [x] 03-02-PLAN.md — The scorer, its pinned ten-pair fixture, and the Crockford external lead key
+- [x] 03-03-PLAN.md — Socrata client lift, permits + closures transforms (unpadded county codes), recorded msw fixtures
+- [x] 03-04-PLAN.md — Six-destination nav (Leads / Operations, four phone tabs + More sheet), the full copy table, touch-targets fix
+
+**Wave 2** *(blocked on Wave 1)*
+- [x] 03-05-PLAN.md — Spine schema: five new tables, three new provenance FKs, grants, triggers, the widened audit lists
+- [x] 03-06-PLAN.md — Normalization (TypeScript is authoritative — `unaccent` is STABLE) and the two grep gates
+- [x] 03-07-PLAN.md — Census batch geocoder: ragged lines, ID rejoin, longitude first, bounded retry
+
+**Wave 3** *(blocked on Wave 2)*
+- [x] 03-08-PLAN.md — Overture `basic_category` → cluster mapping seed and its reference-row proofs
+- [x] 03-09-PLAN.md — The shared ingest write path, DB fixtures, DATA-04's four proofs, the external key and criterion 5
+
+**Wave 4** *(blocked on Wave 3)*
+- [x] 03-10-PLAN.md — Blocking (the `cross join lateral` shape), the 25 km gate, the block cap, chain detection
+- [x] 03-11-PLAN.md — Survivorship, merge and unmerge, with the three SECURITY DEFINER writers
+- [x] 03-12-PLAN.md — `scripts/ingest-comptroller.ts`: permits, closures, the inline Census geocode, statewide chain names
+- [x] 03-13-PLAN.md — `scripts/ingest-overture.ts`: the DuckDB bbox range-read, the pure transform, the committed fixture
+
+**Wave 5** *(blocked on Wave 4)*
+- [x] 03-14-PLAN.md — `scripts/resolve.ts`: block → score → auto-merge → enqueue, cluster-aware
+- [x] 03-15-PLAN.md — Three query modules and two server actions
+
+**Wave 6** *(blocked on Wave 5)*
+- [x] 03-16-PLAN.md — `/review`: the candidate pair, the chip band, three actions, no optimistic advance
+- [x] 03-17-PLAN.md — `/sources`: the four-row ledger, the composed confidence distribution, the attribution block
+- [x] 03-18-PLAN.md — `/businesses`: search, filters, append paging
+- [x] 03-19-PLAN.md — `/businesses/[id]`: ten fields with inline source tags, merge history, unmerge
+- [x] 03-20-PLAN.md — The desk run: real numbers committed, the confidence cutoff and the ten verdicts confirmed (checkpoint)
+
+**Wave 7** *(blocked on Wave 6, checkpoints)*
+- [x] 03-21-PLAN.md — Production migration and seed, deploy, the two chrome-only e2e specs, the owed teardown
+
+**Wave 8** *(blocked on Wave 7, checkpoint)*
+- [x] 03-22-PLAN.md — Gate mutations M13–M25, both-theme screenshot review, close 03-VALIDATION
 **UI hint**: yes
 **Security**: /gsd-secure-phase applies — bulk ingestion, new org-scoped tables and their RLS policies.
 **Research flag**: yes — Overture's real RGV duplicate rate, junk rate and correct `confidence` cutoff are asserted, not measured; measure during ingest. Build on `basic_category`, not the `categories` field removed in the 2026-09-23.0 release.
@@ -260,7 +299,7 @@ Plan counts below are estimates until `/gsd-plan-phase` runs for each phase.
 |-------|----------------|--------|-----------|
 | 1. Foundations & Tenancy | 12/12 | Complete | 2026-09-22 |
 | 2. Budget Governor & Search Presets | 15/15 | Complete | 2026-09-22 |
-| 3. Free-Data Spine & Entity Resolution | 0/5 | Not started | - |
+| 3. Free-Data Spine & Entity Resolution | 22/22 | Complete | 2026-09-23 |
 | 4. Places Transient Verifier | 0/4 | Not started | - |
 | 5. Verification & Receipts | 0/4 | Not started | - |
 | 6. Classifier, Scorer & Vertical-Slice Gate | 0/4 | Not started | - |

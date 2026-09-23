@@ -58,10 +58,15 @@ describe('route id validation', () => {
     const routes = idRouteFiles(nodePath.join('src', 'app'));
 
     // Two-sided: a renamed directory would leave this walking nothing, and a loop over an
-    // empty list passes every assertion inside it. Phase 2 ships the detail page and the
-    // edit page.
-    expect(routes.length, `walked src/app and found ${routes.join(', ')}`).toBeGreaterThanOrEqual(2);
+    // empty list passes every assertion inside it. Phase 2 ships the preset detail page and
+    // the edit page; Phase 3 adds /businesses/[id] (03-19), whose [id] is the internal uuid
+    // and never the SL- lead key (D-19).
+    expect(routes.length, `walked src/app and found ${routes.join(', ')}`).toBeGreaterThanOrEqual(3);
     expect(routes.some((r) => r.includes('edit'))).toBe(true);
+    expect(
+      routes.some((r) => r.includes(nodePath.join('businesses', '[id]', 'page.tsx'))),
+      `walked src/app and found ${routes.join(', ')}`,
+    ).toBe(true);
 
     const unguarded = routes.filter((file) => {
       const source = nodeFs.readFileSync(file, 'utf8');

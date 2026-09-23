@@ -2,6 +2,36 @@
 
 Out-of-scope discoveries logged rather than fixed, per the executor scope boundary.
 
+## Phase 3 settlement (plan 03-22, 2026-09-23)
+
+What Phase 3 did with the Phase 2 debts. Items are struck, with the closing plan named, or
+re-scoped with a reason.
+
+- ~~**`.vercelignore` for `coverage/`**~~: **closed by 03-01** (`c8d1195`, "exclude coverage/ from
+  Vercel"). The Vercel CLI uploads the working tree, not git, so a local `vitest --coverage` run
+  shipped the gitignored `coverage/*.ts` and `next build` type-checked them. The debt was
+  carried in 03-CONTEXT § Deferred rather than in this file; it is recorded here so the
+  ledger is complete. 03-21 later added `.claude/` to the same file (`8acee7c`), for the same
+  class of accident.
+- **`presets.spec.ts` leaves three rows per run**: **re-scoped by 03-21, not closed.** The
+  product still has no delete or archive path for a preset, so no teardown can drive one.
+  A direct owner-role delete from the spec was refused (`docs/deploy.md` §3 keeps
+  `SUPABASE_DB_URL` on the desk). Instead, the spec's `afterAll` now prints the names of every
+  preset it created, so a cleanup can target exactly those rows. Measured read-only: production
+  held **15** `e2e-*` searches from 5 runs after 03-21. The local `siteless_test` holds **18**,
+  from 6 run prefixes (2026-09-23), up from the nine recorded below. The fix is a "delete
+  preset" server action with its own RLS test, then a real teardown. It is tracked in
+  `.planning/phases/03-free-data-spine-entity-resolution/deferred-items.md` § From 03-21.
+- **The statewide chain-name request was NOT dropped.** 03-12 fetches the Comptroller's statewide
+  name frequency onto the run row (`stats.statewide_name_frequency`). 03-10's chain detection
+  reads it and reports `statewide: true|false`. The badge says **"Chain · N in Texas" only when
+  the count is statewide**. When it is only this org's RGV count, the badge reads
+  **"Chain · N"** with no place named. It deliberately does not read "in the RGV", because the
+  count is the org's own spine, which a later ingest could widen past the RGV.
+- **Phase 3's own deferrals** (D-11's 500 m amendment, resolve-stage performance, the M25
+  script-form test, the function-restore rule, the local org label, the loser-page header,
+  the 12/500 flag badges) live in the Phase 3 file above, not here.
+
 ## Status after the wave 5 merge (orchestrator, 2026-09-22)
 
 The three 🔴 items below were each fixed by a sibling plan in the same wave before merge:
@@ -117,6 +147,8 @@ same `sql.join` form.
 ---
 
 ## Nine `e2e-*` presets remain in the shared `siteless_test` database
+
+> **Still open (03-22, 2026-09-23):** now **18** rows from 6 run prefixes locally. Same fix as the item below.
 
 `tests/e2e/presets.spec.ts` creates real `searches` + `search_versions` rows named
 `e2e-<epoch>-{cities,county,radius}`. Plan 02-11 ran the spec three times end to end while
@@ -243,6 +275,8 @@ yet. Phase 4 is where both the shots and those two skips stop being synthetic.
 ---
 
 ## Follow-up for Phase 3/4 planning — `presets.spec.ts` leaves three rows per run, forever
+
+> **Re-scoped by 03-21 (2026-09-23), see "Phase 3 settlement" at the top:** the `afterAll` names every row it created; a real teardown waits on a product delete path.
 
 `tests/e2e/presets.spec.ts` creates three real `searches` + `search_versions` rows named
 `e2e-<epoch>-{cities,county,radius}` and **deletes none of them**, because Phase 2 ships no

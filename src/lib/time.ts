@@ -60,3 +60,15 @@ export function localDate(instant: Date, timeZone: string = APP_TZ): string {
 export function formatLocal(instant: Date, options: Intl.DateTimeFormatOptions = {}): string {
   return new Intl.DateTimeFormat(APP_LOCALE, { ...options, timeZone: APP_TZ }).format(instant);
 }
+
+/**
+ * A whole-number count for a human — "35,270" — with the locale pinned.
+ *
+ * Added for `/sources` (03-17), whose components may not call `Intl` directly (03-UI-SPEC
+ * Executor Rule 26). Same reason as the date helpers: an unpinned locale resolves from the
+ * environment, and an `es-*` browser renders "35.270" against a server's "35,270" — a
+ * hydration mismatch on the very digits the ledger exists to show.
+ */
+export function formatCount(n: number): string {
+  return new Intl.NumberFormat(APP_LOCALE, { maximumFractionDigits: 0 }).format(n);
+}

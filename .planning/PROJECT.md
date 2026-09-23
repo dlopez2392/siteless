@@ -12,6 +12,7 @@ A "no website" verdict you can trust enough to pick up the phone — every lead 
 
 ### Validated
 
+- [x] The durable business record comes from TX Comptroller sales-tax permits + Overture Maps places for the target counties (Texas side only), with per-field provenance; three-tier entity resolution (≥95 auto-merge / 80–95 review / <80 ignore) with provenance, unmerge and a stable external key — *Validated in Phase 3: Free-Data Spine & Entity Resolution (2026-09-23): no PostGIS (pg_trgm + unaccent + app.distance_m, identical on prod PG 17.6 / local 18 / CI); desk ingests loaded ~92k RGV businesses locally (Comptroller 34,928 permits + Census geocode 79.9 % + 21,467 closures; Overture 56,944 Texas-side of 98,960 in the naive bbox) and a third run wrote 0 events; resolve pass auto-merges ≥95 via SECURITY DEFINER functions, review queue 7,847 worked on `/review`; `/sources`, `/businesses`, detail with per-field source tags; tuned by danlo on the live run (confidence cutoff 0.3, phone-lift floor 0.3, block threshold 0.45); code review 5 CR + 27 WR all fixed; prod migrated 0021–0024 (0025 pending), spine stays local by D-01; 340 unit + 222 db + 20 e2e.*
 - [x] User defines searches as industry cluster(s) × geography (city list / county / radius), saved as versioned presets with RGV seeds and a pre-run cost estimate — *Validated in Phase 2: Budget Governor & Search Presets (2026-09-22): design system born (shadcn, painted tokens, Inter); 17-city RGV seed + 254 counties + 4 clusters on production; live zero-cost estimate with computed Texas multiplier; versioned presets immutable by grant; race-free meter proven by a 40-way burst granted exactly the cap; deployed at siteless-iota.vercel.app; 76 unit + 90 db + 21 e2e tests; BUDG-03 quota carried to Phase 4 (no GCP project yet).*
 - [x] Clerk org-scoped auth; `org_id` on every table with RLS; actor + timestamp on every state change; single org in v1 — *Validated in Phase 1: Foundations & Tenancy (2026-09-22): deployed at siteless-iota.vercel.app; RLS refusal pinned to 42501 through user-role connections; Places retention CHECK/FK constraints; append-only `events` by trigger and grant; platform default grants revoked (gap plan 01-12); 31 DB + 11 unit tests, e2e twice on the real URL.*
 
@@ -19,13 +20,11 @@ A "no website" verdict you can trust enough to pick up the phone — every lead 
 
 Detailed, testable requirements with REQ-IDs live in `.planning/REQUIREMENTS.md`. The hypotheses, in one line each:
 
-- [ ] The durable business record comes from TX Comptroller sales-tax permits + Overture Maps places for the target counties (Texas side only), with per-field provenance
 - [ ] Google Places API (New) acts as a transient verifier: Enterprise field mask on Text Search only, storing nothing but `place_id`, lat/lng (30-day TTL) and a derived `had_website_uri` boolean; free IDs-Only SKU for nightly change detection; saturation detected and tiles subdivided
 - [ ] Every candidate gets a six-way web-presence verdict (no presence / social-only / directory-only / real site / dead-or-parked / unverifiable) with confidence, from DNS/HTTP/TLS/parked-page probes, the dead `business.site` cohort, and social/directory discovery via web search + Overture `socials[]`
 - [ ] Every probe writes an immutable receipt (negative evidence included), visible one tap from the lead; receipts are separate from a versioned classifier so re-classification costs no spend
 - [ ] Verification is budget-gated: a cheap pre-filter ranks candidates, top-N are verified within the period's budget, the rest are labelled `unverified`
 - [ ] Glass-box lead score (reviews & rating, social-only, industry ticket size, phone as a floor) with a hot/warm/cold band and persisted components
-- [ ] Three-tier entity resolution (≥95 auto-merge on trusted identifiers / 80–95 review queue / <80 ignore) with provenance, unmerge, and a stable external key that survives merges
 - [ ] Saved presets run on a schedule — weekly rotating Enterprise partitions + nightly free change detection — on Vercel Cron + Workflow DevKit; runs are resumable and stop cleanly at the cap; a "Net New" view carries per-row change type
 - [ ] Per-request cost ledger from the first billable call; atomic reserve → spend → true-up cap (< $50/mo default) that refuses at 100% and gates both enumeration and verification; dashboard shows spend vs cap per source
 - [ ] Triage: accept / reject-with-reason / snooze, undo on every action, a queue with a remaining count and an end state, card + detail views, internal label separated from display name with a test
@@ -130,4 +129,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-09-22 after Phase 2 (Budget Governor & Search Presets) completed and verified 6/6*
+*Last updated: 2026-09-23 after Phase 3 (Free-Data Spine & Entity Resolution) completed and verified 5/5*

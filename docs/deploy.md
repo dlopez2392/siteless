@@ -122,6 +122,65 @@ diverged, which is the exact failure D-09 exists to prevent.
 | ----- | ----- | --------------------- |
 | 1 | `0000_bootstrap` … `0011_events_no_caller_insert` — twelve | 2026-09-22, plans 01-10 and 01-12 |
 | 2 | `0012_eager_vertigo`, `0013_reference_policies_and_grants`, `0014_brown_phantom_reporter`, `0015_budget_grants_and_triggers`, `0016_budget_meter_functions` — five | 2026-09-22, plan 02-14 |
+| 2 (fix waves) | `0017_strange_mathemanic` … `0020_yellow_ricochet` — four | 2026-09-22, with the Phase 2 merge |
+| 3 | `0021_extensions`, `0022_spine_tables`, `0023_spine_constraints_grants`, `0024_merge_functions` — four | 2026-09-23, plan 03-21 (journal 21 → 25) |
+| 3 (review fixes) | `0025_review_fixes_spine` — one (record_merge lock, DML revoke on businesses/source_records, `pg_temp` on all definers, `apply_survivorship_if_changed`, `undo_merge` new signature) | 2026-09-23, after `/gsd-code-review 3 --fix` (journal 25 → 26; second run no-op; deployed `8f05309`) |
+
+### Phase 3 (plan 03-21): what the run taught
+
+**The gate.** danlo answered the plan's `checkpoint:decision` on 2026-09-23 with **"Apply +
+deploy"**: run `db:migrate:prod` once, then `db:seed:prod` twice (the second must report 0
+inserted), verify from the catalog, `vercel --prod` from the branch, confirm the deployed sha,
+smoke, then run the e2e suite on the real URL. That is the sequence below, and it is the
+template for the next phase that ships a migration.
+
+- 🔴 **`businesses` must be EMPTY before `0022` can apply, and before any later migration
+  that adds a `NOT NULL` column with no default to a populated table.** `0022` adds
+  `businesses.external_key text not null` with no default, which Postgres refuses on a table
+  that has rows. The pre-flight read `select count(*) from businesses` was `0` on production,
+  because no ingest has ever run there (D-01: the spine is loaded on the local database
+  only). **The day an ingest runs against production, this stops being free**: the next such
+  column needs a nullable add, a backfill and a `set not null`, across migrations.
+- **The pre-flight read, before any write** (production, read-only transaction as the owner):
+  PostgreSQL `17.6`; `businesses` = 0; installed extensions `pg_stat_statements`, `pgcrypto`,
+  `uuid-ossp` (schema `extensions`), `supabase_vault`, `plpgsql`; `pg_trgm 1.6` and
+  `unaccent 1.1` **available, not installed**; `drizzle.__drizzle_migrations` = 21; none of
+  the new tables present. The migration role's `search_path` is `"$user", public, extensions`,
+  and no schema named `postgres` exists, so `create extension` with no `schema` clause lands in
+  **`public`**. `app_user` has no role-level `search_path` override.
+- **Post-flight, from the catalog on a separate later connection:** `pg_trgm 1.6` and
+  `unaccent 1.1` in schema `public`; all six `businesses_%_src_fk`; `businesses_name_trgm`
+  and `businesses_external_key_uniq` among nine `businesses` indexes; `record_merge`,
+  `undo_merge`, `record_candidate_decision` all `prosecdef = t` with
+  `search_path=public`; `authenticated` holds exactly `SELECT` on `ingest_runs`,
+  `merge_candidates`, `business_merges`, `business_aliases` (and the reference-table
+  `SELECT, INSERT, UPDATE, DELETE` on `overture_category_map`, which RLS confines to the
+  org's own rows); the journal at 25. Parity with local, all scoped to `public`: RLS tables
+  21/21, policies 76/76, triggers 25/25, `app.*` functions 18/18, indexes 74/74.
+- 🔴 **A `pg_constraint` count does NOT match across 17 and 18, and that is not drift.**
+  Production read 111 and local 277. PostgreSQL 18 records every `NOT NULL` as a
+  `contype = 'n'` row (166 of them locally) and 17 does not. By type, check/FK/PK/unique were
+  26/49/21/15 on both. Compare constraint counts with `contype <> 'n'`.
+- 🔴 **The unqualified `unaccent(` in `src/server/queries/businesses.ts` resolves only
+  because the extensions landed in `public`.** Proven as the runtime role: the
+  transaction-pooler URL Vercel holds (`app_user`, `search_path` `"$user", public` — note
+  `extensions` is NOT on it), then `set local role authenticated` inside a rolled-back
+  transaction, `select unaccent('Café'), similarity('taqueria','taqueria el'),
+  app.distance_m(26.2,-98.2,26.3,-98.1)` returned `Cafe`, `0.75`, `14936.5…` with no schema
+  qualification. Had Supabase put them in `extensions`, the runtime would have raised
+  `42883` while every owner-role check passed. The fix for that would be a migration
+  (`alter extension … set schema public`, or schema-qualified calls), never a hand edit.
+- **The seed, twice:** the first run inserted **70** `overture_category_map` rows and updated
+  the Phase 2 reference rows in place (254 counties, 4 clusters, 33 terms, 17 cities, 20
+  outlet counts, 3 geo presets — all `0 inserted`); the second reported **`0 inserted, 70
+  updated`** for `overture_category_map` and `0 inserted` for every table. Read back
+  independently: 70 rows, 70 `org_id IS NULL`.
+- **No ingest and no resolve ran against production** (D-01). `businesses` is still 0.
+
+> 🔴 **`.claude/` is excluded from the upload (03-21).** Claude Code agent worktrees live at
+> `.claude/worktrees/agent-*` — full checkouts, `.ts` included, untracked and not gitignored.
+> The CLI uploads the working tree, so a stale one would ship a second `src/` for `next build`
+> to type-check. Same class as `coverage/`.
 
 Production Supabase is **PostgreSQL 17.6** while local and CI are 18. `NULLS NOT DISTINCT`,
 stored generated columns and `FOR UPDATE ... SKIP LOCKED` are all fine there;
@@ -260,12 +319,13 @@ excluded directory just the same.
 | --- | --- |
 | Production URL (use this) | `https://siteless-iota.vercel.app` |
 | Other alias | `https://siteless-danlopez508-8452s-projects.vercel.app` |
-| Deployment id | `dpl_Dk71EVmgcaav2NwhgWQNd65EJBRy` |
-| Per-deployment URL | `https://siteless-o7tcvnsmp-danlopez508-8452s-projects.vercel.app` |
-| Verified commit | `6d6c52f742c2cb5552ea4af533fc5706f55e33c2` (`6d6c52f`), branch `main` |
+| Deployment id | `dpl_3EwN5CwiKtnKyMAQvjkpAuXMLDry` |
+| Per-deployment URL | `https://siteless-8c5xyiz7z-danlopez508-8452s-projects.vercel.app` |
+| Verified commit | `8acee7c35e4122697530f18bee74b637e4c3924f` (`8acee7c`), branch `gsd/phase-03-free-data-spine-entity-resolution` (not yet pushed or merged) |
 | State | READY, target production, region `iad1` |
 | First deployed | 2026-09-22 |
 | Phase 2 deployed | 2026-09-22, plan 02-15 |
+| Phase 3 deployed | 2026-09-23, plan 03-21 |
 
 ### Deployment history
 
@@ -274,8 +334,27 @@ excluded directory just the same.
 | `453c0c4` | `dpl_CAcqW8nAXa2nimyUp65kBsEcgMFQ` | 2026-09-22, plan 01-11 | the first production deployment |
 | `311e6b4` | `dpl_AxqqohtjnoFzhfJxSvUSWYtrFHkm` | 2026-09-22, plan 01-11 | the pending-session fix the e2e suite found against `453c0c4` |
 | `6d6c52f` | `dpl_Dk71EVmgcaav2NwhgWQNd65EJBRy` | 2026-09-22, plan 02-15 | Phase 2 — the six new routes, the budget meter and the design system |
+| `8acee7c` | `dpl_3EwN5CwiKtnKyMAQvjkpAuXMLDry` | 2026-09-23, plan 03-21 | Phase 3 — `/review`, `/sources`, `/businesses`, `/businesses/[id]`, the six-destination nav; CLI deploy from the phase branch after migrations 0021–0024 |
 
 The alias is unchanged and always points at the newest production deployment.
+
+🔴 **The Phase 3 deployment came from a feature branch, not `main`** (danlo's "Apply + deploy"
+decision). Production now serves a commit `origin/main` does not contain. `vercel git connect`
+means the **next push to `main` redeploys production from `main`** and rolls these four
+screens back until the phase branch is merged. Merge the phase branch before anything else
+lands on `main`.
+
+The Phase 3 deployment was gated the same way at `8acee7c`: `typecheck`, `lint` and `build`
+each exit 0 locally, then `vercel deploy --prod`, whose remote build printed all four new
+routes. The CLI also printed `Error while parsing config file: "…\pnpm-lock.yaml"` before
+uploading. The deployment still built and went READY, so that line is noise from the CLI's
+own config probe, not a build failure. Smoke: `/api/health` →
+`{"ok":true,"db":"up","proxy":"up","commit":"8acee7c35e4122697530f18bee74b637e4c3924f"}`;
+signed-out `/` → `307 /presets`; signed-out `/sources`, `/businesses`, `/review` → `307` to
+`/sign-in`. The full e2e suite then ran against the alias: **20 passed, 5 skipped, 0 failed**
+(the skips are `preset-detail` ×3 and `budget-banner` ×2, both deliberate self-skips against a
+deployed target), including `sources: desk`, `sources: phone`, `businesses`, both
+`touch targets` and `signs in and is org-scoped` — the authenticated smoke.
 
 The Phase 2 deployment was gated first: `typecheck`, `lint`, `test:unit` (76), `test:db` (90)
 and `build` each run individually and each exit 0, with `git rev-parse --short HEAD` printed

@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import { cn } from "cn"
+import { SHEET_CLOSE_LABEL } from "@/lib/ui/copy"
 import { Dialog as SheetPrimitive } from "radix-ui"
 
 import { Button } from "@/components/ui/button"
@@ -72,12 +73,14 @@ function SheetContent({
           <SheetPrimitive.Close data-slot="sheet-close" asChild>
             <Button
               variant="ghost"
-              className="absolute top-3 right-3"
+              data-testid="sheet-close"
+              // 44x44 hit area (MOB-01), not the 28px icon-sm the registry ships. The glyph
+              // stays 16px; only the target grows. Shared, so every sheet gets it (03-22).
+              className="absolute top-2 right-2 size-11"
               size="icon-sm"
             >
-              <XIcon
-              />
-              <span className="sr-only">Close</span>
+              <XIcon aria-hidden="true" />
+              <span className="sr-only">{SHEET_CLOSE_LABEL}</span>
             </Button>
           </SheetPrimitive.Close>
         )}

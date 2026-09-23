@@ -10,3 +10,9 @@ export * from './outlet-counts';
 export * from './searches';
 export * from './runs';
 export * from './budget';
+// Phase 3 plan 05: the spine.
+export * from './ingest-runs';
+export * from './merge-candidates';
+export * from './business-merges';
+export * from './business-aliases';
+export * from './overture-categories';

@@ -14,33 +14,32 @@
  * `tests/unit/outlet-counts.test.ts` (plan 02-02): it pins the totals, so a refresh that
  * MOVES a number fails loudly in review rather than updating the corpus quietly.
  *
- * 🔴 `outlet_naics_code` IS A SOCRATA *NUMBER*. SoQL's string-prefix function applied to it
- * returns HTTP 400 `query.soql.type-mismatch` — attempted live during research
- * (02-RESEARCH.md Pitfall 6), so this is a type error and not a deprecation that a retry
- * or a newer API version would fix. Only NUMERIC RANGE predicates are expressible against
- * that column, which is why `src/seed/types.ts` states NAICS ranges as half-open
- * `{lo, hi}` intervals in the first place and why `naicsPredicate()` below emits `>=` / `<`
- * comparisons. This file is grepped for the absence of that prefix function; do not
- * reintroduce it, in code OR in a comment quoting it, or the grep stops discriminating.
- * `outlet_county_code` and `outlet_city` ARE text and are compared as strings.
+ * 🔴 `outlet_naics_code` IS A SOCRATA *NUMBER*, and THE `000` SENTINEL. Both notes, and the
+ * helpers that encode them (`quote`, `naicsPredicate`, the error-body echo), were lifted
+ * verbatim into `src/lib/socrata/client.ts` in plan 03-03 so the Phase 3 ingest shares one
+ * client with this script. Read them there. This file is still grepped for the absence of
+ * SoQL's string-prefix function (`tests/unit/socrata.test.ts -t "naics prefix"`, which now
+ * covers `src/lib/socrata/**` too) — do not reintroduce it, in code OR in a comment.
  *
- * 🔴 THE `000` SENTINEL. The dataset carries 255 distinct `outlet_county_code` values:
- * 001–254 plus a `000` belonging to no Texas county (1 outlet). Every statewide figure here
- * filters `outlet_county_code between '001' and '254'`, because a statewide number that
- * cannot be reproduced by summing the 254 seeded counties is not usable by the
- * "Texas (254 counties)" geo preset.
+ * 🔴 County codes here are `jrea-zgmq`'s ZERO-PADDED form (`paddedCountyCode`). The
+ * closures dataset `3kx8-uryv` is UNPADDED; never reuse this script's formatter for it.
  *
  * After running, `pnpm format` — this writes canonical 2-space JSON and prettier owns the
  * final shape of the committed files.
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import {
+  naicsPredicate,
+  paddedCountyCode,
+  quote,
+  socrataCount,
+  TEXAS_COUNTY_CODES,
+} from '@/lib/socrata/client';
 import type { CitiesFile, ClustersFile, CountiesFile, OutletCountsFile } from '../src/seed/types';
 
-const DATASET = 'https://data.texas.gov/resource/jrea-zgmq.json';
-
-/** 001–254. The `000` sentinel belongs to no county and is excluded everywhere. */
-const TEXAS_COUNTY_CODES = "outlet_county_code between '001' and '254'";
+/** Active Sales Tax Permit Holders. The host is `src/lib/socrata/client.ts`'s constant. */
+const DATASET = 'jrea-zgmq';
 
 const dataPath = (name: string) =>
   fileURLToPath(new URL(`../src/seed/data/${name}`, import.meta.url));
@@ -53,44 +52,11 @@ function writeJson(name: string, value: unknown): void {
   writeFileSync(dataPath(name), JSON.stringify(value, null, 2) + '\n', 'utf8');
 }
 
-/** Socrata string literals are single-quoted; a quote inside one is doubled. */
-function quote(s: string): string {
-  return `'${s.replace(/'/g, "''")}'`;
-}
-
-/** The Comptroller's own county number, zero-padded — `outlet_county_code` is TEXT. */
-function comptrollerCode(code: number): string {
-  return String(code).padStart(3, '0');
-}
-
 let requestCount = 0;
 
 async function countWhere(where: string): Promise<number> {
-  const url = `${DATASET}?$select=count(1) as n&$where=${encodeURIComponent(where)}`;
   requestCount += 1;
-  const res = await fetch(url, { headers: { accept: 'application/json' } });
-  if (!res.ok) {
-    // A type-mismatch on outlet_naics_code arrives as a 400 with a SoQL error body. Print
-    // it: "request failed" alone sent an earlier reader looking at the network.
-    throw new Error(
-      `refresh-outlet-counts: ${res.status} for ${where}\n${(await res.text()).slice(0, 400)}`,
-    );
-  }
-  const body = (await res.json()) as Array<{ n?: string }>;
-  const n = body[0]?.n;
-  if (n === undefined) throw new Error(`refresh-outlet-counts: no count in response for ${where}`);
-  return Number(n);
-}
-
-/** `lo` inclusive, `hi` exclusive — the same half-open form the seed types document. */
-function naicsPredicate(ranges: Array<{ lo: number; hi: number }>): string {
-  return (
-    '(' +
-    ranges
-      .map((r) => `(outlet_naics_code >= ${r.lo} and outlet_naics_code < ${r.hi})`)
-      .join(' or ') +
-    ')'
-  );
+  return socrataCount(DATASET, where);
 }
 
 async function main(): Promise<void> {
@@ -108,7 +74,7 @@ async function main(): Promise<void> {
   for (const cluster of clusters.clusters) {
     const naics = naicsPredicate(cluster.naicsRanges);
     for (const county of rgvCounties) {
-      const where = `outlet_county_code = ${quote(comptrollerCode(county.comptrollerCode))} and ${naics}`;
+      const where = `outlet_county_code = ${quote(paddedCountyCode(county.comptrollerCode))} and ${naics}`;
       rows.push({
         scope: 'county',
         countyFips: county.fips,
@@ -137,7 +103,7 @@ async function main(): Promise<void> {
   for (const county of refreshedCounties) {
     if (!county.isRgv) continue;
     county.outletCount = await countWhere(
-      `outlet_county_code = ${quote(comptrollerCode(county.comptrollerCode))}`,
+      `outlet_county_code = ${quote(paddedCountyCode(county.comptrollerCode))}`,
     );
   }
   writeJson('counties.json', { ...counties, fetchedAt: measuredAt, counties: refreshedCounties });
@@ -158,7 +124,7 @@ async function main(): Promise<void> {
     }
     const variants = city.nameVariants.map(quote).join(',');
     const outletCount = await countWhere(
-      `outlet_county_code = ${quote(comptrollerCode(county.comptrollerCode))} and outlet_city in(${variants})`,
+      `outlet_county_code = ${quote(paddedCountyCode(county.comptrollerCode))} and outlet_city in(${variants})`,
     );
     refreshedCities.push({ ...city, outletCount });
   }

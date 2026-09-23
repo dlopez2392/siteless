@@ -29,7 +29,14 @@
  * no TRUNCATE, REFERENCES or TRIGGER on any tenant table' both go red.
  */
 import { describe, expect, it } from 'vitest';
-import { actAsOwner, actAsRole, seedTwoOrgs, withRollback } from './_fixtures';
+import {
+  actAs,
+  actAsOwner,
+  actAsRole,
+  seedTwoOrgs,
+  SQL_FRESH_EXTERNAL_KEY,
+  withRollback,
+} from './_fixtures';
 
 const TENANT_TABLES = [
   'orgs',
@@ -55,6 +62,15 @@ const TENANT_TABLES = [
   'budget_periods',
   'cost_reservations',
   'cost_ledger',
+  // Phase 3 plan 05. The spine. Grants in drizzle/0023: the first four are SELECT-only
+  // with INSERT/UPDATE/DELETE revoked (every writer is a desk ETL or a SECURITY DEFINER
+  // that reads the actor itself — T-3-08); overture_category_map takes the full
+  // reference-table DML line, safe because referencePolicies() excludes the built-ins.
+  'ingest_runs', // Phase 3 plan 05. grant select; revoke insert, update, delete.
+  'merge_candidates', // Phase 3 plan 05. grant select; revoke insert, update, delete.
+  'business_merges', // Phase 3 plan 05. grant select; revoke insert, update, delete.
+  'business_aliases', // Phase 3 plan 05. grant select; revoke insert, update, delete.
+  'overture_category_map', // Phase 3 plan 05. grant select, insert, update, delete.
 ];
 
 const valuesOf = (xs: string[]) => xs.map((x) => `('${x}')`).join(',');
@@ -99,7 +115,7 @@ describe('grants audit', () => {
       expect(live.map((r) => r.tbl)).toEqual([...TENANT_TABLES].sort());
 
       const { rows } = await c.query<PrivRow>(privilegeMatrix('authenticated', NON_DML));
-      // 16 tables x 4 privileges. If this number moves, the enumeration stopped enumerating.
+      // 21 tables x 4 privileges. If this number moves, the enumeration stopped enumerating.
       expect(rows).toHaveLength(TENANT_TABLES.length * NON_DML.length);
       expect(rows.filter((r) => r.held)).toEqual([]);
     }));
@@ -194,9 +210,15 @@ describe('grants audit', () => {
       // evaluated only after the grant layer lets the statement through.
       expect(rows[0]).toEqual({
         b_select: true,
-        b_insert: true,
-        b_update: true,
-        b_delete: true,
+        // A-WR-01 (review 03): revoked by drizzle/0025. The merge state lives on businesses
+        // (merged_into_id, status, the six *_source_id pairs), and every writer is the
+        // owner-tier desk ETL or a SECURITY DEFINER that reads its own org and actor. A
+        // session with the old grant could set merged_into_id with no business_merges row,
+        // or point location_source_id at another tenant's durable record (the composite FK
+        // checks durability, not tenancy).
+        b_insert: false,
+        b_update: false,
+        b_delete: false,
         e_select: true,
         // WR-01: revoked by 0011. Append-only protected the past and left the present
         // writable — a session could author an events row with any actor_id it liked. The
@@ -322,6 +344,64 @@ describe('grants audit', () => {
     }));
 
   /**
+   * Phase 3 plan 05, T-3-08. `business_merges.merged_by` and `merge_candidates.decided_by`
+   * must be unforgeable, which means no tenant session may write either table directly —
+   * every merge, unmerge and review decision goes through a SECURITY DEFINER (03-11) that
+   * reads the actor itself. `ingest_runs` is written by the desk ETL and `business_aliases`
+   * only by the merge definers.
+   *
+   * 🔴 has_table_privilege alone CANNOT see a column grant. That is how the Phase 2 M12b
+   * defect survived 90 green tests: `grant update (geo_payload) on search_versions` left
+   * the table-level answer false. So INSERT and UPDATE are asserted at the column level too.
+   * DELETE has no column-level form — has_any_column_privilege(..., 'DELETE') RAISES
+   * `unrecognized privilege type` rather than returning false (see the test above) — so the
+   * table-level row is the whole DELETE assertion.
+   *
+   * Positive control: overture_category_map holds full DML on the same database, so the
+   * falses below are a finding and not a predicate that returns false for everything.
+   *
+   * Mutation M22: `grant update on public.ingest_runs to authenticated;` — this test goes red
+   * naming ingest_runs. Column variant: `grant update (score) on public.merge_candidates to
+   * authenticated;` — red on the column half only.
+   */
+  it('the four select-only spine tables hold no write privilege', () =>
+    withRollback(async (c) => {
+      const SELECT_ONLY = ['ingest_runs', 'merge_candidates', 'business_merges', 'business_aliases'];
+      const { rows } = await c.query<{
+        tbl: string;
+        s: boolean;
+        i: boolean;
+        u: boolean;
+        d: boolean;
+        col_i: boolean;
+        col_u: boolean;
+      }>(`
+        select t.tbl,
+               has_table_privilege('authenticated', 'public.' || t.tbl, 'SELECT')      as s,
+               has_table_privilege('authenticated', 'public.' || t.tbl, 'INSERT')      as i,
+               has_table_privilege('authenticated', 'public.' || t.tbl, 'UPDATE')      as u,
+               has_table_privilege('authenticated', 'public.' || t.tbl, 'DELETE')      as d,
+               has_any_column_privilege('authenticated', 'public.' || t.tbl, 'INSERT') as col_i,
+               has_any_column_privilege('authenticated', 'public.' || t.tbl, 'UPDATE') as col_u
+          from (values ${valuesOf([...SELECT_ONLY, 'overture_category_map'])}) as t(tbl)
+         order by 1`);
+      // Row count is the control: a table silently dropped from the list would assert less.
+      expect(rows).toHaveLength(SELECT_ONLY.length + 1);
+      const actual = Object.fromEntries(
+        rows.map((r) => [r.tbl, { s: r.s, i: r.i, u: r.u, d: r.d, col_i: r.col_i, col_u: r.col_u }]),
+      );
+      const selectOnly = { s: true, i: false, u: false, d: false, col_i: false, col_u: false };
+      expect(actual).toEqual({
+        ingest_runs: selectOnly,
+        merge_candidates: selectOnly,
+        business_merges: selectOnly,
+        business_aliases: selectOnly,
+        // The positive control.
+        overture_category_map: { s: true, i: true, u: true, d: true, col_i: true, col_u: true },
+      });
+    }));
+
+  /**
    * T-2-12, the half of SRCH-03 that no policy can express. A policy's WITH CHECK sees the
    * finished row and has no access to OLD, so it can say "the row still belongs to me" but
    * never "this column did not change". PostgreSQL checks a COLUMN privilege against the
@@ -374,6 +454,80 @@ describe('grants audit', () => {
         // let a cited version disappear and take SRCH-03 with it.
         fk_action: 'a',
       });
+    }));
+
+  /**
+   * A-WR-02 (review 03). When `pg_temp` is not named in a function's search_path, PostgreSQL
+   * searches it FIRST for relations. A session that can create a temp table called
+   * `businesses` or `merge_candidates` and then call a definer would have the definer read and
+   * write the temp table as the owner — the documented SECURITY DEFINER pitfall. Naming
+   * `pg_temp` LAST closes it. Read off the catalog for every definer in the two schemas we own
+   * (plus the two invoker helpers only definers call), so a definer added later without it is
+   * a named failure here, not a code-review catch.
+   */
+  it('every SECURITY DEFINER function searches pg_temp last', () =>
+    withRollback(async (c) => {
+      const { rows } = await c.query<{ fn: string; config: string[] | null }>(`
+        select p.oid::regprocedure::text as fn, p.proconfig as config
+          from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+         where n.nspname in ('app', 'public')
+           and (p.prosecdef
+                or p.oid in ('app.survivorship_snapshot(uuid,uuid)'::regprocedure,
+                             'app.apply_survivorship(uuid,uuid,jsonb,text)'::regprocedure))
+         order by 1`);
+      // The control: the enumeration found the definers this phase and the last two wrote.
+      expect(rows.map((r) => r.fn)).toEqual(
+        expect.arrayContaining([
+          'app.record_merge(uuid,uuid,uuid,text,integer,jsonb,jsonb)',
+          'app.record_candidate_decision(uuid,text)',
+          'app.emit_event(text,uuid,text,jsonb)',
+          'app.reserve_budget(text,date,bigint,uuid,text,interval)',
+        ]),
+      );
+      const bad = rows.filter((r) => !(r.config ?? []).includes('search_path=public, pg_temp'));
+      expect(bad).toEqual([]);
+    }));
+
+  /**
+   * A-WR-01 (review 03). The two refusals the revoke exists for, attempted rather than read
+   * off the catalog, and each as a Clerk user WITH a valid org claim on its OWN rows: RLS
+   * would let both through, so only the grant can refuse them — and the message pins that
+   * it is the grant ("permission denied for table …"), not a policy.
+   */
+  it('a Clerk user cannot write merged_into_id on its own business', () =>
+    withRollback(async (c) => {
+      const { a } = await seedTwoOrgs(c);
+      const ids = await c.query<{ id: string }>(
+        `insert into businesses (org_id, display_name, external_key)
+         values ($1, 'Winner', ${SQL_FRESH_EXTERNAL_KEY}), ($1, 'Loser', ${SQL_FRESH_EXTERNAL_KEY})
+         returning id`,
+        [a],
+      );
+      const [winner, loser] = ids.rows.map((r) => r.id);
+      await actAs(c, { o: { id: 'org_A' }, sub: 'user_danlo', role: 'authenticated' });
+      // Positive control: the same caller reads the row, so the refusal below is not RLS
+      // hiding it.
+      const seen = await c.query('select 1 from businesses where id = $1', [loser]);
+      expect(seen.rowCount).toBe(1);
+      const attempt = c.query(
+        "update businesses set merged_into_id = $1, status = 'merged' where id = $2",
+        [winner, loser],
+      );
+      await expect(attempt).rejects.toMatchObject({ code: '42501' });
+      await expect(attempt).rejects.toThrow(/permission denied for table businesses/);
+    }));
+
+  it('a Clerk user cannot insert a source record', () =>
+    withRollback(async (c) => {
+      const { a } = await seedTwoOrgs(c);
+      await actAs(c, { o: { id: 'org_A' }, sub: 'user_danlo', role: 'authenticated' });
+      const attempt = c.query(
+        `insert into source_records (org_id, source_key, retention_class)
+         values ($1, 'overture', 'durable')`,
+        [a],
+      );
+      await expect(attempt).rejects.toMatchObject({ code: '42501' });
+      await expect(attempt).rejects.toThrow(/permission denied for table source_records/);
     }));
 
   /**

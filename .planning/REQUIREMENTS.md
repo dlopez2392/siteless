@@ -25,10 +25,10 @@ Requirements for initial release. Each maps to roadmap phases. Success metric: 5
 
 ### Free-Data Spine
 
-- [ ] **DATA-01**: System ingests Texas Comptroller active sales-tax permit holders (Socrata `jrea-zgmq`) for the target counties, storing DBA name, outlet address, NAICS code, permit and out-of-business dates, with per-field provenance
-- [ ] **DATA-02**: System ingests Overture Maps places (`basic_category`, `names`, `addresses`, `websites[]`, `socials[]`, `phones[]`, `confidence`) for the target counties, restricted to the Texas side of the border
-- [ ] **DATA-03**: Comptroller and Overture records form the durable canonical business record; each field records which source supplied it
-- [ ] **DATA-04**: Ingest is re-runnable and idempotent; a re-run updates changed rows and reports counts
+- [x] **DATA-01**: System ingests Texas Comptroller active sales-tax permit holders (Socrata `jrea-zgmq`) for the target counties, storing DBA name, outlet address, NAICS code, permit and out-of-business dates, with per-field provenance
+- [x] **DATA-02**: System ingests Overture Maps places (`basic_category`, `names`, `addresses`, `websites[]`, `socials[]`, `phones[]`, `confidence`) for the target counties, restricted to the Texas side of the border
+- [x] **DATA-03**: Comptroller and Overture records form the durable canonical business record; each field records which source supplied it
+- [x] **DATA-04**: Ingest is re-runnable and idempotent; a re-run updates changed rows and reports counts
 
 ### Places Verifier
 
@@ -57,10 +57,10 @@ Requirements for initial release. Each maps to roadmap phases. Success metric: 5
 
 ### Entity Resolution
 
-- [ ] **DEDUP-01**: Businesses are resolved into one lead across sources and across overlapping tiles within a run using three tiers: ≥95 auto-merge on trusted identifiers (same `place_id`; exact E.164 phone + same locality), 80–95 human review queue, <80 ignore
-- [ ] **DEDUP-02**: A merged lead retains all parents with per-field provenance; unmerge exists
-- [ ] **DEDUP-03**: A stable external lead key survives merges
-- [ ] **DEDUP-04**: Names, addresses and phones are normalized before matching (case, accents via `unaccent`, suite/unit noise, E.164)
+- [x] **DEDUP-01**: Businesses are resolved into one lead across sources and across overlapping tiles within a run using three tiers: ≥95 auto-merge on trusted identifiers (same `place_id`; exact E.164 phone + same locality), 80–95 human review queue, <80 ignore
+- [x] **DEDUP-02**: A merged lead retains all parents with per-field provenance; unmerge exists
+- [x] **DEDUP-03**: A stable external lead key survives merges
+- [x] **DEDUP-04**: Names, addresses and phones are normalized before matching (case, accents via `unaccent`, suite/unit noise, E.164)
 
 ### Scheduling & Runs
 
@@ -200,14 +200,14 @@ Which phases cover which requirements. Updated during roadmap creation.
 | BUDG-02 | Phase 2 | Complete |
 | BUDG-03 | Phase 2 | Pending |
 | BUDG-04 | Phase 2 | Complete |
-| DATA-01 | Phase 3 | Pending |
-| DATA-02 | Phase 3 | Pending |
-| DATA-03 | Phase 3 | Pending |
-| DATA-04 | Phase 3 | Pending |
-| DEDUP-01 | Phase 3 | Pending |
-| DEDUP-02 | Phase 3 | Pending |
-| DEDUP-03 | Phase 3 | Pending |
-| DEDUP-04 | Phase 3 | Pending |
+| DATA-01 | Phase 3 | Complete |
+| DATA-02 | Phase 3 | Complete |
+| DATA-03 | Phase 3 | Complete |
+| DATA-04 | Phase 3 | Complete |
+| DEDUP-01 | Phase 3 | Complete |
+| DEDUP-02 | Phase 3 | Complete |
+| DEDUP-03 | Phase 3 | Complete |
+| DEDUP-04 | Phase 3 | Complete |
 | PLACE-01 | Phase 4 | Pending |
 | PLACE-02 | Phase 4 | Pending |
 | PLACE-03 | Phase 4 | Pending |

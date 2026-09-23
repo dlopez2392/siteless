@@ -28,12 +28,22 @@ export const sourceRecords = pgTable(
     retentionClass: text('retention_class').notNull(),
     fetchedAt: tstz('fetched_at').notNull().defaultNow(),
     expiresAt: tstz('expires_at'),
+    // Phase 3 plan 05. A row whose last_seen_at did not advance during a run is `gone` —
+    // a report line in ingest_runs, never a delete or a status change.
+    lastSeenAt: tstz('last_seen_at'),
+    // Socrata rowsUpdatedAt as ISO, or the Overture release string.
+    sourceVersion: text('source_version'),
   },
   (t) => [
     index('source_records_org_idx').on(t.orgId),
+    // 🔴 Four Phase 3 keys, NOT a `dataset` column: `/sources` renders four rows, each
+    // needing its own ingest_runs history, and the D-18 inline source tag reads source_key
+    // directly. All four are durable: `tx_comptroller_closures` is public-domain Comptroller
+    // data, and `census_geocoder` is a free federal service with no caching restriction,
+    // unlike Google Places. The live constraint is swapped in drizzle/0023.
     check(
       'sr_source_key_known',
-      sql`source_key in ('overture','tx_comptroller','osm','county_dba','google_places','firecrawl','http_probe','dns_probe','manual')`,
+      sql`source_key in ('overture','tx_comptroller','tx_comptroller_closures','census_geocoder','osm','county_dba','google_places','firecrawl','http_probe','dns_probe','manual')`,
     ),
     check('sr_retention_class_known', sql`retention_class in ('durable','ephemeral')`),
     ...orgPolicies('source_records'),

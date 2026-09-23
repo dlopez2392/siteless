@@ -15,9 +15,24 @@
  * domain column still moves updated_at and stamps updated_by' goes red, and only that one.
  */
 import { describe, expect, it } from 'vitest';
-import { actAs, seedTwoOrgs, withRollback } from './_fixtures';
+import type { Client } from 'pg';
+import { seedTwoOrgs, SQL_FRESH_EXTERNAL_KEY, withRollback } from './_fixtures';
 
 const ORG_A_CLAIMS = { o: { id: 'org_A' }, sub: 'user_danlo', role: 'authenticated' } as const;
+
+/**
+ * The Clerk claims, installed transaction-locally, WITHOUT `set role authenticated`.
+ *
+ * A-WR-01 (review 03, drizzle/0025) made `businesses` SELECT-only for `authenticated`: every
+ * writer is the owner-tier desk ETL or a SECURITY DEFINER. The two tests below are about the
+ * TRIGGERS — that a raw write nothing in src/ made still lands in the audit trail, attributed
+ * to the actor the trigger reads out of the transaction-local claims — not about which role
+ * may write. So they write as the owner with the claims installed, which is exactly the shape
+ * a definer's write has, and the trigger's actor resolution is exercised unchanged.
+ */
+async function withClaimsAsOwner(c: Client, claims: object): Promise<void> {
+  await c.query("select set_config('request.jwt.claims', $1, true)", [JSON.stringify(claims)]);
+}
 
 /**
  * The event-scope boundary, as a Set literal IN THIS FILE rather than a config file, so
@@ -55,6 +70,19 @@ const EVENT_LOGGED = new Set([
   'searches',
   'search_versions',
   'budget_periods',
+  // Phase 3 plan 05. State-bearing and low volume (~10,000 rows); a merge is exactly the
+  // change somebody later needs attributed. Attached in drizzle/0023.
+  //
+  // FOUR Phase 3 tables are DELIBERATELY EXCLUDED, each with a `comment on table` in 0023:
+  //   * ingest_runs — the run's own row IS the event; a row trigger would duplicate it on
+  //     every counter update. One run-level app.emit_event('ingest_runs', ...) instead.
+  //   * merge_candidates — ~30,000 rows per resolve pass: the source_records
+  //     write-amplification argument. The decision becomes audited state here, in
+  //     business_merges.
+  //   * business_aliases — derived from the merge, which is logged.
+  //   * overture_category_map — reference rows; the seed loader has no org claim and
+  //     events.org_id is NOT NULL, same as the six Phase 2 reference tables.
+  'business_merges',
 ]);
 
 /**
@@ -70,9 +98,9 @@ const EVENT_LOGGED = new Set([
  * tolerance bounded. Comparing distinct names alone would silently accept a second,
  * UNNARROWED update trigger on budget_periods — which is the exact defect the split
  * exists to avoid, and it would restore the write amplification while leaving the name
- * set identical. 5 tables, 6 triggers.
+ * set identical. 6 tables, 7 triggers (Phase 3 plan 05 adds business_merges_event — one).
  */
-const LOG_EVENT_TRIGGER_ROWS = 6;
+const LOG_EVENT_TRIGGER_ROWS = 7;
 
 type LatestEvent = {
   actor_id: string;
@@ -120,13 +148,13 @@ describe('attribution is a property of the database', () => {
   it('a direct write still produces an event', () =>
     withRollback(async (c) => {
       const { a } = await seedTwoOrgs(c);
-      await actAs(c, ORG_A_CLAIMS);
+      await withClaimsAsOwner(c, ORG_A_CLAIMS);
 
       // Raw SQL issued by the test itself — no ORM, no helper, no emit(). That is the
       // entire claim: a write nothing in src/ made still lands in the audit trail, with
       // the Clerk actor the trigger read out of the transaction-local claims.
       const ins = await c.query<{ id: string }>(
-        "insert into businesses (org_id, display_name) values ($1, 'direct-write') returning id",
+        `insert into businesses (org_id, display_name, external_key) values ($1, 'direct-write', ${SQL_FRESH_EXTERNAL_KEY}) returning id`,
         [a],
       );
       const businessId = ins.rows[0]?.id;
@@ -168,8 +196,8 @@ describe('attribution is a property of the database', () => {
       // "strictly greater" would be unfalsifiable. Backdating the insert restores the
       // discrimination that two separate transactions would give in production.
       const ins = await c.query<{ id: string; epoch: string }>(
-        'insert into businesses (org_id, display_name, updated_at) ' +
-          "values ($1, 'Alpha Roofing', now() - interval '1 hour') " +
+        'insert into businesses (org_id, display_name, external_key, updated_at) ' +
+          `values ($1, 'Alpha Roofing', ${SQL_FRESH_EXTERNAL_KEY}, now() - interval '1 hour') ` +
           'returning id, extract(epoch from updated_at)::text as epoch',
         [a],
       );
@@ -178,7 +206,7 @@ describe('attribution is a property of the database', () => {
       expect(businessId).toBeTruthy();
       expect(beforeEpoch).toBeGreaterThan(0);
 
-      await actAs(c, ORG_A_CLAIMS);
+      await withClaimsAsOwner(c, ORG_A_CLAIMS);
       // city is a domain column and nothing else is named: no updated_at, no updated_by.
       const upd = await c.query<{ epoch: string; updated_by: string | null }>(
         "update businesses set city = 'McAllen' where id = $1 " +

@@ -18,6 +18,17 @@ import type { BusinessLike } from '@/lib/export/public-business';
 /** Unmistakable in a JSON dump, and grep-able across the repo. */
 export const CANARY = 'INTERNAL-CANARY-7f3a2b';
 
+/**
+ * Phase 3 plan 05. The resolver's match keys are internal too (D-12), and each carries its
+ * OWN canary so a leak names the column that escaped rather than just "something internal".
+ * The realistic value follows the canary so a consumer that normalizes still sees a
+ * plausible key.
+ */
+export const NAME_NORM_CANARY = 'NAMENORM-CANARY-4c91e0';
+export const STREET_NORM_CANARY = 'STREETNORM-CANARY-a82d57';
+/** B-WR-10: `chain_key` IS the `name_norm` (src/lib/resolve/chain.ts), so just as internal. */
+export const CHAIN_KEY_CANARY = 'CHAINKEY-CANARY-5e19b3';
+
 export function makeBusiness(overrides: Partial<BusinessLike> = {}): BusinessLike {
   return {
     id: '0f2b7c1e-3a44-4c8e-9b21-6d5c8a1e4f70',
@@ -28,6 +39,10 @@ export function makeBusiness(overrides: Partial<BusinessLike> = {}): BusinessLik
     phoneE164: '+19565550143',
     city: 'McAllen',
     status: 'new',
+    nameNorm: `${NAME_NORM_CANARY} rio roofing`,
+    streetNorm: `${STREET_NORM_CANARY} n 10th st`,
+    phoneBlockable: true,
+    chainKey: `${CHAIN_KEY_CANARY} rio roofing`,
     ...overrides,
   };
 }

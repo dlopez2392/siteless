@@ -181,3 +181,77 @@ export type GeoPresetsFile = {
   source: string;
   geoPresets: GeoPresetSeed[];
 };
+
+/**
+ * One Overture `basic_category` -> cluster mapping (D-02, the Overture half). Snake_case
+ * because the field names ARE the database column names in `overture_category_map` and the
+ * Overture property name; a camelCase alias would be a third spelling of the same thing.
+ *
+ * `cluster_key` is one of `CLUSTER_KEYS` — checked by name in `tests/unit/seed-data.test.ts`,
+ * not here, for the literal-widening reason at the top of this file. `rows` is the measured
+ * Texas-side RGV row count for the category in the release named in the file's `_meta`; it
+ * is provenance and the `sort_order` source, never a filter.
+ *
+ * 🔴 `basic_category` only. Overture's `categories` property is removed in `2026-09-23.0`.
+ */
+export type OvertureCategorySeed = {
+  basic_category: string;
+  cluster_key: string;
+  rows: number;
+};
+
+/** A category someone LOOKED AT and judged to belong to no cluster. Recorded so that a
+ *  high-volume category missing from the mapping reads as a decision, not as an oversight;
+ *  it is never loaded, and the ingest still reports it in `ingest_runs.stats.unmapped`. */
+export type OvertureDecidedUnmapped = {
+  basic_category: string;
+  rows: number;
+  reason: string;
+};
+
+/**
+ * Provenance for the measured distribution. The row arithmetic closes by construction:
+ * `mappedRows + sum(decidedUnmapped.rows) + undecidedTail.rows + nullRows === totalRows`, and
+ * the category counts close against `distinctCategories` likewise. The unit test re-derives
+ * both sums from the entries, so an entry edited by hand without its bookkeeping fails.
+ */
+export type OvertureCategoryMeta = {
+  source: string;
+  release: string;
+  capturedAt: string;
+  bbox: { xmin: number; xmax: number; ymin: number; ymax: number };
+  filter: string;
+  totalRows: number;
+  nullRows: number;
+  distinctCategories: number;
+  mappedCategories: number;
+  mappedRows: number;
+  rule: string;
+  coverageNote: string;
+  decidedAboveRows: number;
+  decidedUnmapped: OvertureDecidedUnmapped[];
+  undecidedTail: { categories: number; rows: number };
+};
+
+export type OvertureCategoryMetaEntry = { _meta: OvertureCategoryMeta };
+
+/** A leading `_meta` entry, then one `OvertureCategorySeed` per mapped category. */
+export type OvertureCategoriesFile = Array<OvertureCategoryMetaEntry | OvertureCategorySeed>;
+
+export function isOvertureCategorySeed(
+  e: OvertureCategoryMetaEntry | OvertureCategorySeed,
+): e is OvertureCategorySeed {
+  return 'basic_category' in e;
+}
+
+/** The mapped entries only, in file order. */
+export function overtureCategorySeeds(file: OvertureCategoriesFile): OvertureCategorySeed[] {
+  return file.filter(isOvertureCategorySeed);
+}
+
+/** The `_meta` entry. Throws rather than returning undefined: a file without provenance is
+ *  a file whose coverage numbers cannot be checked. */
+export function overtureCategoryMeta(file: OvertureCategoriesFile): OvertureCategoryMeta {
+  for (const e of file) if ('_meta' in e) return e._meta;
+  throw new Error('overture-categories.json has no _meta entry');
+}

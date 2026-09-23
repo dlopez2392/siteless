@@ -33,7 +33,7 @@ export function TopBar({ orgLabel, userName, userEmail, initials }: ShellIdentit
           <Menu data-icon="menu" aria-hidden="true" className="size-5" />
         </SheetTrigger>
         <SheetContent side="left" className="w-64 bg-sidebar p-0">
-          <SheetHeader className="px-4 py-6">
+          <SheetHeader className="py-6 pr-14 pl-4">
             <SheetTitle className="truncate text-xl font-semibold">{orgLabel}</SheetTitle>
           </SheetHeader>
           <SidebarNav onNavigate={() => setNavOpen(false)} />

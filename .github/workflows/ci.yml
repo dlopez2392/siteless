@@ -64,6 +64,11 @@ jobs:
       # Deliberately NOT named after the production vendor: T-1-19 asserts this file is
       # greppable-clean of it. This URL reaches the service container and nothing else.
       RUNTIME_DB_URL: postgres://app_user:app_user@localhost:5432/siteless_test
+      # Phase 3's server-action DB tests (review-actions, provenance-render, run-report) import
+      # modules whose graph loads src/env.ts, which requires a non-empty CLERK_SECRET_KEY. Clerk
+      # is never dialled — requireOrg/orgClaims are mocked — so, like the verify job's build,
+      # a placeholder is correct and a real secret would be exposure for nothing.
+      CLERK_SECRET_KEY: sk_test_placeholder_for_db_tests_only
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
