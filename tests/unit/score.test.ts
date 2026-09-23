@@ -379,6 +379,51 @@ describe('score() structural rules', () => {
   });
 });
 
+/**
+ * B-WR-01 (review 03). The suite/unit is stripped from the address KEY (D-12: kept on the record
+ * only), and nothing downstream compared it — so two tenants of one building, `STE 5` and
+ * `STE 7` at the same street number, scored the FULL 30 and counted an independent `address`
+ * signal. With a similar name and ≤100 m that reaches 95 and auto-merges two businesses. When
+ * both sides carry a unit and the normalised units differ, the address is number + postal only
+ * and is not a signal.
+ */
+describe('the unit is compared when both sides carry one (B-WR-01)', () => {
+  const tenants = (ua: string | null, ub: string | null) =>
+    score({
+      a: side({ id: 'a', nameNorm: 'auto repair', unit: ua, lat: 26.2, lng: -98.23 }),
+      b: side({ id: 'b', nameNorm: 'auto repair', unit: ub, lat: 26.2003, lng: -98.23 }),
+      nameSim: 1,
+    });
+
+  it('two suites at one street number never produce the address signal', () => {
+    const r = tenants('BLDG A STE 5', 'BLDG B STE 5');
+    expect(r.signals).not.toContain('address');
+    expect(r.features.address).toBe(15); // street_num + postal only
+    expect(r.band).not.toBe('merge');
+    const s = tenants('STE 5', 'STE 7');
+    expect(s.signals).not.toContain('address');
+    expect(s.score).toBeLessThan(95);
+  });
+
+  it('the same unit written two ways, or a unit on one side only, is still a full match', () => {
+    for (const [ua, ub] of [
+      ['STE 5', 'SUITE 5'],
+      ['#5', 'Ste. 5'],
+      ['STE 100-A', 'Suite 100A'],
+      ['STE 5', null],
+      [null, null],
+    ] as const) {
+      const r = tenants(ua, ub);
+      expect({ ua, ub, address: r.features.address, full: r.signals.includes('address') }).toEqual({
+        ua,
+        ub,
+        address: 30,
+        full: true,
+      });
+    }
+  });
+});
+
 describe('merge-triple fixture', () => {
   it('synthetic three-way triple merges on every edge', () => {
     expect(TRIPLE.synthetic).toBe(true);

@@ -44,6 +44,12 @@ export type Side = {
   phoneBlockable: boolean;
   streetNum: string | null;
   streetNorm: string | null;
+  /**
+   * The suite/unit as the record carries it (`businesses.unit`) — stripped from the address KEY
+   * (D-12) and compared here instead (B-WR-01). Optional so the committed pair fixtures, which
+   * predate it, read as "unknown", never as a conflict.
+   */
+  unit?: string | null;
   postal: string | null;
   lat: number | null;
   lng: number | null;
@@ -244,11 +250,57 @@ function phoneMatches(a: Side, b: Side): boolean {
   return sameValue(a.phoneE164, b.phoneE164) && a.phoneBlockable && b.phoneBlockable;
 }
 
+/** Unit designator words: "STE 5", "SUITE 5", "#5", "UNIT 5" and "NO. 5" all name unit 5. */
+const UNIT_DESIGNATORS: ReadonlySet<string> = new Set([
+  'STE',
+  'SUITE',
+  'UNIT',
+  'APT',
+  'APARTMENT',
+  'NO',
+  'NUM',
+  'NUMBER',
+  'RM',
+  'ROOM',
+  'SPC',
+  'SPACE',
+]);
+
+/**
+ * A unit's identity for COMPARISON only (never stored, never displayed): upper-cased, the
+ * designator words and every non-alphanumeric dropped, what remains joined with no separator.
+ * "STE 5", "Suite 5" and "#5" are all "5"; "STE 100-A" and "Suite 100A" are "100A"; "BLDG A
+ * STE 5" and "BLDG B STE 5" are "BLDGA5" and "BLDGB5". Null when nothing identifying is left.
+ */
+export function unitIdentity(unit: string | null | undefined): string | null {
+  if (unit === null || unit === undefined) return null;
+  const tokens = unit
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, ' ')
+    .split(' ')
+    .filter((t) => t.length > 0 && !UNIT_DESIGNATORS.has(t));
+  const id = tokens.join('');
+  return id === '' ? null : id;
+}
+
+/**
+ * B-WR-01 (review 03): BOTH sides carry a unit and they differ — two tenants of one building.
+ * A unit on one side only is not a conflict (one source simply omits it).
+ */
+function unitsConflict(a: Side, b: Side): boolean {
+  const ua = unitIdentity(a.unit);
+  const ub = unitIdentity(b.unit);
+  return ua !== null && ub !== null && ua !== ub;
+}
+
 function addressFull(a: Side, b: Side): boolean {
   return (
     sameValue(a.streetNum, b.streetNum) &&
     sameValue(a.streetNorm, b.streetNorm) &&
-    sameValue(a.postal, b.postal)
+    sameValue(a.postal, b.postal) &&
+    // 🔴 B-WR-01: the unit is stripped from the key, so it is compared HERE — two suites at one
+    // street number are number + postal (15), never a full match and never the address signal.
+    !unitsConflict(a, b)
   );
 }
 

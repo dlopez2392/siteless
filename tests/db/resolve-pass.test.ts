@@ -72,6 +72,8 @@ interface Biz {
   source?: 'tx_comptroller' | 'overture';
   /** Back-dates created_at, which decides the merge winner (older wins). */
   ageHours?: number;
+  /** The suite/unit as the record carries it (B-WR-01). */
+  unit?: string | null;
 }
 
 /** One owner-inserted business. `name` is written straight into `name_norm` (already normal). */
@@ -79,9 +81,9 @@ async function biz(c: Client, orgId: string, b: Biz): Promise<string> {
   const r = await c.query<{ id: string }>(
     `insert into businesses (org_id, external_key, display_name, name_norm, phone_e164,
                              phone_blockable, street_num, street_norm, postal, lat, lng,
-                             location_match_type, cluster_key, primary_source, created_at)
+                             location_match_type, cluster_key, primary_source, created_at, unit)
      values ($1, ${SQL_FRESH_EXTERNAL_KEY}, $2, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-             now() - make_interval(hours => $13::int))
+             now() - make_interval(hours => $13::int), $14)
      returning id`,
     [
       orgId,
@@ -97,6 +99,7 @@ async function biz(c: Client, orgId: string, b: Biz): Promise<string> {
       b.cluster ?? null,
       b.source ?? 'tx_comptroller',
       b.ageHours ?? 0,
+      b.unit ?? null,
     ],
   );
   const id = r.rows[0]?.id;
@@ -540,6 +543,44 @@ describe('the resolve pass (DEDUP-01, DEDUP-02)', () => {
       await c.query('set local enable_bitmapscan = off');
       const check = (tx: EtlExecutor, orgId: string) => assertTrigramPlan(tx, orgId, 0);
       await expect(db.run(({ tx, orgId }) => check(tx, orgId))).rejects.toBeInstanceOf(TrigramPlanError);
+    }));
+});
+
+/**
+ * B-WR-01 (review 03), end to end: the pass must hand the scorer each side's UNIT. Two tenants
+ * of one building — same name, same street number, 22 m apart, same cluster — scored 95 and
+ * auto-merged while the suite was stripped from the key and never compared.
+ */
+describe('two suites at one street number are not one business (B-WR-01)', () => {
+  it('the pass scores different suites below 95 and merges nothing', () =>
+    withRollback(async (c) => {
+      const { a } = await seedTwoOrgs(c);
+      const addr = { streetNum: '900', streetNorm: 'e business 83', postal: '78501', cluster: 'home_services' };
+      const ste5 = await biz(c, a, {
+        name: 'valley dental',
+        ...addr,
+        unit: 'STE 5',
+        lat: 26.18,
+        lng: -98.21,
+        match: 'census_exact',
+        ageHours: 24,
+      });
+      const ste7 = await biz(c, a, {
+        name: 'valley dental',
+        ...addr,
+        unit: 'SUITE 7',
+        lat: 26.1802,
+        lng: -98.21,
+        match: 'overture',
+        source: 'overture',
+      });
+      await withPermissiveClaims(c);
+      await runPass(c);
+      const cand = await candidate(c, a, ste5, ste7);
+      expect(cand?.decision).toBe('pending');
+      expect(cand!.score).toBeLessThan(95);
+      expect(cand!.features).toMatchObject({ address: 15 });
+      expect((await mergedInto(c, [ste5, ste7]))[ste7]).toBeNull();
     }));
 });
 

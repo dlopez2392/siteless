@@ -378,6 +378,7 @@ type SideRow = {
   phone_blockable: boolean;
   street_num: string | null;
   street_norm: string | null;
+  unit: string | null;
   postal: string | null;
   lat: number | string | null;
   lng: number | string | null;
@@ -394,6 +395,7 @@ const SIDE_COLUMNS = [
   'phone_blockable',
   'street_num',
   'street_norm',
+  'unit',
   'postal',
   'lat',
   'lng',
@@ -428,6 +430,7 @@ export function sideOf(r: SideRow): Side {
     phoneBlockable: r.phone_blockable === true,
     streetNum: r.street_num,
     streetNorm: r.street_norm,
+    unit: r.unit,
     postal: r.postal,
     lat: numOrNull(r.lat),
     lng: numOrNull(r.lng),
