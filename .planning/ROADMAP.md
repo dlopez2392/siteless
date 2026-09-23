@@ -197,15 +197,15 @@ Plans:
 
 Plans:
 **Wave 1**
-- [ ] 04-01-PLAN.md — Workflow DevKit toolchain: pinned install, withWorkflow, proxy exclusion, the workflow test lane, CI step
-- [ ] 04-02-PLAN.md — PLACES_MODE / CRON_SECRET in env.ts (kill switch, default off) and the shared excluding source walker
-- [ ] 04-03-PLAN.md — Pure host-class classifier, FNV-1a weekly partitions, change-detection diff
-- [ ] 04-04-PLAN.md — Table A type snapshot (general_contractor removed) and the type-aware estimate + RUN_CEILING_MULTIPLIER (D-18)
-- [ ] 04-05-PLAN.md — Quadtree tiling (saturation at exactly 60, three floors, polygon pruning), geo-shape seed, the pure queue reducer
-- [ ] 04-06-PLAN.md — In-memory matcher (≥95 / 80–94 / ties / SAB branch) and the one-statement candidate query
-- [ ] 04-08-PLAN.md — GoogleMapsTag with Google's painted colours and the no-map guard
-- [ ] 04-09-PLAN.md — Schema 0026–0027: eight tables, append-only observations, grant-less coordinates, signal view, cron role; PLACE-02 amended
-- [ ] 04-10-PLAN.md — msw Places harness (RegExp path, 501 discipline, mask-aware) and synthetic fixtures
+- [x] 04-01-PLAN.md — Workflow DevKit toolchain: pinned install, withWorkflow, proxy exclusion, the workflow test lane, CI step
+- [x] 04-02-PLAN.md — PLACES_MODE / CRON_SECRET in env.ts (kill switch, default off) and the shared excluding source walker
+- [x] 04-03-PLAN.md — Pure host-class classifier, FNV-1a weekly partitions, change-detection diff
+- [x] 04-04-PLAN.md — Table A type snapshot (general_contractor removed) and the type-aware estimate + RUN_CEILING_MULTIPLIER (D-18)
+- [x] 04-05-PLAN.md — Quadtree tiling (saturation at exactly 60, three floors, polygon pruning), geo-shape seed, the pure queue reducer
+- [x] 04-06-PLAN.md — In-memory matcher (≥95 / 80–94 / ties / SAB branch) and the one-statement candidate query
+- [x] 04-08-PLAN.md — GoogleMapsTag with Google's painted colours and the no-map guard
+- [x] 04-09-PLAN.md — Schema 0026–0027: eight tables, append-only observations, grant-less coordinates, signal view, cron role; PLACE-02 amended
+- [x] 04-10-PLAN.md — msw Places harness (RegExp path, 501 discipline, mask-aware) and synthetic fixtures
 
 **Wave 2** *(blocked on Wave 1)*
 - [ ] 04-07-PLAN.md — Every Phase 4 string, stopped-reason and run-kind maps, Places formatters; copy gaps settled as a UI-SPEC amendment
