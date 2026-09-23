@@ -12,7 +12,9 @@
  * WHAT ONE RUN WRITES — one `ingest_runs` row per `/sources` row it owns:
  *
  *   1. `tx_comptroller` (`jrea-zgmq`): the active sales-tax permits of the four RGV counties.
- *      Measured: 34,928 rows in ONE 50,000-row request, 2,550 ms.
+ *      Measured: 34,928 rows in ONE 50,000-row request, 2,550 ms. Plus ONE statewide grouped
+ *      request (`fetchStatewideNameFrequency`) so D-11's chain flag can honestly say "in
+ *      Texas": stored on this run as `stats.statewide_name_frequency`.
  *   2. `census_geocoder`: every permit's OUTLET address through the Census batch geocoder
  *      (D-08), ~6–8 min at 1,000-row chunks × 3 in flight, ~70.9 % match rate — so ≈10,100
  *      outlets stay unlocated and fall to text-only matching, which D-10 caps at review.
@@ -91,6 +93,10 @@ import {
   RGV_UNPADDED_COUNTY_CODES,
   type ClosureRow,
 } from '@/lib/socrata/closures';
+import {
+  fetchStatewideNameFrequency,
+  STATEWIDE_CHAIN_THRESHOLD,
+} from '@/lib/socrata/statewide-names';
 import { APP_TZ } from '@/lib/time';
 import {
   comptrollerRowToSourceRecord,
@@ -511,11 +517,41 @@ export interface PermitWritten {
   geocodeInput: PermitIngest['geocodeInput'];
 }
 
+/**
+ * D-11's statewide name frequency (`src/lib/socrata/statewide-names.ts`), or why it is
+ * missing. A failed request does not fail the permits run — the RGV-local chain count still
+ * works — but it is recorded on the run, never silent.
+ */
+export type StatewideNames = { frequency: Map<string, number> } | { error: string };
+
+/**
+ * 🔴 WHERE THE STATEWIDE MAP LIVES: on the `tx_comptroller` run row, as
+ * `ingest_runs.stats.statewide_name_frequency` (`{ name_norm: n }`), written by a separate
+ * statement AFTER `finishRun`. Two reasons for that shape:
+ *
+ *  - There is no statewide-frequency table. 03-RESEARCH recommended one; adding it is a
+ *    migration, and this plan ships none. The latest complete `tx_comptroller` run is the
+ *    newest measurement, so `chainDetectionSql` can read it with
+ *    `jsonb_each_text(stats->'statewide_name_frequency')` until a table exists.
+ *  - Written after `finishRun`, the ~11,600-entry map is on the run ROW but not in the
+ *    run's `events.after` (which `finishRun` builds from the report), so the audit trail
+ *    keeps its size. The run's report carries the summary (`stats.statewide_names`).
+ *
+ * `/sources` readers should select the keys they render, not the whole `stats`.
+ */
+const PERSIST_STATEWIDE = `
+  update ingest_runs
+     set stats = coalesce(stats, '{}'::jsonb) || jsonb_build_object('statewide_name_frequency', $3::jsonb)
+   where id = $1 and org_id = $2
+  returning id`;
+
 export async function runPermitsPass(
   db: EtlTransactions,
   fetched: { sourceVersion: string; records: PermitIngest[]; rejected: Rejected },
+  statewide?: StatewideNames,
 ): Promise<{ outcome: RunOutcome; written: PermitWritten[] }> {
   const written: PermitWritten[] = [];
+  const frequency = statewide && 'frequency' in statewide ? statewide.frequency : null;
   const outcome = await withRun(
     db,
     {
@@ -526,6 +562,16 @@ export async function runPermitsPass(
     async (run, tally, stats) => {
       let businessesInserted = 0;
       let businessesUpdated = 0;
+      if (statewide) {
+        stats.statewide_names =
+          frequency === null
+            ? { error: 'error' in statewide ? statewide.error : 'unknown' }
+            : {
+                names: frequency.size,
+                outlets: [...frequency.values()].reduce((a, n) => a + n, 0),
+                threshold: STATEWIDE_CHAIN_THRESHOLD,
+              };
+      }
       stats.rejected_rows = fetched.rejected.count;
       if (fetched.rejected.count > 0) stats.rejected_sample = fetched.rejected.sample;
       stats.unmapped_naics = fetched.records.filter((r) => r.unmappedNaics).length;
@@ -560,6 +606,16 @@ export async function runPermitsPass(
       stats.businesses_inserted = businessesInserted;
       stats.businesses_updated = businessesUpdated;
     },
+    frequency === null
+      ? undefined
+      : async ({ tx, orgId }, runId) => {
+          const { rows } = await tx.query(PERSIST_STATEWIDE, [
+            runId,
+            orgId,
+            JSON.stringify(Object.fromEntries(frequency)),
+          ]);
+          if (rows.length !== 1) throw new Error(`statewide names: no ingest_runs row ${runId}`);
+        },
   );
   return { outcome, written };
 }
@@ -919,12 +975,21 @@ async function main(): Promise<void> {
     const permits = await fetchPermits();
     const rows = args.limit === undefined ? permits.rows : permits.rows.slice(0, args.limit);
     const records = rows.map((r) => permitToIngest(r, permits.sourceVersion, clusters, cityFold));
-    const { outcome, written } = await runPermitsPass(db, {
-      sourceVersion: permits.sourceVersion,
-      records,
-      rejected: permits.rejected,
-    });
+    // D-11 "across Texas": one grouped statewide request (11,647 groups, one page, measured).
+    const statewide: StatewideNames = await fetchStatewideNameFrequency().then(
+      (frequency) => ({ frequency }),
+      (e: unknown) => ({ error: e instanceof Error ? e.message.slice(0, 500) : String(e) }),
+    );
+    if ('error' in statewide) {
+      console.error(`ingest-comptroller: statewide name frequency FAILED: ${statewide.error}`);
+    }
+    const { outcome, written } = await runPermitsPass(
+      db,
+      { sourceVersion: permits.sourceVersion, records, rejected: permits.rejected },
+      statewide,
+    );
     printRun('tx_comptroller (jrea-zgmq)', outcome);
+    console.log(`  statewide names: ${JSON.stringify(outcome.stats.statewide_names)}`);
 
     const geocoded = await runGeocodePass(db, written);
     printRun('census_geocoder', geocoded);
