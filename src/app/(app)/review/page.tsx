@@ -57,8 +57,12 @@ function liveText({ top, remaining, ingested }: ReviewQueue): string {
 
 async function ReviewRegion() {
   const claims = await orgClaims();
-  const queue = await listReviewQueue(claims);
-  const { top, ingested } = queue;
+  // 04-21: the queue now carries a second item kind (tentative Google listings). Until 04-24
+  // renders it, this screen reads the `duplicates` filter — the Phase 3 queue exactly — so a
+  // Google item can never reach a pair-shaped card; the narrowing below states that for tsc.
+  const queue = await listReviewQueue(claims, 'duplicates');
+  const { ingested } = queue;
+  const top = queue.top?.kind === 'pair' ? queue.top : null;
 
   return (
     <div className="flex flex-col gap-4 lg:gap-6">

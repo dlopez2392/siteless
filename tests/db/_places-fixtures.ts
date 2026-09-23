@@ -263,7 +263,9 @@ export async function seedAttachmentWithObservation(
     ],
   );
   const attachmentId = a.rows[0]!.id;
-  const observedAt = args.observedAt ?? new Date();
+  // An ISO string, never a Date: the drizzle-tx executor (`asPg`) refuses a Date parameter by
+  // design (src/db/drizzle-executor.ts), and pg.Client binds the string identically.
+  const observedAt = (args.observedAt ?? new Date()).toISOString();
   const o = await c.query<{ id: string }>(
     `insert into place_observations (org_id, business_id, place_id, run_id, attachment_id,
                                      had_website_uri, host_class, sku, pure_sab, observed_at)
