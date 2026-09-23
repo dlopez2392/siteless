@@ -4,6 +4,7 @@ import { db } from '@/db/client';
 import { withOrg, type OrgClaims } from '@/db/with-org';
 import { periodResetInstant, periodStart } from '@/lib/budget/period';
 import type { Provider, Sku } from '@/lib/budget/price-book';
+import { instantOf, requireInstant } from '@/lib/instant';
 
 /**
  * The meter, as an RSC page reads it. D-14.
@@ -51,46 +52,16 @@ export function rowsOf<T>(result: unknown): T[] {
  * 🔴 A `timestamptz` DOES NOT ARRIVE AS A `Date` THROUGH THIS PATH. Observed on
  * 2026-09-22 against the runtime configuration — postgres.js 3.4.9, `prepare: false`,
  * drizzle `execute` — where `runs.started_at` came back as the STRING
- * `'2026-09-22 10:21:31.273904-05'` while the row type here declared `Date`. Nothing
+ * '2026-09-22 10:21:31.273904-05' while the row type here declared `Date`. Nothing
  * failed at the boundary; it failed three layers later, as `RangeError: Invalid time
  * value` out of `Intl` on the spend view, with typecheck, lint and build all green
- * (plan 02-13, deviation 3). This module's header already draws the same conclusion for
- * `bigint` and for `period_start`: cast in SQL, convert here, and stay immune to a driver
- * that later changes its mind.
+ * (plan 02-13, deviation 3). Cast in SQL, convert here.
  *
- * 🔴 EPOCH MILLISECONDS RATHER THAN A FORMATTED STRING, AND THAT IS DELIBERATE. An epoch
- * is an instant and instants have no zone, so there is no text format to misparse and no
- * zone named anywhere — `src/lib/time.ts` stays the only file in `src/` that names one,
- * and every rendering of these values still resolves its zone there.
- *
- * `extract(epoch from ...)` is null-propagating, so a run that never started stays null
- * rather than becoming 1970.
+ * The two helpers now LIVE in `src/lib/instant.ts` (moved verbatim in plan 03-09, so the
+ * desk ingest can use them without importing this server-only module). Re-exported here so
+ * no existing import changed.
  */
-export function instantOf(epochMs: string | null): Date | null {
-  if (epochMs === null) return null;
-  const ms = Number(epochMs);
-  if (!Number.isFinite(ms)) {
-    throw new Error(`instantOf: expected epoch milliseconds, got ${JSON.stringify(epochMs)}`);
-  }
-  return new Date(ms);
-}
-
-/**
- * The same conversion for a NOT NULL column, which every other query module has one or more
- * of (`searches.updated_at`, `search_versions.created_at`, a run's coalesced timestamp).
- *
- * Throws rather than substituting a fallback instant: the column cannot be null, so an empty
- * value means the cast in the SELECT was forgotten or the driver's text format changed
- * underneath us. Rendering the epoch instead would be the product lying about when something
- * happened — quietly, and in a way no gate can see.
- */
-export function requireInstant(epochMs: string | null, what: string): Date {
-  const at = instantOf(epochMs);
-  if (at === null) {
-    throw new Error(`requireInstant: ${what} came back null from a NOT NULL column`);
-  }
-  return at;
-}
+export { instantOf, requireInstant };
 
 export type BudgetPeriodRow = {
   id: string;
