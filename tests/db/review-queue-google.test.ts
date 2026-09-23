@@ -253,7 +253,8 @@ describe('review queue — the google item kind', () => {
         closedAt: null,
       });
       const pairTop = (await readReviewQueue(tx, 'duplicates')).top;
-      expect(Object.keys(top.business).sort()).toEqual(Object.keys(pairTop!.a).sort());
+      if (pairTop?.kind !== 'pair') throw new Error('expected the seeded pair');
+      expect(Object.keys(top.business).sort()).toEqual(Object.keys(pairTop.a).sort());
 
       const keys = allKeys(queue);
       for (const field of GOOGLE_AUTHORED) {
