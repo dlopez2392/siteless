@@ -154,7 +154,7 @@ Plans:
 - [x] 03-07-PLAN.md — Census batch geocoder: ragged lines, ID rejoin, longitude first, bounded retry
 
 **Wave 3** *(blocked on Wave 2)*
-- [ ] 03-08-PLAN.md — Overture `basic_category` → cluster mapping seed and its reference-row proofs
+- [x] 03-08-PLAN.md — Overture `basic_category` → cluster mapping seed and its reference-row proofs
 - [ ] 03-09-PLAN.md — The shared ingest write path, DB fixtures, DATA-04's four proofs, the external key and criterion 5
 
 **Wave 4** *(blocked on Wave 3)*
