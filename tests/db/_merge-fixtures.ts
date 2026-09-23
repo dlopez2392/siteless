@@ -180,6 +180,8 @@ export async function seedOvertureSide(
     postcode: spec.zip,
   };
   const input = overtureIngestInput(row);
+  // Since 03-13 this runs the production transform, which returns null for a skipped row.
+  if (input === null) throw new Error(`seedOvertureSide: the transform skipped ${spec.name}`);
   const x = asEtlExecutor(c);
   const sr = await upsertSourceRecord(x, {
     orgId,

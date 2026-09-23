@@ -199,8 +199,10 @@ export function overtureRowToSourceRecord(row: unknown, release: string): Overtu
       nameNorm: nameNorm(name),
       phoneE164: phone.e164,
       phoneBlockable: phone.blockable,
-      city: r.addr_locality,
-      street: r.addr_freeform,
+      // Blank is absent: the derived columns hold null, never '' (survivorship reads null, so a
+      // merge would otherwise rewrite the column). The raw payload keeps the value as sent.
+      city: present(r.addr_locality) ? r.addr_locality : null,
+      street: present(r.addr_freeform) ? r.addr_freeform : null,
       streetNum: addr.streetNum,
       streetNorm: addr.streetNorm,
       unit: addr.unit,
