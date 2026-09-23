@@ -14,9 +14,9 @@ import { Client } from 'pg';
  * 🔴 THE FIXTURE IS INSERTED WITH SQL, AND THAT IS A DEPENDENCY, NOT A PREFERENCE. The
  * preset editor is plan 02-11's and is not on this branch, so there is no UI path that
  * creates a preset here. The budget-banner spec's rule — drive state through the product,
- * not through SQL — still holds for everything this file actually tests: the duplicate and
- * the run both go through the real server actions via the real UI. Only the starting row
- * is seeded. When 02-11 lands, the two-version fixture should be rebuilt through the
+ * not through SQL — still holds for everything this file actually tests: the duplicate goes
+ * through the real server action via the real UI, and (since 04-27) no test here starts a run
+ * at all. Only the starting rows are seeded. When 02-11 lands, the two-version fixture should be rebuilt through the
  * editor and this helper deleted.
  *
  * 🔴 THE DATABASE IS SHARED AND IS LEFT AS FOUND. `siteless_test` is one database for the
@@ -325,49 +325,62 @@ test('preset detail: duplicate creates a new preset at version 1', async ({ page
 });
 
 /**
- * The Run button with Places switched off (D-02): the server action refuses before any row or
- * hold exists, and the drawer says so in place.
+ * The three ways to run with Places switched off (D-02; 04-UI-SPEC § Screen 2, Rules 33, 38).
  *
- * 🔴 04-26 (UI-SPEC Rules 38, 39). Since `queueRun` starts the places-sweep workflow, a
- * confirmed run is a Places sweep, so no e2e spec may create one. The Phase 2 version of this
- * test confirmed a run and watched `version-row-2-used-by` move to 1; that claim now lives in
- * the DB lane, with `start()` as a double:
+ * 🔴 THIS SPEC CANNOT START A RUN (Rules 38, 39). It never opens a drawer and never clicks a
+ * confirm: it asserts the `off` state the local target renders — the notice, and three
+ * `aria-disabled`, focusable actions — and clicks nothing that could spend. "A confirmed run
+ * creates a runs row on the current version" lives in the DB lane, with `start()` as a double:
  *   tests/db/queue-run.test.ts → 'a confirmed run creates a runs row on the current version'
  *
  * This file runs only against a LOCAL target (see `TARGET_IS_LOCAL`), where `PLACES_MODE`
- * defaults to `off`. The skip below makes that an asserted precondition instead of an
- * assumption: if this machine's .env.local switches Places on, clicking confirm would start a
- * real run, so the test refuses to click. 04-27 replaces this again with the `off`-state
- * assertions (the notice and the aria-disabled actions).
+ * defaults to `off`. Playwright and the local dev server read the same .env.local, so if it
+ * switches Places on the page renders a different mode and these assertions do not apply — the
+ * skip says so instead of failing on a correct screen.
  */
-test('preset detail: run is refused while places is off', async ({ page }) => {
+test('preset detail: with places off, all three run actions are disabled and explained', async ({
+  page,
+}) => {
   const localMode = process.env.PLACES_MODE ?? '';
   test.skip(
     localMode !== '' && localMode !== 'off',
-    `PLACES_MODE is "${localMode}" in .env.local, so confirming would start a real run — ` +
-      'this spec never starts one (UI-SPEC Rule 39)',
+    `PLACES_MODE is "${localMode}" in .env.local, so the page renders that mode, not off — ` +
+      'this spec asserts the off state only and never starts a run (UI-SPEC Rule 39)',
   );
 
   await page.goto(`/presets/${fixture.searchId}`);
-  const url = page.url();
 
-  await page.getByTestId('run-preset').click();
-  await expect(page.getByTestId('run-drawer')).toBeVisible();
-  await page.getByTestId('run-confirm').click();
+  const notice = page.getByTestId('places-mode-notice');
+  await expect(notice).toBeVisible();
+  await expect(notice).toHaveAttribute('data-mode', 'off');
+  const noticeId = await notice.getAttribute('id');
+  expect(noticeId).not.toBeNull();
 
-  // Refused in place: the destructive Alert replaces the confirm, and nothing navigated.
-  await expect(page.getByTestId('run-mode-refused')).toBeVisible();
-  await expect(page.getByTestId('run-confirm')).toHaveCount(0);
-  expect(page.url()).toBe(url);
+  for (const id of ['run-preset', 'run-partition', 'run-check-changes']) {
+    // Exactly one visible element per action (Rule 40) — `:visible` so the phone's sticky
+    // placement and the desk's title row can never both count.
+    const action = page.locator(`[data-testid="${id}"]:visible`);
+    await expect(action, id).toHaveCount(1);
+    await expect(action, id).toHaveAttribute('data-enabled', 'false');
+    await expect(action, id).toHaveAttribute('aria-disabled', 'true');
+    await expect(action, id).not.toHaveAttribute('disabled');
+    await expect(action, id).toHaveAttribute('aria-describedby', new RegExp(`\\b${noticeId}\\b`));
+    // Focusable, so a keyboard user reaches the control and hears why it is inert.
+    await action.focus();
+    await expect(action, id).toBeFocused();
+  }
 
-  // Nothing was queued on either version.
-  await page.reload();
-  await expect(page.getByTestId('version-row-2-used-by')).toHaveAttribute(
-    'data-used-by-count',
-    '0',
-  );
-  await expect(page.getByTestId('version-row-1-used-by')).toHaveAttribute(
-    'data-used-by-count',
-    '1',
+  // No accent anywhere among the run actions in off mode (Rule 34).
+  await expect(page.locator('[data-testid^="run-"][data-variant="default"]')).toHaveCount(0);
+
+  await expect(page.getByTestId('preset-other-runs')).toBeVisible();
+  await expect(page.getByTestId('preset-recent-runs')).toBeVisible();
+  // The fixture's one finished run is listed and links to its report.
+  const row = page.locator('[data-testid^="preset-run-row-"]');
+  await expect(row).toHaveCount(1);
+  await expect(row).toHaveAttribute('href', /^\/runs\/[0-9a-f-]{36}$/);
+  await expect(page.getByTestId('summary-last-run-link')).toHaveAttribute(
+    'href',
+    /^\/runs\/[0-9a-f-]{36}$/,
   );
 });

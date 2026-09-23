@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Item, ItemContent, ItemGroup, ItemTitle } from '@/components/ui/item';
@@ -5,6 +6,7 @@ import { Separator } from '@/components/ui/separator';
 import type { EstimateRange } from '@/lib/estimate/estimate';
 import { formatPct, formatUsd } from '@/lib/budget/money';
 import { APP_LOCALE, formatLocal } from '@/lib/time';
+import { PRESET_LAST_RUN_LINK, PRESET_SUMMARY_RUN_COST } from '@/lib/ui/copy';
 import { RUN_LABEL, type RunStatus } from '@/lib/ui/run-tone';
 import { geoHeadline, type DiffGeo } from './version-diff';
 
@@ -82,9 +84,18 @@ export function estimateRequestsLabel(range: EstimateRange): string {
  *  same two sentences are correct here and a third phrasing for the same fact would be a
  *  paraphrase of a fixed string. */
 export type LastRun = {
+  /** `runs.id` — the "Open the run report" link's target (04-UI-SPEC § Screen 2). */
+  id: string;
   status: RunStatus;
   at: Date;
   costMicroUsd: bigint;
+};
+
+/** The primary run action's cost line, beside the estimate, so all three actions' costs are
+ *  visible without opening anything (§ Screen 2). Both parts pre-rendered by the page. */
+export type SummaryRunCost = {
+  kindLabel: string;
+  line: string;
 };
 
 /** Inline estimate line. `tabular-nums` on every comparable figure (§ Typography) so the
@@ -111,6 +122,7 @@ export function SummaryCard({
   clusterNames,
   geo,
   estimate,
+  runCost,
   lastRun,
 }: {
   version: number;
@@ -121,6 +133,8 @@ export function SummaryCard({
    *  cannot price this geography. The card still renders everything else — Executor Rule
    *  11: never blank content to satisfy a state. */
   estimate: EstimateLineParts | null;
+  /** `null` when there is no current version to run. */
+  runCost: SummaryRunCost | null;
   lastRun: LastRun | null;
 }) {
   return (
@@ -174,6 +188,15 @@ export function SummaryCard({
           </p>
         )}
 
+        {runCost ? (
+          <p
+            data-testid="summary-run-cost"
+            className="text-sm font-normal tabular-nums text-muted-foreground"
+          >
+            {PRESET_SUMMARY_RUN_COST(runCost.kindLabel, runCost.line)}
+          </p>
+        ) : null}
+
         {/* 🔴 THE ZONE IS PINNED. `formatLocal` resolves APP_TZ from src/lib/time.ts, the
             only file in src/ that names a zone for a machine. A bare date formatter here
             would render in the SYSTEM zone — UTC on Vercel — and show the previous day
@@ -194,6 +217,15 @@ export function SummaryCard({
               <span className="tabular-nums">{formatUsd(lastRun.costMicroUsd)}</span>
               {' · '}
               {RUN_LABEL[lastRun.status]}
+              {' · '}
+              {/* Accent inline link (§ Color, accent item 6). */}
+              <Link
+                href={`/runs/${lastRun.id}`}
+                data-testid="summary-last-run-link"
+                className="text-primary underline underline-offset-4"
+              >
+                {PRESET_LAST_RUN_LINK}
+              </Link>
             </>
           ) : (
             'Never run'
