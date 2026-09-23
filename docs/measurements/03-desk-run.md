@@ -788,3 +788,23 @@ The bands the cutoff question turns on are **0.3–0.4, 0.4–0.5 and 0.5–0.6*
 | 18 | The Radiant Room | 119 W Park Ave, Pharr 78577 | wellness_service | 0.920 | open | yes |
 | 19 | Stripes | 1611 S Closner Blvd, Edinburg 78539 | convenience_store | 0.958 | open | yes |
 | 20 | GDV Realty | 1601 W Trenton Rd Ste:L, Edinburg 78539 | real_estate_service | 0.920 | open | yes |
+
+## Post-review re-derive and resolve (2026-09-23, after `/gsd-code-review 3 --fix`)
+
+The review fixes changed derivation rules on existing rows (B-CR-01 legal-suffix strip now
+trailing-only; B-WR-02 unit-word street names; B-WR-03 phone extensions non-blockable; B-WR-05
+trade word kept when stripping leaves a lone surname; A-CR-03 cluster via one DerivationContext).
+The payload-hash gate does not rewrite derived columns on re-ingest, so the new `rederive` pass
+(docs/runbooks/ingest.md §7) was run on the local spine, then `resolve`. Local `siteless_test` only;
+production holds 0 businesses.
+
+| Step | Result |
+|---|---|
+| `rederive` (real) | 91,872 businesses / 90,795 roots in 2,098.6 s — `name_norm` rewritten on **1,842 (2.0 %)**, survivorship rewritten on **1,666**; report event 2450643 |
+| `resolve` | 396.2 s · chains 3,285 names / 16,764 rows (statewide) · blocks: phone 0, address 25, trigram 780 (GIN plan) · 168 over-cap blocks skipped |
+| scored | 78,256 pending (4,325 rewritten): **≥95 16 · 80–94 7,847 · <80 70,393** |
+| merged | 16 auto-merges; 0 chain-skipped, 0 distinct-skipped, 0 retries |
+| review queue | **7,847** (was 7,975 before the fixes) |
+
+The dry run of `rederive` was stopped by Claude Code under system memory pressure at 18,000
+rows (it rolled back; nothing written); its partial rate (~2 %) matched the real pass.
