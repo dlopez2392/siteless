@@ -74,7 +74,7 @@ describe('closed badge', () => {
         leadKey="SL-2K9QXM"
         status="active"
         closedAt={CLOSED_AT}
-        chainLabel={null}
+        chain={null}
         mergedInto={null}
       />,
     );
@@ -97,5 +97,81 @@ describe('closed badge', () => {
     }
     expect(classesOf(review)).toEqual(classesOf(detail));
     expect(classesOf(list)).toEqual(classesOf(detail));
+  });
+});
+
+/**
+ * C-WR-02: the chain flag was spelled three ways — "Chain · 1284 in Texas" and "Chain · 1284"
+ * (a `.replace` on a copy function's output) on `/review`, "Chain · 1,284 in the RGV" inline on
+ * the detail page. One formatter now, with the count grouped through the pinned locale.
+ *
+ * C-WR-03: the detail header's Chain and Merged away badges had drifted to the Badge default
+ * 12/500 — the defect `ClosedBadge` was created to fix. Every flag badge shares its sizing.
+ */
+function renderHeader(over: Partial<Parameters<typeof DetailHeader>[0]> = {}) {
+  return render(
+    <DetailHeader
+      displayName="Old Shop"
+      leadKey="SL-2K9QXM"
+      status="active"
+      closedAt={null}
+      chain={null}
+      mergedInto={null}
+      {...over}
+    />,
+  );
+}
+
+describe('chain flag', () => {
+  it.each([
+    ['a local count', false, 'Chain · 1,284 in the RGV'],
+    ['a statewide count', true, 'Chain · 1,284 in Texas'],
+  ] as const)(
+    'the chain flag reads one way on the review card and the detail header (%s)',
+    (_label, statewide, expected) => {
+      const chain = { members: 1284, statewide };
+      renderHeader({ chain });
+      const detail = screen.getByTestId('business-badge-chain').textContent;
+      cleanup();
+
+      render(<CandidatePair pair={{ ...PAIR, a: side({ chain }) }} />);
+      const review = screen.getByTestId('review-side-a-chain').textContent;
+
+      expect(detail).toBe(expected);
+      expect(review).toBe(expected);
+    },
+  );
+});
+
+describe('flag badge sizing', () => {
+  it('the chain and merged-away badges share the Closed badge sizing (14/600, not the Badge default 12/500)', () => {
+    renderHeader({
+      status: 'merged_away',
+      closedAt: CLOSED_AT,
+      chain: { members: 7, statewide: true },
+      mergedInto: null,
+    });
+    const closed = screen.getByTestId('business-badge-closed');
+    const chain = screen.getByTestId('business-badge-chain');
+    const merged = screen.getByTestId('business-badge-merged-away');
+    cleanup();
+
+    render(<CandidatePair pair={{ ...PAIR, a: side({ chain: { members: 7, statewide: true } }) }} />);
+    const reviewChain = screen.getByTestId('review-side-a-chain');
+    cleanup();
+
+    const { container } = render(
+      <BusinessStatusBadge row={{ ...ROW, status: 'merged_away', closedAt: null }} />,
+    );
+    const listMerged = within(container).getByText('Merged away');
+
+    const SIZING = ['h-auto', 'px-2', 'py-1', 'text-sm', 'font-semibold', 'tabular-nums'];
+    for (const el of [closed, chain, merged, reviewChain, listMerged]) {
+      for (const cls of SIZING) expect(el.classList.contains(cls), `${cls} on ${el.textContent}`).toBe(true);
+      expect(el.classList.contains('text-xs')).toBe(false);
+      expect(el.classList.contains('font-medium')).toBe(false);
+    }
+    expect(classesOf(reviewChain)).toEqual(classesOf(chain));
+    expect(classesOf(listMerged)).toEqual(classesOf(merged));
   });
 });

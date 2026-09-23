@@ -1,9 +1,8 @@
-import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { ClosedBadge } from '@/components/flags/closed-badge';
+import { ChainBadge } from '@/components/flags/flag-badge';
 import { cn } from '@/lib/utils';
 import {
-  FLAG_CHAIN,
   FLAG_CLOSED,
   REVIEW_MISSING_FIELD,
   REVIEW_SIDE_LABEL,
@@ -104,19 +103,8 @@ function Side({
                 )}
               />
             ) : null}
-            {side.chain ? (
-              <Badge
-                variant="outline"
-                data-testid={`${testId}-chain`}
-                className="h-auto px-2 py-1 text-sm font-semibold text-muted-foreground tabular-nums"
-              >
-                {side.chain.statewide
-                  ? FLAG_CHAIN(side.chain.members)
-                  : // No statewide count was measured, so the only honest number is the local
-                    // one and "in Texas" would overclaim; the chain word and count still show.
-                    FLAG_CHAIN(side.chain.members).replace(' in Texas', '')}
-              </Badge>
-            ) : null}
+            {/* "in Texas" only for a statewide count — the ONE formatter picks the words. */}
+            {side.chain ? <ChainBadge chain={side.chain} data-testid={`${testId}-chain`} /> : null}
           </div>
         ) : null}
       </CardContent>

@@ -1,6 +1,7 @@
 import type { ComponentProps } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
+import { FLAG_BADGE_SIZING } from './flag-badge';
 
 /**
  * The `Closed` badge (03-UI-SPEC § Color → New Phase 3 elements): the destructive SURFACE with
@@ -25,7 +26,8 @@ export function ClosedBadge({
     <Badge
       variant="secondary"
       className={cn(
-        'h-auto bg-destructive-surface px-2 py-1 text-sm font-semibold text-destructive-surface-foreground tabular-nums',
+        FLAG_BADGE_SIZING,
+        'bg-destructive-surface text-destructive-surface-foreground',
         className,
       )}
       {...props}

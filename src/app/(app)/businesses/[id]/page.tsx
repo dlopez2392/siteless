@@ -18,8 +18,7 @@ import {
 } from '@/components/ui/breadcrumb';
 import { orgClaims } from '@/lib/auth/require-org';
 import { isUuid } from '@/lib/ids';
-import { APP_LOCALE } from '@/lib/time';
-import { BUSINESSES_TITLE, FLAG_CHAIN, SOURCE_TAG } from '@/lib/ui/copy';
+import { BUSINESSES_TITLE, SOURCE_TAG } from '@/lib/ui/copy';
 import { getBusinessDetail, type MergeHistoryRow } from '@/server/queries/businesses';
 import { actorNames } from './actor-names';
 
@@ -102,19 +101,6 @@ export default async function BusinessDetailPage({
     businessName: detail.fields.displayName.value ?? '',
   };
 
-  // Counts through the PINNED locale, here in the route rather than in a component: no file
-  // under src/components/ calls a locale formatter directly (Executor Rule 26).
-  //
-  // 🔴 "in Texas" ONLY WHEN IT IS TRUE. `statewide` is set when the count came from the
-  // Comptroller's statewide name frequency; otherwise it is this org's own RGV count, and
-  // printing "in Texas" beside it would overstate a local figure as a statewide one.
-  const count = new Intl.NumberFormat(APP_LOCALE);
-  const chainLabel = detail.chain
-    ? detail.chain.statewide
-      ? FLAG_CHAIN(detail.chain.members, count.format(detail.chain.members))
-      : `Chain · ${count.format(detail.chain.members)} in the RGV`
-    : null;
-
   const displayName = detail.fields.displayName.value ?? detail.externalKey;
 
   return (
@@ -143,7 +129,7 @@ export default async function BusinessDetailPage({
         leadKey={detail.externalKey}
         status={detail.status}
         closedAt={detail.fields.closedOn.value}
-        chainLabel={chainLabel}
+        chain={detail.chain}
         mergedInto={detail.mergedInto}
       />
 

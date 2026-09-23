@@ -190,7 +190,7 @@ describe('business detail — header', () => {
         leadKey="SL-7F3K2"
         status="active"
         closedAt={null}
-        chainLabel={null}
+        chain={null}
         mergedInto={null}
       />,
     );
@@ -213,7 +213,7 @@ describe('business detail — header', () => {
         leadKey="SL-2K9QX"
         status="merged_away"
         closedAt={LATE_EVENING_CHICAGO}
-        chainLabel="Chain · 7 in Texas"
+        chain={{ members: 7, statewide: true }}
         mergedInto={{ id: '00000000-0000-4000-8000-0000000000aa', displayName: 'Llantera Chuy #2' }}
       />,
     );
