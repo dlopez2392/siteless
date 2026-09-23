@@ -194,18 +194,20 @@ describe('chain detection', () => {
         return r.rows[0]!.id;
       };
       const families = [
-        await raw('Taqueria Garcia'),
-        await raw('Panadería Garcia'),
-        await raw('CARNICERIA GARCIA'),
+        await raw('Taqueria Rio Grande'),
+        await raw('Panadería Rio Grande'),
+        await raw('CARNICERIA RIO GRANDE'),
       ];
       // Positive control on the premise: all three really share one normalized name.
-      expect(['Taqueria Garcia', 'Panadería Garcia', 'CARNICERIA GARCIA'].map(nameNorm)).toEqual([
-        'garcia',
-        'garcia',
-        'garcia',
+      // (A multi-word remainder: since B-WR-05's name half a lone surname keeps its trade word
+      // in nameNorm itself, so the shared-reduced-name premise needs two remaining words.)
+      expect(['Taqueria Rio Grande', 'Panadería Rio Grande', 'CARNICERIA RIO GRANDE'].map(nameNorm)).toEqual([
+        'rio grande',
+        'rio grande',
+        'rio grande',
       ]);
-      // The statewide map says "garcia" is everywhere — it is the reduced name, not theirs.
-      await seedStatewideRun(c, a, { garcia: 57 });
+      // The statewide map says "rio grande" is everywhere — it is the reduced name, not theirs.
+      await seedStatewideRun(c, a, { 'rio grande': 57 });
 
       const outlets = [
         await raw('Taqueria El Rey'),

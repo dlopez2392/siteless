@@ -93,8 +93,13 @@ export function chainKeyOf(nameNormValue: string, rawName: string | null): strin
     .replace(/[^a-z0-9]+/g, ' ')
     .split(' ')
     .filter((t) => CHAIN_TRADE_WORDS.has(t));
-  if (trades.length === 0) return nameNormValue;
-  return `${[...new Set(trades)].join(' ')} ${nameNormValue}`;
+  // Only the trade words the normalizer actually REMOVED. Since B-WR-05's name half (review 03)
+  // nameNorm keeps a trade word when stripping it would leave a lone surname ("taqueria garcia"),
+  // so a word already present in name_norm must not be put back a second time.
+  const kept = new Set(nameNormValue.split(' '));
+  const removed = [...new Set(trades)].filter((t) => !kept.has(t));
+  if (removed.length === 0) return nameNormValue;
+  return `${removed.join(' ')} ${nameNormValue}`;
 }
 
 /**

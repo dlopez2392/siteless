@@ -16,7 +16,9 @@ describe('the chain key keeps the trade words (B-WR-05)', () => {
   it('every chain trade word is one the normalizer strips', () => {
     expect(CHAIN_TRADE_WORDS.size).toBeGreaterThan(0);
     for (const w of CHAIN_TRADE_WORDS) {
-      expect(nameNorm(`${w} garcia`), w).toBe('garcia');
+      // A multi-word remainder: since B-WR-05's name half, nameNorm KEEPS a trade word that
+      // would leave a lone surname, so the strip is probed where it still happens.
+      expect(nameNorm(`${w} rio grande`), w).toBe('rio grande');
     }
   });
 
@@ -29,5 +31,8 @@ describe('the chain key keeps the trade words (B-WR-05)', () => {
     // A name with no trade word keeps its name_norm, and an unknown raw name does too.
     expect(key('Firestone Complete Auto Care')).toBe(nameNorm('Firestone Complete Auto Care'));
     expect(chainKeyOf('garcia', null)).toBe('garcia');
+    // A multi-word remainder is where the chain key does the work nameNorm no longer does.
+    expect(key('Taqueria Rio Grande')).toBe('taqueria rio grande');
+    expect(key('Panadería Rio Grande')).toBe('panaderia rio grande');
   });
 });
