@@ -1,5 +1,9 @@
+import { ChangesCard } from '@/components/runs/changes-card';
+import { OutcomesCard } from '@/components/runs/outcomes-card';
+import { RequestsCard } from '@/components/runs/requests-card';
 import { RunAlerts } from '@/components/runs/run-alerts';
 import { RunHeader } from '@/components/runs/run-header';
+import { TilesCard } from '@/components/runs/tiles-card';
 import { RUN_REPORT_FOOTNOTE, RUN_REPORT_SUBTITLE, RUN_REPORT_TITLE } from '@/lib/ui/copy';
 import type { RunReport } from '@/server/queries/run-report';
 
@@ -34,6 +38,7 @@ export function RunReportView({
   canRaiseCap: boolean;
 }) {
   const { run, tiles } = report;
+  const refused = run.status === 'refused';
 
   return (
     <div
@@ -57,6 +62,14 @@ export function RunReportView({
         canRaiseCap={canRaiseCap}
         renderedAtMs={renderedAtMs}
       />
+
+      {refused ? null : <RequestsCard key="requests" requests={report.requests} />}
+      {refused ? null : <TilesCard key="tiles" tiles={tiles} stoppedReason={run.stoppedReason} />}
+      {refused ? null : report.changes ? (
+        <ChangesCard key="changes" changes={report.changes} />
+      ) : (
+        <OutcomesCard key="outcomes" run={run} outcomes={report.outcomes} />
+      )}
 
       <p key="footnote" className="text-sm font-normal text-muted-foreground">
         {RUN_REPORT_FOOTNOTE}
