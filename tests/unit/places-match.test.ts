@@ -177,15 +177,15 @@ describe('places match collisions (D-08)', () => {
       phoneBlockable: false,
       streetNorm: p.address.streetNorm,
     });
-    const s1 = scoreLocated(p, b1, 0.9);
-    const s2 = scoreLocated(p, b2, 0.8);
-    const s3 = scoreLocated(p, b3, 0.85);
+    const tieA = scoreLocated(p, b1, 0.9);
+    const tieB = scoreLocated(p, b2, 0.8);
+    const weaker = scoreLocated(p, b3, 0.85);
     // b-1 100; b-2 name 30 + 30 + 30 + 15 + 5 = 110 → 100; b-0 84.
-    expect([s1.score, s2.score, s3.score]).toEqual([100, 100, 84]);
-    expect(s1.score).toBeGreaterThanOrEqual(AUTO_MERGE_SCORE);
-    expect(s2.score).toBeGreaterThanOrEqual(AUTO_MERGE_SCORE);
+    expect([tieA.score, tieB.score, weaker.score]).toEqual([100, 100, 84]);
+    expect(tieA.score).toBeGreaterThanOrEqual(AUTO_MERGE_SCORE);
+    expect(tieB.score).toBeGreaterThanOrEqual(AUTO_MERGE_SCORE);
 
-    const d = decide(p, [s3, s2, s1]);
+    const d = decide(p, [weaker, tieB, tieA]);
     expect(d.outcome).toBe('tentative');
     expect(d.matches).toEqual([
       {
@@ -194,7 +194,7 @@ describe('places match collisions (D-08)', () => {
         status: 'tentative',
         reason: 'tie',
         tieBusinessId: 'b-2',
-        features: s1.features,
+        features: tieA.features,
       },
       {
         businessId: 'b-2',
@@ -202,15 +202,15 @@ describe('places match collisions (D-08)', () => {
         status: 'tentative',
         reason: 'tie',
         tieBusinessId: 'b-1',
-        features: s2.features,
+        features: tieB.features,
       },
     ]);
     // Neither side of a tie is ever attached — not even the one that sorts first.
     expect(d.matches.some((m) => m.status === 'attached')).toBe(false);
 
     // A tie at unequal scores above 95 is still a tie: the higher score does not win it.
-    const higher: ScoredCandidate = { ...s1, score: 100 };
-    const lower: ScoredCandidate = { ...s2, score: AUTO_MERGE_SCORE };
+    const higher: ScoredCandidate = { ...tieA, score: 100 };
+    const lower: ScoredCandidate = { ...tieB, score: AUTO_MERGE_SCORE };
     const d2 = decide(p, [lower, higher]);
     expect(d2.outcome).toBe('tentative');
     expect(d2.matches.map((m) => [m.businessId, m.status, m.reason, m.tieBusinessId])).toEqual([
