@@ -1023,6 +1023,45 @@ These are preference calls decided here so the phase could proceed. Each is safe
 
 ---
 
+## Amendment 1 — copy gaps settled at planning (2026-09-23)
+
+Settles 04-RESEARCH Open Question 4. Same voice rules: name the number, say what happened to the money and the data, end with a way out.
+
+These are the strings the research round found the spec did not write. They live in `src/lib/ui/copy.ts` (plan 04-07) beside the rest of § Copy Table, under the constant named in the first column. `{placeholders}` are function parameters; counts go through `formatCount`, money through `formatUsd`, dates arrive pre-formatted through `formatLocal`.
+
+**Stopped-reason sentences** — `STOPPED_REASON: Record<StoppedReason, string>`, the short line under a recent-run row and on the `/spend` By-run sub-line (Executor Rule 35). The keys are `STOPPED_REASONS` in `src/lib/ui/run-tone.ts`; `tests/unit/ui-maps.test.ts` pins them to the reducer's `StopReason | FailReason` at compile time.
+
+| Key | Tone | Sentence |
+|-----|------|----------|
+| `budget_cap_reached` | warning | "Stopped at the monthly cap — nothing past it was charged." |
+| `exceeded_estimate` | warning | "Stopped at twice the estimate." |
+| `google_daily_quota` | warning | "Stopped at Google's daily limit — the rest can run after it resets." |
+| `places_request_rejected` | destructive | "Google rejected a request, so the run stopped." |
+| `places_unavailable` | destructive | "Google Places didn't answer, so the run stopped." |
+| `places_key_missing` | destructive | "No Google Places key is set for this deployment." |
+| `never_started` | destructive | "Never started — its budget hold was released." |
+| `abandoned` | destructive | "Stopped reporting progress and was marked abandoned." |
+
+**Run report alerts and run-start refusals:**
+
+| Constant | Tone | Copy | Way out |
+|----------|------|------|---------|
+| `RUN_STOP_DAILY_QUOTA(quota, n, m)` — `partial` · `google_daily_quota` (D-19) | warning | "Stopped at Google's daily limit of {quota} requests. Google refused the next request, so nothing past the limit was charged. The {n} tiles already searched are complete; the {m} not searched yet can run tomorrow — Google's daily quota resets at midnight Pacific time." | "Open spend view" |
+| `RUN_FAILED_ERROR.places_request_rejected` — the `{error}` clause of the inherited failed alert | destructive | "Google rejected a request as malformed (HTTP 400)" | "Open {preset name}" (inherited) |
+| `RUN_FAILED_ERROR.places_unavailable` | destructive | "Google Places didn't answer after retrying" | "Open {preset name}" (inherited) |
+| `RUN_FAILED_ERROR.places_key_missing` | destructive | "no Google Places API key is set for this deployment, so nothing was sent" | "Open {preset name}" (inherited) |
+| `RUN_NEVER_STARTED` — `failed` · `never_started` | destructive | "This run never started. The workflow didn't pick it up within 15 minutes, so Siteless released its budget hold — nothing was charged. Start it again from its preset." (15 = `RUN_NEVER_STARTED_AFTER_MINUTES`) | "Open {preset name}" |
+| `RUN_ABANDONED(cost)` — `failed` · `abandoned` | destructive | "This run stopped reporting progress for 30 minutes, so Siteless marked it abandoned. Every request that left was reserved and ledgered first, so {cost} above is exactly what it cost. Start the run again from its preset; the tiles it reached are listed below." (30 = `RUN_ABANDONED_AFTER_MINUTES`) | "Open {preset name}" |
+| `RUN_ALREADY_IN_PROGRESS` — run drawer, a second active run for the org | warning | "Another run is already in progress for this organization. Siteless runs one at a time so two sweeps can't race for the same budget. Nothing was reserved and nothing was charged." | `RUN_OPEN_RUNNING` "Open the running run" |
+| `RUN_NO_GEOMETRY(unit)` — run drawer, a geography unit with no tileable outline | destructive | "Siteless has no map outline for {unit}, so it can't tile it for Google Places. The 17 seeded RGV cities, the four RGV counties and radius searches can run. Nothing was reserved and nothing was charged." (several units: "{A, B and C} … tile them") | Edit the preset's geography (the drawer's inherited dismiss) |
+| `RUN_ESTIMATE_LINE(lo, hi, ceiling, n)` — header card estimate line (D-18) | muted | "Estimated {lo}–{hi} · this run stops at {ceiling} · {n} requests" | — (informational) |
+
+- **Why the estimate line gained "· {n} requests" (D-18).** The run ceiling is enforced on *requests*, not dollars. Inside the monthly free allowance a run's dollar ceiling is $0.00, and "this run stops at $0.00" on its own would read as "stops immediately". Both figures are shown. This replaces § Copy Table → Run report → Estimate line.
+- **Why `google_daily_quota` is warning, not destructive (D-19).** The Google Cloud daily quota is the second wall working as designed. The run ends `partial`, like the monthly cap, and nothing is wrong with the pipeline.
+- **Mode refusal wording.** § Copy Table's "Google Places was switched to {mode}" renders the mode as words, never as its env value. `off` reads "was switched off", `ids_only` reads "was switched to IDs-only mode", and `enterprise` reads "was switched to Enterprise mode" (`RUN_MODE_REFUSED(mode)`).
+
+---
+
 ## Checker Sign-Off
 
 - [x] Dimension 1 Copywriting: PASS
