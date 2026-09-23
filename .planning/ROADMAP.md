@@ -175,7 +175,7 @@ Plans:
 - [x] 03-20-PLAN.md — The desk run: real numbers committed, the confidence cutoff and the ten verdicts confirmed (checkpoint)
 
 **Wave 7** *(blocked on Wave 6, checkpoints)*
-- [ ] 03-21-PLAN.md — Production migration and seed, deploy, the two chrome-only e2e specs, the owed teardown
+- [x] 03-21-PLAN.md — Production migration and seed, deploy, the two chrome-only e2e specs, the owed teardown
 
 **Wave 8** *(blocked on Wave 7, checkpoint)*
 - [ ] 03-22-PLAN.md — Gate mutations M13–M25, both-theme screenshot review, close 03-VALIDATION
