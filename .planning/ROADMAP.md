@@ -226,10 +226,10 @@ Plans:
 - [x] 04-21-PLAN.md — Listing decision / detach actions, the review queue's Google kind, the business Google check read
 
 **Wave 5** *(blocked on Wave 4)*
-- [ ] 04-22-PLAN.md — placesSweep workflow and its steps, with the workflow-lane proofs
-- [ ] 04-23-PLAN.md — /runs/[id] run report
-- [ ] 04-24-PLAN.md — /review Google listing kind, filter and reject confirmation
-- [ ] 04-25-PLAN.md — Business detail Google Maps check and detach confirmation
+- [x] 04-22-PLAN.md — placesSweep workflow and its steps, with the workflow-lane proofs
+- [x] 04-23-PLAN.md — /runs/[id] run report
+- [x] 04-24-PLAN.md — /review Google listing kind, filter and reject confirmation
+- [x] 04-25-PLAN.md — Business detail Google Maps check and detach confirmation
 
 **Wave 6** *(blocked on Wave 5)*
 - [ ] 04-26-PLAN.md — queueRun starts the workflow (mode refusal, kinds, ceiling, one active run); notice retired; e2e can never start a run
