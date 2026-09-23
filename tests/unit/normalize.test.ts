@@ -42,6 +42,7 @@ describe('nameNorm', () => {
     ['Ølsen Straße', 'olsen strasse'],
     ['Æsop Œuvre', 'aesop oeuvre'],
     ['Łódź Đinh', 'lodz dinh'],
+    ['İstanbul Kebab', 'istanbul kebab'],
     // Bilingual stopwords and trade words.
     ['La Taqueria De Guanajuato', 'guanajuato'],
     ['The House of Pies', 'house pies'],
@@ -121,8 +122,15 @@ describe('nameNorm', () => {
   });
 
   it('nameNorm folds ligatures and strokes the way unaccent does', () => {
-    // NFD + strip-marks leaves every one of these unchanged; unaccent maps them.
-    expect(nameNorm('ø æ ß œ Ł đ ı')).toBe('o ae ss oe l d i');
+    // NFD + strip-marks leaves every one of these unchanged; unaccent maps them. Each letter
+    // sits inside a word: a lone "Ł" folds to "l", which is a LEGAL token ("L.L.C.") and is
+    // filtered, so it would prove nothing about the fold.
+    expect(nameNorm('Ørn Ærø Weiß Œil Łuk Đan Ikra Tıp Øðin Þor')).toBe(
+      'orn aero weiss oeil luk dan ikra tip odin thor',
+    );
+    // The capitals, which the first draft of the table missed ("Þor" → "or"). Expected
+    // values are what the SQL dictionary returned for the same string on PostgreSQL 18.6.
+    expect(nameNorm('ÐAN ÞOR ẞAL Ħal Ŧam Ŋor Ŀuis')).toBe('dan thor ssal hal tam nor luis');
   });
 });
 
