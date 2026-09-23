@@ -146,6 +146,15 @@ describe('candidate blocking', () => {
            from generate_series(1, $2::int) g`,
         [a, SPINE_ROWS, ZIPS],
       );
+      // 🔴 FLUSH THE GIN PENDING LIST FIRST. `businesses_name_trgm` is a GIN index with
+      // fastupdate on, so 30,000 fresh rows sit in its unsorted pending list, and the planner
+      // prices every pending page into the GIN path. Measured during mutation checking: with the
+      // list unflushed the GIN estimate swung from 163 to 1,692 per probe between runs, and on
+      // two runs out of ~ten the planner chose a Seq Scan (2,068 per probe) instead — a flaky
+      // red that had nothing to do with the statement. `gin_clean_pending_list` is what
+      // autovacuum does to a settled table, which is the state the desk pass meets after an
+      // ingest has committed; it only moves entries into the main index structure.
+      await c.query("select gin_clean_pending_list('businesses_name_trgm'::regclass)");
       await c.query('analyze businesses');
 
       // Explicit, in this transaction, from the committed constant (the `%` reads this GUC).

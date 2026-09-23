@@ -8,9 +8,9 @@
  * and finishes in 101,807 ms. tests/db/blocking.test.ts proves the plan on the live database;
  * this proves the TEXT, with no database, on every unit run.
  *
- * Hygiene: the forbidden pattern and the accent-folding call are built from constructed
- * strings, so this file is never its own violation of this gate or of
- * tests/unit/sql-never-normalizes.test.ts.
+ * Hygiene: the forbidden pattern is built from a constructed string, so this file is never its
+ * own violation. It deliberately does NOT re-check the accent-folding call: that gate is
+ * tests/unit/sql-never-normalizes.test.ts alone, so mutation M24 reds exactly one test.
  */
 import { describe, expect, it } from 'vitest';
 import {
@@ -27,7 +27,6 @@ const ORG = '00000000-0000-4000-8000-000000000001';
 
 /** `on` … the similarity operator, before the statement ends: the 269-second join shape. */
 const JOIN_ON_SIMILARITY = new RegExp('\\bon\\b[^;]*' + '%', 'i');
-const ACCENT_FOLD = new RegExp('unacc' + 'ent\\s*\\(', 'i');
 
 describe('candidate blocking SQL', () => {
   it('lateral blocker', () => {
@@ -59,7 +58,6 @@ describe('candidate blocking SQL', () => {
     // Every shape sets the threshold from the committed constant (T-3-04).
     for (const s of [phoneBlockSql(ORG), addressBlockSql(ORG), b3]) {
       expect(s.setup).toBe(`set local pg_trgm.similarity_threshold = ${BLOCK_SIMILARITY_THRESHOLD}`);
-      expect(s.text).not.toMatch(ACCENT_FOLD);
       expect(s.text).toContain('on conflict (org_id, left_id, right_id) do nothing');
     }
     expect(() => similarityThresholdSql(Number.NaN)).toThrow();
