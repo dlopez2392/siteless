@@ -70,3 +70,43 @@ export const RUN_STATUSES: readonly RunStatus[] = [
   'refused',
   'failed',
 ];
+
+/* --- Ingest runs (03-UI-SPEC § 2, `/sources`) -------------------------------------------
+ *
+ * EXTENDED, NEVER DUPLICATED. `ingest_runs.status` is a different CHECK constraint
+ * (`ir_status_known`: running · complete · stopped · failed) from `runs.status`, so it gets
+ * its own named union — but the tones are the SAME `BadgeTone` vocabulary, in the same file,
+ * so there is exactly one place that decides what a run status looks like.
+ *
+ * `stopped` is an ingest that ended before reading its whole source — the same fact Phase 2
+ * calls `partial`, so it takes the same warning tone. Its word is "Stopped early", never
+ * "Stopped": 03-UI-SPEC § Copy Table fixes the badge words, and a bare "Stopped" reads as
+ * something a person did.
+ *
+ * Same drift rule as above: a fifth status in the database with no tone here renders as an
+ * unstyled badge with no word in it, so `tests/unit/ui-maps.test.ts` compares this union
+ * against the CHECK constraint's value list. */
+
+export type IngestRunStatus = 'running' | 'complete' | 'stopped' | 'failed';
+
+export const INGEST_RUN_TONE: Record<IngestRunStatus, BadgeTone> = {
+  running: 'accent-outline',
+  complete: 'neutral-solid',
+  stopped: 'warning',
+  failed: 'destructive',
+};
+
+export const INGEST_RUN_LABEL: Record<IngestRunStatus, string> = {
+  running: 'Running',
+  complete: 'Complete',
+  stopped: 'Stopped early',
+  failed: 'Failed',
+};
+
+/** Every ingest status, in the order `ir_status_known` lists them. */
+export const INGEST_RUN_STATUSES: readonly IngestRunStatus[] = [
+  'running',
+  'complete',
+  'stopped',
+  'failed',
+];
