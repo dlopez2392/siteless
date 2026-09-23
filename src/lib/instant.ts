@@ -19,6 +19,11 @@
  */
 export function instantOf(epochMs: string | null): Date | null {
   if (epochMs === null) return null;
+  // 🔴 B-WR-06: `Number('')` and `Number('   ')` are 0 — finite — so an empty string would
+  // otherwise render as 1970-01-01, the silent epoch `requireInstant` exists to refuse.
+  if (epochMs.trim() === '') {
+    throw new Error('instantOf: empty string where epoch milliseconds were expected');
+  }
   const ms = Number(epochMs);
   if (!Number.isFinite(ms)) {
     throw new Error(`instantOf: expected epoch milliseconds, got ${JSON.stringify(epochMs)}`);
