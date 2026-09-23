@@ -45,8 +45,9 @@ describe('GoogleMapsTag', () => {
 function blockOf(css: string, selector: string): string {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const match = new RegExp(`(^|\\n)\\s*${escaped}\\s*\\{([^}]*)\\}`).exec(css);
-  if (!match) throw new Error(`no "${selector}" block in globals.css`);
-  return match[2];
+  const body = match?.[2];
+  if (body === undefined) throw new Error(`no "${selector}" block in globals.css`);
+  return body;
 }
 
 describe('google attribution token', () => {
