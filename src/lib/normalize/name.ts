@@ -64,11 +64,17 @@ const LIGATURES: Record<string, string> = {
   Ŀ: 'l',
 };
 
-/** Legal-form tokens. `l` and `c` catch "L.L.C." after punctuation became spaces. */
+/**
+ * Legal-form tokens, stripped ONLY as a trailing run (see `stripTrailingLegal`).
+ *
+ * 🔴 B-CR-01: this set used to carry the single letters `l` and `c` (so "L.L.C." folded away)
+ * and was applied at EVERY position. "C & L Plumbing" became "plumbing", "C&C Auto Repair"
+ * became "auto repair" and "Co-Op Feed" became "op feed": distinct businesses shared a key,
+ * which fed both a false auto-merge and a false chain badge. The single letters now live only
+ * inside the dotted sequences in `LEGAL_SEQUENCES`, and nothing here is stripped mid-name.
+ */
 const LEGAL = new Set([
   'llc',
-  'l',
-  'c',
   'inc',
   'co',
   'ltd',
@@ -83,13 +89,81 @@ const LEGAL = new Set([
   'corporation',
 ]);
 
+/**
+ * Dotted legal abbreviations as they tokenise once punctuation became spaces ("L.L.C." →
+ * `l l c`). Matched ONLY at the end of a segment, never as loose letters, so an initial
+ * ("C & L") is identity.
+ */
+const LEGAL_SEQUENCES: ReadonlyArray<readonly string[]> = [
+  ['p', 'l', 'l', 'c'],
+  ['l', 'l', 'c'],
+  ['l', 'l', 'p'],
+  ['l', 'p'],
+];
+
+/** "Sun Plumbing LLC DBA Sun Pros": `dba` separates two names, each with its own tail. */
+const DBA = 'dba';
+
+/** Drop a trailing run of legal forms: `… co inc`, `… l l c`, `… llc`. Never mid-name. */
+function stripTrailingLegal(tokens: readonly string[]): string[] {
+  const out = [...tokens];
+  for (;;) {
+    const last = out.at(-1);
+    if (last !== undefined && LEGAL.has(last)) {
+      out.pop();
+      continue;
+    }
+    const seq = LEGAL_SEQUENCES.find(
+      (s) => s.length <= out.length && s.every((t, i) => out[out.length - s.length + i] === t),
+    );
+    if (seq === undefined) return out;
+    out.splice(out.length - seq.length, seq.length);
+  }
+}
+
+/** Split on `dba`, strip each name's own trailing legal run, re-join. */
+function stripLegalForms(tokens: readonly string[]): string[] {
+  const segments: string[][] = [[]];
+  for (const t of tokens) {
+    if (t === DBA) segments.push([]);
+    else segments.at(-1)?.push(t);
+  }
+  return segments.flatMap(stripTrailingLegal);
+}
+
 /** Bilingual (es/en) stopwords. */
 const STOP = new Set(['el', 'la', 'los', 'las', 'de', 'del', 'y', 'and', 'the', 'of']);
 
-/** D-12's generic trade words — present in so many RGV names they carry no identity. */
+/**
+ * D-12's generic trade words — present in so many RGV names they carry no identity ON THEIR
+ * OWN, so they are dropped to lift similarity ("Taqueria Jalisco Express" ~ "Jalisco Express").
+ *
+ * 🔴 B-WR-05: but NOT when exactly one identity token would be left. Surname-plus-trade is the
+ * dominant RGV naming pattern, and "Taqueria Garcia", "Panaderia Garcia" and "Carniceria
+ * Garcia" all collapsed to `garcia`, one key that chain detection (name_norm equality, >= 3)
+ * counted as a chain and that the scorer read as a perfect name match. With one surname left,
+ * the trade word IS the identity. See `dropTradeWords`.
+ */
 const TRADE = new Set(['taqueria', 'carniceria', 'panaderia']);
 
 const ALL_DIGITS = /^[0-9]+$/;
+
+/**
+ * A token that identifies a business on its own: a word of two or more letters, or a number
+ * ("3 Torres"). A lone letter is not — a possessive leaves one (`garcia s`).
+ */
+const isIdentityToken = (t: string): boolean => t.length >= 2 || ALL_DIGITS.test(t);
+
+/**
+ * Drop the trade words unless that would leave exactly ONE identity token (B-WR-05). With none
+ * left the name was only trade words and stripping keeps the prior behaviour (no key); with
+ * two or more left the name still carries its own identity.
+ */
+function dropTradeWords(tokens: readonly string[]): string[] {
+  const rest = tokens.filter((t) => !TRADE.has(t));
+  if (rest.length === tokens.length) return rest;
+  return rest.filter(isIdentityToken).length === 1 ? [...tokens] : rest;
+}
 
 export interface NameNormDetail {
   norm: string | null;
@@ -137,14 +211,21 @@ export function nameNormDetail(raw: string | null | undefined): NameNormDetail {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, ' ');
 
-  const tokens = stripped
-    .split(' ')
-    .filter((t) => t.length > 0)
-    .filter((t) => !LEGAL.has(t) && !STOP.has(t) && !TRADE.has(t));
+  const tokens = stripLegalForms(
+    stripped
+      .split(' ')
+      .filter((t) => t.length > 0)
+      .filter((t) => !STOP.has(t)),
+  );
 
   const phoneRun = trailingPhoneRun(tokens);
-  const kept = phoneRun > 0 ? tokens.slice(0, tokens.length - phoneRun) : tokens;
-  const last = kept.at(-1);
+  // A legal form ahead of the phone run ("Smith LLC 956-263-1462") is trailing once the
+  // phone goes, so the tail is stripped again.
+  const withTrade =
+    phoneRun > 0 ? stripTrailingLegal(tokens.slice(0, tokens.length - phoneRun)) : tokens;
+  const kept = dropTradeWords(withTrade);
+  // Read from the trade-free tokens, so a kept trade word never hides a trailing number.
+  const last = withTrade.filter((t) => !TRADE.has(t)).at(-1);
   const hadStoreNumber = phoneRun > 0 || (last !== undefined && ALL_DIGITS.test(last));
 
   // 🔴 trim() is defect 1's fix, and it has a TWIN: the empty-token filter above. Mutation-

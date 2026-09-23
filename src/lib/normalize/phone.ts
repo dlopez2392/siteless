@@ -13,6 +13,7 @@
  * 23,005-pair block from a single row. Excluding the seven toll-free NPAs drops the worst
  * phone block to 32 and the phone-block pair count from 61,677 to 12,717. The number is still
  * returned — danlo may want to dial it — it just never makes two rows the same business.
+ * A number carrying an extension ("x5", "ext 12") is treated the same way (B-WR-03).
  *
  * Rejected outright (e164 null): unparseable or invalid, not a US number, not 10 national
  * digits, or the 555 exchange (D-12: fictional/directory numbers).
@@ -41,5 +42,7 @@ export function phoneE164(raw: string | null | undefined): PhoneKey {
   const npa = nsn.slice(0, 3);
   const nxx = nsn.slice(3, 6);
   if (nxx === '555') return { ...REJECTED };
-  return { e164: p.number, blockable: !TOLL_FREE_NPAS.has(npa) };
+  // 🔴 B-WR-03: an extension is direct evidence of a shared switchboard (two practices on
+  // one PBX), the same reasoning that excludes toll-free. Kept for dialling, never a key.
+  return { e164: p.number, blockable: !TOLL_FREE_NPAS.has(npa) && !p.ext };
 }

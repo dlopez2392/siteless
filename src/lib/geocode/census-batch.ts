@@ -33,7 +33,8 @@
  *
  * 🔴 THE FAILURE MODE IS HTTP 200, again. The service answers 200 for everything,
  * including a total failure, so success is "a 200 whose line count equals the row count
- * and whose every line parses and names a submitted ID" — not the status code.
+ * and whose parsed lines each name a distinct submitted ID" — not the status code. A line
+ * that does not parse fails only its own row (B-WR-08), found by elimination.
  *
  * NEVER REJECTS on anything the network does: every outcome, per row, is a named reason.
  * A chunk that fails three attempts is recorded as `ChunkFailed` for each of its rows and
@@ -153,6 +154,12 @@ function parseQuotedCsvLine(line: string): string[] | null {
   return fields;
 }
 
+/** One half of the `"lng,lat"` pair: a signed decimal, never empty. */
+const COORDINATE_TEXT = /^-?\d+(?:\.\d+)?$/;
+
+/** Texas with a margin (the state spans ~25.8–36.5 N, ~93.5–106.6 W). */
+const TEXAS_BOUNDS = { minLat: 25, maxLat: 37, minLng: -107, maxLng: -93 } as const;
+
 const badShape = (id: string): { id: string } & BatchOutcome => ({
   id,
   kind: 'ChunkFailed',
@@ -192,17 +199,26 @@ export function parseBatchLine(line: string): { id: string } & BatchOutcome {
   // `(lat, lng)`, and reading these in written order puts every RGV point in the Indian
   // Ocean. `census-batch.test.ts` pins it by SIGN (lng < -90, lat > 20), because a swap
   // still yields two finite numbers and would sail past any presence check.
-  const [lng, lat] = f[5].split(',').map(Number);
+  //
+  // 🔴 B-WR-07: EACH HALF MUST BE NUMERIC TEXT. `Number('')` is 0 — finite, inside ±90/±180 —
+  // so `"-97.6,"` used to parse as a Match at latitude 0: a real point on the equator, written
+  // to `businesses.lat/lng`, where the 25 km rule then marks the business distinct from
+  // everything.
+  const halves = f[5].split(',').map((s) => s.trim());
+  if (!halves.every((s) => COORDINATE_TEXT.test(s))) return badShape(id);
+  const [lng, lat] = halves.map(Number);
   if (
     lng === undefined ||
     lat === undefined ||
     !Number.isFinite(lng) ||
     !Number.isFinite(lat) ||
-    // A latitude outside ±90 is what a swapped RGV pair looks like (-97.67 as a latitude),
-    // so this range check turns a future axis swap upstream into `bad_shape`, not a point
-    // in the Indian Ocean.
-    Math.abs(lat) > 90 ||
-    Math.abs(lng) > 180
+    // Every row is sent with state TX (`buildBatchCsv`), so a Match outside Texas is a defect,
+    // not a location. The box is tighter than ±90/±180, so it also turns a future axis swap
+    // (-97.67 as a latitude) into `bad_shape` rather than a point in the Indian Ocean.
+    lat < TEXAS_BOUNDS.minLat ||
+    lat > TEXAS_BOUNDS.maxLat ||
+    lng < TEXAS_BOUNDS.minLng ||
+    lng > TEXAS_BOUNDS.maxLng
   ) {
     return badShape(id);
   }
@@ -230,10 +246,17 @@ export function locationMatchType(
 // ─── Building the request ────────────────────────────────────────────────────────────────
 
 /** Control characters would split a CSV line (CR/LF) or corrupt it; nothing legitimate in
- *  a street, city or ZIP needs one, so each becomes a space. */
+ *  a street, city or ZIP needs one, so each becomes a space.
+ *
+ *  A `"` is DROPPED rather than doubled (B-WR-08): it carries no geocoding meaning, and
+ *  nothing guarantees the service re-escapes the input it echoes back, so a doubled quote
+ *  can return as an unparseable line. IDs cannot carry one (`ID_SHAPE`). */
 function csvField(value: string): string {
-  const cleaned = value.replace(/[\u0000-\u001F\u007F-\u009F]/g, ' ').trim();
-  return `"${cleaned.replace(/"/g, '""')}"`;
+  const cleaned = value
+    .replace(/[\u0000-\u001F\u007F-\u009F]/g, ' ')
+    .replace(/"/g, '')
+    .trim();
+  return `"${cleaned}"`;
 }
 
 /**
@@ -281,14 +304,28 @@ async function postChunkOnce(
 
   const expected = new Set(chunk.map((r) => r.id));
   const outcomes = new Map<string, BatchOutcome>();
+  let unparsed = 0;
   for (const line of lines) {
     const { id, ...outcome } = parseBatchLine(line);
-    // A malformed line, an ID nobody submitted, or an ID answered twice: the rejoin cannot
-    // be trusted for this response, so none of it is used.
-    if (outcome.kind === 'ChunkFailed' || !expected.has(id) || outcomes.has(id)) {
-      return { ok: false, reason: 'bad_shape' };
+    // 🔴 B-WR-08: ONE BAD LINE FAILS ONLY ITS OWN ROW. An unescaped `"` in the echoed input or
+    // a new status value is deterministic: retrying the whole chunk three times fails the
+    // same way and used to cost all 1,000 rows. Such a line is set aside and its row found
+    // by elimination below.
+    if (outcome.kind === 'ChunkFailed') {
+      unparsed += 1;
+      continue;
     }
+    // An ID nobody submitted, or an ID answered twice: the rejoin itself cannot be trusted
+    // for this response, so none of it is used.
+    if (!expected.has(id) || outcomes.has(id)) return { ok: false, reason: 'bad_shape' };
     outcomes.set(id, outcome);
+  }
+  // Nothing parsed at all is not a salvage, it is a broken response: fail it and retry.
+  if (outcomes.size === 0 && unparsed > 0) return { ok: false, reason: 'bad_shape' };
+  // The count matched and every parsed ID is distinct and expected, so the IDs still missing
+  // are exactly the unparseable lines' rows.
+  for (const id of expected) {
+    if (!outcomes.has(id)) outcomes.set(id, { kind: 'ChunkFailed', reason: 'bad_shape' });
   }
   return { ok: true, outcomes };
 }

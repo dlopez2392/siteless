@@ -6,6 +6,8 @@
  *
  * Mutation: add a builder to PAYLOAD_BUILDERS whose build() spreads the whole fixture —
  * 'no registered payload builder emits an internal annotation' goes red, and only that one.
+ * Mutation (B-WR-10): make `toPublicBusiness` return its argument — 'B-WR-10: builders are
+ * handed a runtime projection, so even a spreading builder cannot leak' goes red.
  *
  * Two halves, and the second is the one BIS lacks. BIS pins its registry against a
  * hard-coded key list, which catches a reorder but not a new builder file nobody
@@ -14,9 +16,19 @@
  */
 import * as nodeFs from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { PAYLOAD_BUILDERS } from '@/lib/export/registry';
-import type { PublicBusiness } from '@/lib/export/public-business';
-import { makeBusiness, NAME_NORM_CANARY, STREET_NORM_CANARY } from './fixtures/business';
+import { buildPayload, PAYLOAD_BUILDERS, type PayloadBuilder } from '@/lib/export/registry';
+import {
+  PUBLIC_BUSINESS_KEYS,
+  toPublicBusiness,
+  type BusinessLike,
+  type PublicBusiness,
+} from '@/lib/export/public-business';
+import {
+  CHAIN_KEY_CANARY,
+  makeBusiness,
+  NAME_NORM_CANARY,
+  STREET_NORM_CANARY,
+} from './fixtures/business';
 
 const CANARY = 'INTERNAL-CANARY-7f3a2b';
 const EXPORT_DIR = 'src/lib/export';
@@ -25,15 +37,16 @@ const EXPORT_DIR = 'src/lib/export';
  * Phase 3 plan 05: the resolver's three match-key columns are INTERNAL (D-12, UI-SPEC
  * Rule 17). A compile-time assertion, because the excess-property check below only fires
  * when somebody WRITES one of these into the literal — it cannot notice PublicBusiness
- * itself being widened to include them. Remove any of the three from the Omit<> in
- * src/lib/export/public-business.ts and tsc fails on this line.
+ * itself being widened to include them. Remove any of the three (or, since B-WR-10,
+ * `chainKey`) from the Omit<> in src/lib/export/public-business.ts and tsc fails on this line.
  */
-type InternalKeysOmitted = Extract<
-  keyof PublicBusiness,
-  'internalNotes' | 'nameNorm' | 'streetNorm' | 'phoneBlockable'
-> extends never
-  ? true
-  : never;
+type InternalKeysOmitted =
+  Extract<
+    keyof PublicBusiness,
+    'internalNotes' | 'nameNorm' | 'streetNorm' | 'phoneBlockable' | 'chainKey'
+  > extends never
+    ? true
+    : never;
 const internalKeysOmitted: InternalKeysOmitted = true;
 
 /** Key spellings a builder would emit if it spread a row, in both casings. */
@@ -46,6 +59,18 @@ const INTERNAL_KEY_NAMES = [
   'street_norm',
   'phoneBlockable',
   'phone_blockable',
+  // B-WR-10: chain_key is literally name_norm (src/lib/resolve/chain.ts).
+  'chainKey',
+  'chain_key',
+];
+
+/** Every canary the wide fixture carries, one per internal column. */
+const CANARIES = [
+  CANARY,
+  'owner is hostile',
+  NAME_NORM_CANARY,
+  STREET_NORM_CANARY,
+  CHAIN_KEY_CANARY,
 ];
 
 describe('internal annotations never leave the building', () => {
@@ -64,6 +89,7 @@ describe('internal annotations never leave the building', () => {
     expect(fixture.nameNorm).toContain(NAME_NORM_CANARY);
     expect(fixture.streetNorm).toContain(STREET_NORM_CANARY);
     expect(fixture.phoneBlockable).toBe(true);
+    expect(fixture.chainKey).toContain(CHAIN_KEY_CANARY);
     expect(internalKeysOmitted).toBe(true);
 
     // What a builder is actually handed. Written out field by field rather than
@@ -80,10 +106,14 @@ describe('internal annotations never leave the building', () => {
       city: fixture.city,
       status: fixture.status,
     };
+    // B-WR-10: the runtime projection builds exactly this literal from the WIDE row.
+    expect(toPublicBusiness(fixture)).toEqual(publicBusiness);
 
+    // Registered builders are run the way production runs them: handed the wide row through
+    // `buildPayload`, never a pre-trimmed literal.
     const payloads = PAYLOAD_BUILDERS.map((builder) => ({
       name: builder.name,
-      json: JSON.stringify(builder.build(publicBusiness)),
+      json: JSON.stringify(buildPayload(builder, fixture)),
     }));
 
     for (const payload of payloads) {
@@ -96,6 +126,7 @@ describe('internal annotations never leave the building', () => {
       expect(payload.json, payload.name).not.toContain('owner is hostile');
       expect(payload.json, payload.name).not.toContain(NAME_NORM_CANARY);
       expect(payload.json, payload.name).not.toContain(STREET_NORM_CANARY);
+      expect(payload.json, payload.name).not.toContain(CHAIN_KEY_CANARY);
       for (const key of INTERNAL_KEY_NAMES) {
         expect(payload.json, `${payload.name} emits ${key}`).not.toContain(`"${key}"`);
       }
@@ -111,6 +142,32 @@ describe('internal annotations never leave the building', () => {
       // deliberate state in the test output rather than an accident nobody noticed.
       expect(PAYLOAD_BUILDERS).toHaveLength(0);
     }
+  });
+
+  it('B-WR-10: builders are handed a runtime projection, so even a spreading builder cannot leak', () => {
+    // `Omit<>` removes nothing at runtime: a full row held in a variable is assignable to
+    // PublicBusiness, and a builder that spreads or stringifies its argument would emit every
+    // internal column. `buildPayload` projects field by field before any builder sees it.
+    const wide = {
+      ...makeBusiness(),
+      // A column BusinessLike does not even declare, as a full Drizzle row would carry.
+      undeclaredColumn: `${CHAIN_KEY_CANARY} undeclared`,
+    } as BusinessLike;
+    expect(wide.chainKey).toContain(CHAIN_KEY_CANARY);
+
+    const careless: PayloadBuilder = { name: 'careless', build: (b) => ({ ...b }) };
+    const json = JSON.stringify(buildPayload(careless, wide));
+    for (const canary of CANARIES) expect(json, canary).not.toContain(canary);
+    for (const key of INTERNAL_KEY_NAMES) expect(json, key).not.toContain(`"${key}"`);
+    expect(json).not.toContain('undeclaredColumn');
+    // Absence alone passes when everything is broken: the public name DID go out.
+    expect(json).toContain('Rio Roofing');
+
+    // The projection is exactly the public whitelist, at runtime, not only in the type.
+    expect(Object.keys(toPublicBusiness(wide)).sort()).toEqual([...PUBLIC_BUSINESS_KEYS].sort());
+    expect([...PUBLIC_BUSINESS_KEYS].sort()).toEqual(
+      ['city', 'displayName', 'id', 'legalName', 'orgId', 'phoneE164', 'status'].sort(),
+    );
   });
 
   it('every module under src/lib/export is represented in the registry', () => {

@@ -43,15 +43,16 @@ describe('nameNorm', () => {
     ['Sun Plumbing, LLC DBA Sun Pros', 'sun plumbing sun pros'],
     // Accents (Spanish — unaccent and NFD agree here).
     ['Ñandú Café', 'nandu cafe'],
-    ['Panadería Méndez', 'mendez'],
-    ['Carnicería El Güero', 'guero'],
+    // B-WR-05: one surname left, so the trade word stays (it is the identity).
+    ['Panadería Méndez', 'panaderia mendez'],
+    ['Carnicería El Güero', 'carniceria guero'],
     // Ligatures and strokes (unaccent and NFD DISAGREE here; the table follows unaccent).
     ['Ølsen Straße', 'olsen strasse'],
     ['Æsop Œuvre', 'aesop oeuvre'],
     ['Łódź Đinh', 'lodz dinh'],
     ['İstanbul Kebab', 'istanbul kebab'],
     // Bilingual stopwords and trade words.
-    ['La Taqueria De Guanajuato', 'guanajuato'],
+    ['La Taqueria De Guanajuato', 'taqueria guanajuato'],
     ['The House of Pies', 'house pies'],
     ['Los Arcos y Las Palmas', 'arcos palmas'],
     // Digits.
@@ -75,9 +76,10 @@ describe('nameNorm', () => {
 
   it('nameNorm defect 1: no leading or trailing space', () => {
     // The SQL prototype produced " taqueria guanajuato" here — a leading space shifts every
-    // leading trigram and silently lowers similarity.
+    // leading trigram and silently lowers similarity. (Since B-WR-05 the trade word stays
+    // here, one identity token being left; the leading "La" still goes, which is the edge.)
     const out = nameNorm('La Taqueria De Guanajuato');
-    expect(out).toBe('guanajuato');
+    expect(out).toBe('taqueria guanajuato');
     expect(out).not.toMatch(/^\s|\s$/);
     expect(nameNorm('  The  Donut   Hole  ')).toBe('donut hole');
   });
@@ -128,10 +130,61 @@ describe('nameNorm', () => {
     });
   });
 
+  it('nameNorm B-CR-01: initials are identity, not legal suffixes', () => {
+    // `l`, `c` and `co` used to be stripped at EVERY position, so an initial-led trade name
+    // collapsed onto the bare trade: "C & L Plumbing" and "Plumbing" shared a key, which fed
+    // both a false auto-merge and a false chain badge.
+    expect(nameNorm('C & L Plumbing')).toBe('c l plumbing');
+    expect(nameNorm('C & L Plumbing')).not.toBe(nameNorm('Plumbing'));
+    expect(nameNorm('C&C Auto Repair')).toBe('c c auto repair');
+    expect(nameNorm('C&C Auto Repair')).not.toBe(nameNorm('Auto Repair'));
+    expect(nameNorm('L & C Tire Shop')).toBe('l c tire shop');
+    expect(nameNorm('The L Bar')).toBe('l bar');
+    // Two different initial pairs are two different businesses.
+    expect(nameNorm('L & C Auto Repair')).not.toBe(nameNorm('C & C Auto Repair'));
+  });
+
+  it('nameNorm B-CR-01: co is kept when it is not a trailing legal form', () => {
+    expect(nameNorm('Co-Op Feed')).toBe('co op feed');
+    expect(nameNorm('Acme Corp of Texas')).toBe('acme corp texas');
+  });
+
+  it('nameNorm B-CR-01: a trailing legal run still strips', () => {
+    expect(nameNorm('Smith Co')).toBe('smith');
+    expect(nameNorm('Smith Co Inc')).toBe('smith');
+    expect(nameNorm('Smith Co., Inc.')).toBe('smith');
+    expect(nameNorm('Smith L.L.C.')).toBe('smith');
+    expect(nameNorm('Smith L L C')).toBe('smith');
+    expect(nameNorm('Smith, LLC')).toBe('smith');
+    expect(nameNorm('Smith Partners L.P.')).toBe('smith partners');
+    expect(nameNorm('Smith Law P.L.L.C.')).toBe('smith law');
+    // A legal form ahead of a trailing phone run is still trailing once the phone goes.
+    expect(nameNorm('Smith LLC 956-263-1462')).toBe('smith');
+    // DBA separates two names; each keeps its own trailing-only strip.
+    expect(nameNorm('Smith Co LLC DBA C & L Plumbing')).toBe('smith c l plumbing');
+  });
+
+  it('nameNorm B-WR-05: a trade word stays when it is all that tells two family businesses apart', () => {
+    // Surname-plus-trade is the dominant RGV naming pattern. Stripping the trade word from
+    // all three left one key, `garcia`, which chain detection counts as a 3-member chain.
+    const keys = ['Taqueria Garcia', 'Panaderia Garcia', 'Carniceria Garcia', 'Garcia'].map((n) =>
+      nameNorm(n),
+    );
+    expect(keys).toEqual(['taqueria garcia', 'panaderia garcia', 'carniceria garcia', 'garcia']);
+    expect(new Set(keys).size).toBe(4);
+    // A possessive leaves a lone `s`, which is not identity either.
+    expect(nameNorm("Garcia's Taqueria")).toBe('garcia s taqueria');
+    expect(nameNorm("Garcia's Taqueria")).not.toBe(nameNorm("Garcia's Panaderia"));
+    // With two or more identity tokens left, the trade word still goes (D-12 similarity).
+    expect(nameNorm('Taqueria Las 3 Torres')).toBe('3 torres');
+    expect(nameNorm('Taqueria Jalisco Express')).toBe('jalisco express');
+    expect(nameNorm('Taqueria Jalisco Express')).toBe(nameNorm('Jalisco Express'));
+  });
+
   it('nameNorm folds ligatures and strokes the way unaccent does', () => {
     // NFD + strip-marks leaves every one of these unchanged; unaccent maps them. Each letter
-    // sits inside a word: a lone "Ł" folds to "l", which is a LEGAL token ("L.L.C.") and is
-    // filtered, so it would prove nothing about the fold.
+    // sits inside a word, so the assertion is about the fold alone and never about how a
+    // lone letter tokenises.
     expect(nameNorm('Ørn Ærø Weiß Œil Łuk Đan Ikra Tıp Øðin Þor')).toBe(
       'orn aero weiss oeil luk dan ikra tip odin thor',
     );
@@ -150,6 +203,16 @@ describe('phoneE164', () => {
   it('phoneE164 toll-free parses but is not blockable', () => {
     expect(phoneE164('8004879643')).toEqual({ e164: '+18004879643', blockable: false });
     expect(phoneE164('+18004879643')).toEqual({ e164: '+18004879643', blockable: false });
+  });
+
+  it('phoneE164 B-WR-03: a number with an extension is dialable but not blockable', () => {
+    // An extension means a shared switchboard (a PBX in a medical building), the same
+    // reasoning that excludes toll-free: stored for dialling, never an identity.
+    expect(phoneE164('956-423-1234 x5')).toEqual({ e164: '+19564231234', blockable: false });
+    expect(phoneE164('(956) 423-1234 ext 12')).toEqual({ e164: '+19564231234', blockable: false });
+    expect(phoneE164('(956) 423-1234 ext. 12')).toEqual({ e164: '+19564231234', blockable: false });
+    // Positive control: the same number without an extension is still an identifier.
+    expect(phoneE164('956-423-1234')).toEqual({ e164: '+19564231234', blockable: true });
   });
 
   it('phoneE164 rejects the 555 exchange', () => {
@@ -234,6 +297,33 @@ describe('addressKey', () => {
     });
     expect(addressKey('300 FLORIDA AVE', '78501').unit).toBeNull();
     expect(addressKey('300 FLORIDA AVE', '78501').streetNorm).toBe('florida ave');
+  });
+
+  it('addressKey B-WR-02: a road that starts with a unit word is a street, not a unit', () => {
+    // RM is Texas's Ranch-to-Market prefix; LOT/UNIT/APT/SPC can begin a real street name.
+    // Each of these used to lose its street key (null, or a lone directional like 'w').
+    const CASES: Array<[string, string, string]> = [
+      ['12345 RM 620 N', '12345', 'rm 620 n'],
+      ['100 LOT 5 RD', '100', 'lot 5 rd'],
+      ['1201 W UNIT RD', '1201', 'w unit rd'],
+      ['500 N APT BLVD', '500', 'n apt blvd'],
+      ['6 SPC ST', '6', 'spc st'],
+    ];
+    for (const [raw, num, street] of CASES) {
+      expect(addressKey(raw, '78501'), raw).toEqual({
+        streetNum: num,
+        streetNorm: street,
+        unit: null,
+        postal: '78501',
+      });
+    }
+    // A real suite after such a road is still the unit.
+    expect(addressKey('12345 RM 620 N STE 5', '78501')).toEqual({
+      streetNum: '12345',
+      streetNorm: 'rm 620 n',
+      unit: 'STE 5',
+      postal: '78501',
+    });
   });
 
   it('addressKey folds directions and is case-insensitive', () => {

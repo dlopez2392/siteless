@@ -1,6 +1,15 @@
-import type { PublicBusiness } from './public-business';
+import { toPublicBusiness, type BusinessLike, type PublicBusiness } from './public-business';
 
 export type PayloadBuilder = { name: string; build: (b: PublicBusiness) => unknown };
+
+/**
+ * The ONE way to run a payload builder (B-WR-10): it is handed the runtime projection of the
+ * row, never the row itself, so even a builder that spreads or stringifies its argument
+ * cannot emit an internal column. Callers pass the wide row they hold.
+ */
+export function buildPayload(builder: PayloadBuilder, business: BusinessLike): unknown {
+  return builder.build(toPublicBusiness(business));
+}
 
 /**
  * Every outbound payload builder — CSV export row, BIS contact push, any future webhook —

@@ -26,6 +26,8 @@ export const CANARY = 'INTERNAL-CANARY-7f3a2b';
  */
 export const NAME_NORM_CANARY = 'NAMENORM-CANARY-4c91e0';
 export const STREET_NORM_CANARY = 'STREETNORM-CANARY-a82d57';
+/** B-WR-10: `chain_key` IS the `name_norm` (src/lib/resolve/chain.ts), so just as internal. */
+export const CHAIN_KEY_CANARY = 'CHAINKEY-CANARY-5e19b3';
 
 export function makeBusiness(overrides: Partial<BusinessLike> = {}): BusinessLike {
   return {
@@ -40,6 +42,7 @@ export function makeBusiness(overrides: Partial<BusinessLike> = {}): BusinessLik
     nameNorm: `${NAME_NORM_CANARY} rio roofing`,
     streetNorm: `${STREET_NORM_CANARY} n 10th st`,
     phoneBlockable: true,
+    chainKey: `${CHAIN_KEY_CANARY} rio roofing`,
     ...overrides,
   };
 }
