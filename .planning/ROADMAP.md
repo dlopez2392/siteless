@@ -238,7 +238,7 @@ Plans:
 - [x] 04-27-PLAN.md — Preset detail: three ways to run, the Places-mode notice, recent runs
 
 **Wave 8** *(blocked on Wave 7)*
-- [ ] 04-28-PLAN.md — Attribution registry, local run-report e2e with computed tag styles, budget-banner guard, full phase gate
+- [x] 04-28-PLAN.md — Attribution registry, local run-report e2e with computed tag styles, budget-banner guard, full phase gate
 
 **Wave 9** *(checkpoint)*
 - [ ] 04-29-PLAN.md — D-01 legal gate recorded against the schema-generated persistence list
