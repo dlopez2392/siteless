@@ -2,6 +2,8 @@ import { Database, OctagonX } from 'lucide-react';
 import Link from 'next/link';
 import { unstable_rethrow } from 'next/navigation';
 import { Suspense } from 'react';
+import { AttributionBlock } from '@/components/sources/attribution-block';
+import { ConfidenceDistribution } from '@/components/sources/confidence-distribution';
 import { SourceLedger } from '@/components/sources/source-ledger';
 import { SourcesSkeleton } from '@/components/sources/sources-skeleton';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -60,6 +62,10 @@ export default function SourcesPage() {
       <p data-testid="sources-gone-explainer" className="max-w-[70ch] text-sm font-normal text-muted-foreground">
         {SOURCES_GONE_EXPLAINER}
       </p>
+
+      {/* Static licence notice — outside the suspended region, so it paints with the
+          heading and survives a load failure. */}
+      <AttributionBlock />
     </div>
   );
 }
@@ -78,11 +84,31 @@ async function SourcesRegion() {
   }
 
   const nothingRan = rows.every((row) => row.lastRunAt === null);
+  // The one `stats` key the ledger reads, on the Overture row only (03-15 handoff).
+  const overtureBands = rows.find((row) => row.sourceKey === 'overture')?.confidenceBands ?? null;
+  // No bands (Overture never ran, or its run recorded none) → no expansion row at all, rather
+  // than an empty full-width row under the Overture line.
+  const hasBands = overtureBands !== null && Object.keys(overtureBands).length > 0;
 
   return (
     <>
       {nothingRan ? <SourcesEmpty /> : null}
-      <SourceLedger rows={rows} />
+      <SourceLedger
+        rows={rows}
+        overtureDetail={
+          hasBands ? (
+            <ConfidenceDistribution bands={overtureBands} testId="sources-confidence-toggle" />
+          ) : undefined
+        }
+        overtureDetailMobile={
+          hasBands ? (
+            <ConfidenceDistribution
+              bands={overtureBands}
+              testId="sources-confidence-toggle-mobile"
+            />
+          ) : undefined
+        }
+      />
     </>
   );
 }
