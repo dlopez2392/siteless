@@ -49,6 +49,55 @@ describe('payload contract: overture', () => {
     expect(view!.phoneE164).toBe(rec.derived.phoneE164);
   });
 
+  /**
+   * B-WR-04 (review 03). `phones.map(phoneE164).find(e164 !== null)` picked the corporate
+   * 800 number a franchisee lists first, so the local number that is the B1 blocking key and
+   * the R3 identifier was never considered, and the row dropped out of phone blocking. Both
+   * sides pick the first BLOCKABLE number, falling back to the first dialable one — and pick
+   * it identically, because a winner whose phone the merge re-derives differently from the
+   * ingest reads as a change on every pass.
+   */
+  it('a toll-free first phone never hides a blockable local number, on either side', () => {
+    const raw = ROWS.find(
+      (r) => !isSkipped(overtureRowToSourceRecord(r, RELEASE)),
+    ) as Record<string, unknown>;
+    const tollFreeFirst = { ...raw, phones: { items: ['+18004879643', '(956) 423-1234'] } };
+    const rec = overtureRowToSourceRecord(tollFreeFirst, RELEASE);
+    if (isSkipped(rec)) throw new Error('toll-free-first row was skipped');
+    expect({ e164: rec.derived.phoneE164, blockable: rec.derived.phoneBlockable }).toEqual({
+      e164: '+19564231234',
+      blockable: true,
+    });
+    const view = sourceRecordView({
+      id: rec.externalId,
+      source_key: 'overture',
+      payload: JSON.parse(JSON.stringify(rec.payload)) as unknown,
+    });
+    expect({ e164: view!.phoneE164, blockable: view!.phoneBlockable }).toEqual({
+      e164: '+19564231234',
+      blockable: true,
+    });
+
+    // The fallback: with NO blockable number the first dialable one is still kept for
+    // display and dialling, and it still never blocks.
+    const onlyTollFree = { ...raw, phones: { items: ['n/a', '+18004879643'] } };
+    const rec2 = overtureRowToSourceRecord(onlyTollFree, RELEASE);
+    if (isSkipped(rec2)) throw new Error('toll-free-only row was skipped');
+    expect({ e164: rec2.derived.phoneE164, blockable: rec2.derived.phoneBlockable }).toEqual({
+      e164: '+18004879643',
+      blockable: false,
+    });
+    const view2 = sourceRecordView({
+      id: rec2.externalId,
+      source_key: 'overture',
+      payload: JSON.parse(JSON.stringify(rec2.payload)) as unknown,
+    });
+    expect({ e164: view2!.phoneE164, blockable: view2!.phoneBlockable }).toEqual({
+      e164: '+18004879643',
+      blockable: false,
+    });
+  });
+
   it('survivorship view of the stored overture payload reproduces the ingest-derived fields', () => {
     for (const rec of records) {
       if (isSkipped(rec)) continue;

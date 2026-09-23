@@ -1,5 +1,6 @@
 import type { EtlExecutor } from '@/lib/ingest/etl-actor';
-import { addressKey, phoneE164, type PhoneKey } from '@/lib/normalize';
+import { addressKey, type PhoneKey } from '@/lib/normalize';
+import { pickPhone } from '@/lib/overture/transform';
 import { closureRowToSourceRecord, type ClosureRow } from '@/lib/socrata/closures';
 import {
   survive,
@@ -76,10 +77,11 @@ function emptyView(id: string, sourceKey: SurvivorSourceKey): SourceRecordView {
 }
 
 /**
- * The first phone that NORMALISES, exactly as the Overture ingest picks it (03-13
- * transform.ts): the stored list is raw, and a junk first entry must not hide a dialable
- * second one. 03-13 stores a plain array; the DuckDB `.items` shape is tolerated. Pinned by
- * tests/unit/payload-contract.test.ts.
+ * The phone, picked by THE SAME function the Overture ingest uses (`pickPhone`,
+ * src/lib/overture/transform.ts): the first blockable number, else the first dialable one.
+ * Calling the ingest's own picker rather than restating it is what keeps the two from
+ * drifting (B-WR-04 changed the rule; both sides moved together). 03-13 stores a plain
+ * array; the DuckDB `.items` shape is tolerated. Pinned by tests/unit/payload-contract.test.ts.
  */
 function firstPhone(p: Json): PhoneKey {
   const phones = p.phones as unknown;
@@ -89,13 +91,7 @@ function firstPhone(p: Json): PhoneKey {
       : Array.isArray(phones)
         ? phones
         : [p.phone];
-  for (const raw of list) {
-    const s = str(raw);
-    if (s === null) continue;
-    const key = phoneE164(s);
-    if (key.e164 !== null) return key;
-  }
-  return { e164: null, blockable: false };
+  return pickPhone(list.map((raw) => str(raw)));
 }
 
 function censusMatchType(p: Json): LocationMatchType | null {
