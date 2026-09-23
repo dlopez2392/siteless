@@ -14,6 +14,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
  * and 7:14:05 PM in UTC — the literal below only matches if the zone pin is real.
  */
 const refresh = vi.fn();
+// 🔴 A FRESH ROUTER OBJECT PER RENDER, DELIBERATELY — harsher than Next, whose router is
+// stable. With the island's callback keyed on the router's identity, every re-render re-armed
+// the cadence and the "Refresh now doesn't reset the cadence" mutation survived this file.
+// The island now reads the router through a ref; this mock keeps that honest.
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh }) }));
 
 import { REFRESH_MS, REFRESH_TIMEOUT_MS, RunAutoRefresh } from '@/components/runs/run-auto-refresh';

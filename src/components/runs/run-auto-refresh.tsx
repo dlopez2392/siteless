@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { formatLocal } from '@/lib/time';
@@ -160,12 +160,20 @@ export function RunAutoRefresh({
     if (parts.length > 0) setAnnouncement(parts.join('. '));
   }
 
+  // 🔴 THE ROUTER IS READ THROUGH A REF, SO `refreshNow` NEVER CHANGES IDENTITY. It is a
+  // dependency of the cadence effect; if it changed on a re-render, EVERY re-render (a watchdog
+  // firing, a button press) would silently re-arm the 5 s timer. Next's router object is stable
+  // today, but the cadence must not rest on that — and a test mock that returned a fresh router
+  // per render hid a "Refresh now doesn't reset the cadence" mutation until this was a ref.
+  const routerRef = useRef(router);
+  routerRef.current = router;
+
   const refreshNow = useCallback(() => {
     const at = Date.now();
     setCycle((c) => c + 1);
     setPendingSince((prev) => prev ?? at);
     try {
-      router.refresh();
+      routerRef.current.refresh();
     } catch {
       // A refresh that throws is a failed refresh: the previous numbers stay, the line says so,
       // and the next tick tries again.
@@ -173,7 +181,7 @@ export function RunAutoRefresh({
       setPendingSince(null);
       setManualPending(false);
     }
-  }, [router]);
+  }, []);
 
   // The cadence: one timeout, re-armed after every refresh, only while live and visible.
   useEffect(() => {
