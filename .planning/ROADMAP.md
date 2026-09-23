@@ -149,8 +149,8 @@ Plans:
 - [x] 03-04-PLAN.md — Six-destination nav (Leads / Operations, four phone tabs + More sheet), the full copy table, touch-targets fix
 
 **Wave 2** *(blocked on Wave 1)*
-- [ ] 03-05-PLAN.md — Spine schema: five new tables, three new provenance FKs, grants, triggers, the widened audit lists
-- [ ] 03-06-PLAN.md — Normalization (TypeScript is authoritative — `unaccent` is STABLE) and the two grep gates
+- [x] 03-05-PLAN.md — Spine schema: five new tables, three new provenance FKs, grants, triggers, the widened audit lists
+- [x] 03-06-PLAN.md — Normalization (TypeScript is authoritative — `unaccent` is STABLE) and the two grep gates
 - [ ] 03-07-PLAN.md — Census batch geocoder: ragged lines, ID rejoin, longitude first, bounded retry
 
 **Wave 3** *(blocked on Wave 2)*
