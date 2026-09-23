@@ -318,6 +318,63 @@ describe('the Census batch geocoder — transport bounds (T-3-05, T-3-12)', () =
     expect(censusBatchRequests).toHaveLength(0);
   });
 
+  it('census batch B-WR-08: one unparseable line fails only its own row, and is not retried', async () => {
+    const rows = rowsOf('shuffled');
+    const recorded = linesOf('shuffled');
+    // The clean replay first: the oracle every surviving row is compared against.
+    const clean = await geocodeBatch(rows, { sleep: noSleep });
+    resetCensus();
+
+    // Two deterministic defects in an otherwise good 200: a line cut mid-quote (what an
+    // unescaped `"` in the echoed address produces) and a status the parser does not know.
+    const cutAt = 3;
+    const oddAt = 7;
+    const cutId = fieldsOf(recorded[cutAt] ?? '')[0] ?? '';
+    const oddId = fieldsOf(recorded[oddAt] ?? '')[0] ?? '';
+    const corrupted = recorded.map((line, i) => {
+      if (i === cutAt) return line.slice(0, -1);
+      if (i === oddAt) return line.replace(/^("[^"]*","[^"]*",)"[^"]*"/, '$1"Maybe"');
+      return line;
+    });
+    expect(corrupted[oddAt]).toContain('"Maybe"');
+    let requests = 0;
+    const answer = (body: string[]) =>
+      http.post(CENSUS_BATCH_ENDPOINT, () => {
+        requests += 1;
+        return HttpResponse.text(body.map((l) => `${l}\n`).join(''));
+      });
+    server.use(answer(corrupted));
+
+    const out = await geocodeBatch(rows, { sleep: noSleep });
+    // Retrying a deterministic parse failure cannot help: one request, not three.
+    expect(requests).toBe(1);
+    expect(out.size).toBe(rows.length);
+    expect(out.get(cutId)).toEqual({ kind: 'ChunkFailed', reason: 'bad_shape' });
+    expect(out.get(oddId)).toEqual({ kind: 'ChunkFailed', reason: 'bad_shape' });
+    for (const row of rows) {
+      if (row.id === cutId || row.id === oddId) continue;
+      expect(out.get(row.id), row.id).toEqual(clean.get(row.id));
+    }
+
+    // An ID answered twice still discredits the whole rejoin: every row fails.
+    server.resetHandlers();
+    requests = 0;
+    const duplicated = recorded.map((line, i) => (i === cutAt ? (recorded[0] ?? '') : line));
+    server.use(answer(duplicated));
+    const dup = await geocodeBatch(rows, { sleep: noSleep });
+    for (const row of rows) {
+      expect(dup.get(row.id), row.id).toEqual({ kind: 'ChunkFailed', reason: 'bad_shape' });
+    }
+
+    // And a `"` in an address, which carries no geocoding meaning, never reaches the service.
+    server.resetHandlers();
+    resetCensus();
+    await geocodeBatch([{ id: 'q', street: '12 "A" ST', city: 'MC"ALLEN', zip: '78501' }], {
+      sleep: noSleep,
+    });
+    expect(censusBatchRequests[0]?.csv).toBe('"q","12 A ST","MCALLEN","TX","78501"\n');
+  });
+
   it('census batch B-WR-07: a half-missing coordinate is bad_shape, never a point on the equator', () => {
     // The recorded Harlingen Match with position 6 rewritten. `Number('')` is 0, which is
     // finite and inside ±90/±180, so an empty half used to become lat 0 or lng 0.

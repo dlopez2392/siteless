@@ -33,7 +33,8 @@
  *
  * 🔴 THE FAILURE MODE IS HTTP 200, again. The service answers 200 for everything,
  * including a total failure, so success is "a 200 whose line count equals the row count
- * and whose every line parses and names a submitted ID" — not the status code.
+ * and whose parsed lines each name a distinct submitted ID" — not the status code. A line
+ * that does not parse fails only its own row (B-WR-08), found by elimination.
  *
  * NEVER REJECTS on anything the network does: every outcome, per row, is a named reason.
  * A chunk that fails three attempts is recorded as `ChunkFailed` for each of its rows and
@@ -245,10 +246,17 @@ export function locationMatchType(
 // ─── Building the request ────────────────────────────────────────────────────────────────
 
 /** Control characters would split a CSV line (CR/LF) or corrupt it; nothing legitimate in
- *  a street, city or ZIP needs one, so each becomes a space. */
+ *  a street, city or ZIP needs one, so each becomes a space.
+ *
+ *  A `"` is DROPPED rather than doubled (B-WR-08): it carries no geocoding meaning, and
+ *  nothing guarantees the service re-escapes the input it echoes back, so a doubled quote
+ *  can return as an unparseable line. IDs cannot carry one (`ID_SHAPE`). */
 function csvField(value: string): string {
-  const cleaned = value.replace(/[\u0000-\u001F\u007F-\u009F]/g, ' ').trim();
-  return `"${cleaned.replace(/"/g, '""')}"`;
+  const cleaned = value
+    .replace(/[\u0000-\u001F\u007F-\u009F]/g, ' ')
+    .replace(/"/g, '')
+    .trim();
+  return `"${cleaned}"`;
 }
 
 /**
@@ -296,14 +304,28 @@ async function postChunkOnce(
 
   const expected = new Set(chunk.map((r) => r.id));
   const outcomes = new Map<string, BatchOutcome>();
+  let unparsed = 0;
   for (const line of lines) {
     const { id, ...outcome } = parseBatchLine(line);
-    // A malformed line, an ID nobody submitted, or an ID answered twice: the rejoin cannot
-    // be trusted for this response, so none of it is used.
-    if (outcome.kind === 'ChunkFailed' || !expected.has(id) || outcomes.has(id)) {
-      return { ok: false, reason: 'bad_shape' };
+    // 🔴 B-WR-08: ONE BAD LINE FAILS ONLY ITS OWN ROW. An unescaped `"` in the echoed input or
+    // a new status value is deterministic: retrying the whole chunk three times fails the
+    // same way and used to cost all 1,000 rows. Such a line is set aside and its row found
+    // by elimination below.
+    if (outcome.kind === 'ChunkFailed') {
+      unparsed += 1;
+      continue;
     }
+    // An ID nobody submitted, or an ID answered twice: the rejoin itself cannot be trusted
+    // for this response, so none of it is used.
+    if (!expected.has(id) || outcomes.has(id)) return { ok: false, reason: 'bad_shape' };
     outcomes.set(id, outcome);
+  }
+  // Nothing parsed at all is not a salvage, it is a broken response: fail it and retry.
+  if (outcomes.size === 0 && unparsed > 0) return { ok: false, reason: 'bad_shape' };
+  // The count matched and every parsed ID is distinct and expected, so the IDs still missing
+  // are exactly the unparseable lines' rows.
+  for (const id of expected) {
+    if (!outcomes.has(id)) outcomes.set(id, { kind: 'ChunkFailed', reason: 'bad_shape' });
   }
   return { ok: true, outcomes };
 }
