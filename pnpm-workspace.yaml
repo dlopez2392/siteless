@@ -16,7 +16,19 @@
 # so there is no worker to refresh. Writing `false` rather than leaving pnpm's
 # "set this to true or false" placeholder is what keeps `install --frozen-lockfile`
 # from exiting 1 on ERR_PNPM_IGNORED_BUILDS in CI.
+#
+# @swc/core is ALLOWED (04-01, D-14). Its postinstall validates and falls back the native
+# binding that `@workflow/swc-plugin` (an exact peer) needs to compile "use workflow" /
+# "use step". Without it the platform binding can be missing at build time, and the
+# workflow compiler is exactly the thing `next build` cannot do without.
+#
+# cbor-extract is DENIED on purpose (04-01). It is pulled by `@workflow/world-vercel` →
+# `cbor-x`; its install script only builds an optional native accelerator, and cbor-x
+# falls back to pure JS when the accelerator is absent. Nothing here needs the speed, and
+# a denied native build is one less compiler invoked on every install.
 allowBuilds:
+  '@swc/core': true
+  cbor-extract: false
   esbuild: true
   msw: false
 # jsdom@30.1.1 is newer than the configured minimum release age; pinned and excluded

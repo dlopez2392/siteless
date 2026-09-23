@@ -4,3 +4,6 @@ drizzle
 pnpm-lock.yaml
 playwright-report
 test-results
+src/app/.well-known/workflow/
+.workflow-data/
+.workflow-vitest/
