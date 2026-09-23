@@ -238,9 +238,7 @@ describe('the estimator, priced over the real seeded cell list', () => {
     // And it names the cells expandCells actually produces.
     const [cell] = expandCells(SINGLE_CLUSTER_CITY_SPEC, SEED);
     if (!cell) throw new Error('SINGLE_CLUSTER_CITY_SPEC expanded to no cells');
-    expect(cellKey(cell.clusterKey, cell.unitId)).toBe(
-      'home_services\u0000' + cell.unitId,
-    );
+    expect(cellKey(cell.clusterKey, cell.unitId)).toBe('home_services\u0000' + cell.unitId);
   });
 
   it('texas multiplier is computed, not a constant', () => {

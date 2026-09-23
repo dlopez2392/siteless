@@ -19,7 +19,13 @@ import {
   PAGES_LO,
   RADIUS_REFERENCE_MILES,
 } from './assumptions';
-import { expandCells, type PresetSpec, type SeedTables } from './expand-cells';
+import {
+  expandCells,
+  placesTypesFor,
+  type Cell,
+  type PresetSpec,
+  type SeedTables,
+} from './expand-cells';
 
 export type EstimateContext = {
   seed: SeedTables;
@@ -42,6 +48,9 @@ export type EstimateAssumptions = {
 
 export type EstimateRange = {
   cells: number;
+  /** D-18: Σ over the cells of the Places types each cell's cluster searches. The request
+   *  range is built from this, not from `cells` — one cell is 6-7 separate type searches. */
+  typeSearches: number;
   requestsLo: number;
   requestsHi: number;
   costMicroUsdLo: number;
@@ -70,18 +79,39 @@ function pctOfRemaining(costMicroUsd: number, remainingMicroUsd: bigint): number
   return costMicroUsd > 0 ? 100 : 0;
 }
 
-export function estimatePreset(spec: PresetSpec, ctx: EstimateContext): EstimateRange {
-  const cells = expandCells(spec, ctx.seed);
+export type EstimateOptions = {
+  /** Price only the cells this accepts — a partition, or the cells a run still owes. The
+   *  cells are filtered FIRST, so every figure in the range (cells, type searches, requests,
+   *  cost, expected results) describes the subset and never the whole preset. */
+  onlyCells?: (c: Cell) => boolean;
+};
+
+export function estimatePreset(
+  spec: PresetSpec,
+  ctx: EstimateContext,
+  opts: EstimateOptions = {},
+): EstimateRange {
+  const expanded = expandCells(spec, ctx.seed);
+  const cells = opts.onlyCells ? expanded.filter(opts.onlyCells) : expanded;
   const cellCount = cells.length;
 
-  // `ceil`, not `round`: a fractional request is a request. Rounding 68 × 3 × 3.0 down
-  // anywhere in this path under-quotes the cost, which is the one direction that matters.
-  const requestsLo = Math.ceil(cellCount * PAGES_LO * FAN_OUT);
-  const requestsHi = Math.ceil(cellCount * PAGES_HI * FAN_OUT);
+  // D-18: a cell is not one search. Each cell's cluster searches every one of its Places
+  // types separately, so requests scale with the type count summed over the cells. The RGV
+  // baseline is 68 cells but 442 type searches.
+  const typeSearches = cells.reduce(
+    (sum, c) => sum + placesTypesFor(c.clusterKey, ctx.seed).length,
+    0,
+  );
 
-  // 🔴 THE FREE ALLOWANCE IS APPLIED. The RGV baseline is 612 requests at the top of its
-  // range; while the month's first 1,000 Text Search Enterprise requests are still free
-  // that preset costs $0.00, not $21.42. Quoting the gross figure is wrong in the
+  // `ceil`, not `round`: a fractional request is a request. Rounding 442 × 3 × 3.0 down
+  // anywhere in this path under-quotes the cost, which is the one direction that matters.
+  const requestsLo = Math.ceil(typeSearches * PAGES_LO);
+  const requestsHi = Math.ceil(typeSearches * PAGES_HI * FAN_OUT);
+
+  // 🔴 THE FREE ALLOWANCE IS APPLIED. While the month's first 1,000 Text Search Enterprise
+  // requests are still free they come off the top of the range: the RGV baseline's 3,978
+  // requests cost $104.23 early in the month, not the gross $139.23, and a one-city ×
+  // one-cluster slice (54 requests) costs $0.00. Quoting the gross figure is wrong in the
   // direction that makes danlo distrust the number, and the number is the product.
   const free = freeRemaining(ESTIMATE_SKU, ctx.unitsUsedThisPeriod);
   const costMicroUsdLo = priceRequests(ESTIMATE_SKU, requestsLo, free).microUsd;
@@ -94,6 +124,7 @@ export function estimatePreset(spec: PresetSpec, ctx: EstimateContext): Estimate
 
   return {
     cells: cellCount,
+    typeSearches,
     requestsLo,
     requestsHi,
     costMicroUsdLo,

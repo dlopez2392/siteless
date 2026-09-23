@@ -81,6 +81,7 @@ const B_MICRO = 2_900_000;
 function range(costMicroUsdHi: number): EstimateRange {
   return {
     cells: 68,
+    typeSearches: 204,
     requestsLo: 204,
     requestsHi: 612,
     costMicroUsdLo: Math.round(costMicroUsdHi / 2),
