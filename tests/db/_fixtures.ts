@@ -79,9 +79,17 @@ export async function actAs(c: Client, claims: Claims): Promise<void> {
  */
 export async function actAsRole(
   c: Client,
-  role: 'app_user' | 'anon' | 'authenticated',
+  // 'siteless_cron' (Phase 4 plan 09, drizzle/0027): the NOLOGIN role that may run the
+  // cross-org coordinate purge and nothing else (04-11). Allow-listed so its tests can
+  // prove exactly that.
+  role: 'app_user' | 'anon' | 'authenticated' | 'siteless_cron',
 ): Promise<void> {
-  if (role !== 'app_user' && role !== 'anon' && role !== 'authenticated') {
+  if (
+    role !== 'app_user' &&
+    role !== 'anon' &&
+    role !== 'authenticated' &&
+    role !== 'siteless_cron'
+  ) {
     throw new Error('actAsRole: refusing role ' + role);
   }
   await c.query('set local role ' + role);
