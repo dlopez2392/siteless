@@ -264,6 +264,18 @@ Where the Google Maps Platform Terms live in the schema (FOUND-05).
 - `sr_expiry` is a partial index on `expires_at where expires_at is not null` — Phase 4's purge
   job deletes on it.
 
+**Places observations (Phase 4, drizzle/0026 + 0027; D-09, D-10, D-12, D-13).** Places
+observations are **append-only**: `place_observations` holds one immutable row per (run, business,
+place) — `had_website_uri`, `host_class` (computed from `websiteUri` at call time; the URL is
+discarded), `sku`, `pure_sab`, `observed_at` — and `authenticated` holds SELECT only, plus a
+BEFORE UPDATE OR DELETE trigger that raises `55000` even for the owner. **Coordinates live in
+`place_coordinates`, which `authenticated` cannot read** (no grant at all — any read is `42501
+permission denied for table place_coordinates`), with `expires_at ≤ observed_at + 30 days`
+enforced by the CHECK `pc_expiry_within_30_days`. A daily purge **deletes expired coordinate rows
+and never an observation**. **No `source_records` row is ever written for `google_places`** — the
+observation rows are the Places record — and `businesses` gains no Places-derived column and no
+`google_places` provenance pair, so the durable-cites-durable composite FK above is untouched.
+
 ## Time
 
 - **Every timestamp is `timestamptz`.** Use `tstz(name)` from `src/db/schema/_helpers.ts`

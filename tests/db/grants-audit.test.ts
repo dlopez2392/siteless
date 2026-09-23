@@ -71,6 +71,18 @@ const TENANT_TABLES = [
   'business_merges', // Phase 3 plan 05. grant select; revoke insert, update, delete.
   'business_aliases', // Phase 3 plan 05. grant select; revoke insert, update, delete.
   'overture_category_map', // Phase 3 plan 05. grant select, insert, update, delete.
+  // Phase 4 plan 09. Places as a transient verifier. Grants in drizzle/0027: seven are
+  // SELECT-only with INSERT/UPDATE/DELETE revoked (every writer is a SECURITY DEFINER that
+  // reads its own org and actor); place_coordinates holds nothing at all. The
+  // business_place_signal VIEW is not listed: every enumeration here reads relkind = 'r'.
+  'place_attachments', // 0027 step 4: grant select; revoke insert, update, delete.
+  'place_observations', // 0027 step 4: grant select; revoke insert, update, delete. Append-only.
+  'place_coordinates', // 0027 step 5: no grant at all — D-12. revoke all from authenticated, anon.
+  'place_tiles', // 0027 step 4: grant select; revoke insert, update, delete.
+  'place_tile_members', // 0027 step 4: grant select; revoke insert, update, delete.
+  'run_searches', // 0027 step 4: grant select; revoke insert, update, delete.
+  'run_place_outcomes', // 0027 step 4: grant select; revoke insert, update, delete.
+  'place_purge_runs', // 0027 step 4: grant select; revoke insert, update, delete.
 ];
 
 const valuesOf = (xs: string[]) => xs.map((x) => `('${x}')`).join(',');
@@ -115,7 +127,7 @@ describe('grants audit', () => {
       expect(live.map((r) => r.tbl)).toEqual([...TENANT_TABLES].sort());
 
       const { rows } = await c.query<PrivRow>(privilegeMatrix('authenticated', NON_DML));
-      // 21 tables x 4 privileges. If this number moves, the enumeration stopped enumerating.
+      // 29 tables x 4 privileges. If this number moves, the enumeration stopped enumerating.
       expect(rows).toHaveLength(TENANT_TABLES.length * NON_DML.length);
       expect(rows.filter((r) => r.held)).toEqual([]);
     }));
@@ -399,6 +411,62 @@ describe('grants audit', () => {
         // The positive control.
         overture_category_map: { s: true, i: true, u: true, d: true, col_i: true, col_u: true },
       });
+    }));
+
+  /**
+   * Phase 4 plan 09. The DML half for the eight Places tables, at table AND column level —
+   * the M12b lesson above: has_table_privilege cannot see a column grant. Seven are
+   * SELECT-only; place_coordinates holds NOTHING, not even SELECT (D-12 — the named refusal
+   * is in tests/db/places-schema.test.ts). The signal view is read-only for authenticated.
+   *
+   * Mutation M37's catalog twin: `grant select on public.place_coordinates to authenticated;`
+   * — this test goes red naming place_coordinates.
+   */
+  it('the eight places tables hold exactly their 0027 grants', () =>
+    withRollback(async (c) => {
+      const PLACES_SELECT_ONLY = [
+        'place_attachments',
+        'place_observations',
+        'place_tiles',
+        'place_tile_members',
+        'run_searches',
+        'run_place_outcomes',
+        'place_purge_runs',
+      ];
+      const { rows } = await c.query<{
+        tbl: string;
+        s: boolean;
+        i: boolean;
+        u: boolean;
+        d: boolean;
+        col_i: boolean;
+        col_u: boolean;
+      }>(`
+        select t.tbl,
+               has_table_privilege('authenticated', 'public.' || t.tbl, 'SELECT')      as s,
+               has_table_privilege('authenticated', 'public.' || t.tbl, 'INSERT')      as i,
+               has_table_privilege('authenticated', 'public.' || t.tbl, 'UPDATE')      as u,
+               has_table_privilege('authenticated', 'public.' || t.tbl, 'DELETE')      as d,
+               has_any_column_privilege('authenticated', 'public.' || t.tbl, 'INSERT') as col_i,
+               has_any_column_privilege('authenticated', 'public.' || t.tbl, 'UPDATE') as col_u
+          from (values ${valuesOf([...PLACES_SELECT_ONLY, 'place_coordinates', 'business_place_signal'])}) as t(tbl)
+         order by 1`);
+      expect(rows).toHaveLength(PLACES_SELECT_ONLY.length + 2);
+      const actual = Object.fromEntries(
+        rows.map((r) => [r.tbl, { s: r.s, i: r.i, u: r.u, d: r.d, col_i: r.col_i, col_u: r.col_u }]),
+      );
+      const selectOnly = { s: true, i: false, u: false, d: false, col_i: false, col_u: false };
+      expect(actual).toEqual({
+        ...Object.fromEntries(PLACES_SELECT_ONLY.map((t) => [t, selectOnly])),
+        place_coordinates: { s: false, i: false, u: false, d: false, col_i: false, col_u: false },
+        business_place_signal: selectOnly,
+      });
+      // has_any_column_privilege(..., 'SELECT') too: a column-level SELECT on lat/lng would
+      // leave the table-level answer false and re-open the coordinates.
+      const { rows: pc } = await c.query<{ any_select: boolean }>(
+        `select has_any_column_privilege('authenticated','public.place_coordinates','SELECT') as any_select`,
+      );
+      expect(pc[0]?.any_select).toBe(false);
     }));
 
   /**

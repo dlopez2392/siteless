@@ -83,6 +83,18 @@ const EVENT_LOGGED = new Set([
   //   * overture_category_map — reference rows; the seed loader has no org claim and
   //     events.org_id is NOT NULL, same as the six Phase 2 reference tables.
   'business_merges',
+  // Phase 4 plan 09. UPDATE arm ONLY, narrowed to `old.status is distinct from new.status`
+  // (drizzle/0027 `place_attachments_event_upd`): confirm / reject / detach / re-score are the
+  // state-bearing events. The matcher's per-run INSERTs are audited at run level by 04-22's
+  // finishRun via app.emit_event — the budget_periods precedent.
+  //
+  // SEVEN Phase 4 tables are DELIBERATELY EXCLUDED, each with a `comment on table` in 0027:
+  //   * place_observations — append-only per-run volume; audited at run level.
+  //   * place_coordinates — inserted then purged; the purge writes place_purge_runs.
+  //   * place_tiles, place_tile_members, run_searches, run_place_outcomes — rewritten by
+  //     every sweep; the run IS the event (write amplification).
+  //   * place_purge_runs — the row IS the purge's audit record.
+  'place_attachments',
 ]);
 
 /**
@@ -99,8 +111,10 @@ const EVENT_LOGGED = new Set([
  * UNNARROWED update trigger on budget_periods — which is the exact defect the split
  * exists to avoid, and it would restore the write amplification while leaving the name
  * set identical. 6 tables, 7 triggers (Phase 3 plan 05 adds business_merges_event — one).
+ * Phase 4 plan 09 adds place_attachments_event_upd — one row, the UPDATE arm only, with no
+ * insert/delete twin: 7 tables, 8 triggers.
  */
-const LOG_EVENT_TRIGGER_ROWS = 7;
+const LOG_EVENT_TRIGGER_ROWS = 8;
 
 type LatestEvent = {
   actor_id: string;

@@ -183,6 +183,20 @@
       "when": 1790163060762,
       "tag": "0025_review_fixes_spine",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1790190807133,
+      "tag": "0026_places_tables",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1790190984563,
+      "tag": "0027_places_grants_triggers",
+      "breakpoints": true
     }
   ]
 }
