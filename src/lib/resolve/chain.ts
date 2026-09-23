@@ -33,14 +33,21 @@ import type { SqlStatement } from './block';
  * so a re-run over an unchanged spine writes ZERO events — the same argument as the ingest's
  * payload-hash gate (src/lib/ingest/upsert.ts).
  *
- * ⚠ SCOPE. D-11 says "across Texas", but this phase's spine is four counties: a national chain
- * with two RGV outlets and 400 elsewhere would not reach three here. 03-12's statewide Socrata
- * request (`fetchStatewideNameFrequency()`, keyed by `nameNorm(outlet_name)`) closes that; pass
- * its map as `statewide` and any name with a statewide count >= 3 is a chain even with one local
- * member. It is bound as ONE jsonb parameter, never interpolated and never an identifier (T-3-03).
- * The badge copy may say "in Texas" only once that data is being passed.
+ * ── "Across Texas": the statewide frequency ─────────────────────────────────────────────────
+ * This phase's spine is four counties, so a national chain with two RGV outlets and 400
+ * elsewhere would never reach three locally. 03-12's one statewide Socrata request
+ * (`src/lib/socrata/statewide-names.ts`, keyed by `nameNorm(outlet_name)`, 11,647 names
+ * measured) closes that. There is NO statewide-frequency table — a table is a migration 03-12
+ * does not own — so the map lives on the Comptroller run row as
+ * `ingest_runs.stats -> 'statewide_name_frequency'` (`{ name_norm: n }`, ~400 KB), written after
+ * `finishRun` by `scripts/ingest-comptroller.ts`. This statement reads THAT KEY ONLY, never the
+ * whole `stats`, from the org's latest COMPLETE `tx_comptroller` run that carries it (a run whose
+ * statewide request failed records an error instead and is skipped, so the last good measurement
+ * still counts). Any name with a statewide count >= 3 is a chain even with one local member.
+ * `statewide` in the result says whether that data existed — the badge may say "in Texas" only
+ * when it did; otherwise the count is RGV-only and the copy must say so.
  *
- * $1 org id · $2 the statewide frequency as a jsonb object `{ name_norm: count }` (`{}` if none).
+ * $1 org id. Every value bound; the frequency never leaves the database (T-3-03).
  */
 
 /** D-11's bar. The SQL spells the literal `>= 3` so a grep finds the rule and its number together. */
@@ -55,21 +62,13 @@ export interface ChainDetectionResult {
   flagged: number;
   /** Rows whose stale flag this run removed. */
   cleared: number;
+  /** Whether a statewide frequency was found on a complete Comptroller run. */
+  statewide: boolean;
 }
 
-export function chainDetectionSql(
-  orgId: string,
-  statewide?: ReadonlyMap<string, number>,
-): SqlStatement {
+export function chainDetectionSql(orgId: string): SqlStatement {
   if (typeof orgId !== 'string' || orgId.trim() === '') {
     throw new Error('chainDetectionSql: an org id is required — chain detection is org-scoped');
-  }
-  const frequency: Record<string, number> = {};
-  for (const [name, n] of statewide ?? []) {
-    // Only chain-sized counts cross the boundary; the SQL re-checks the same bar.
-    if (typeof name === 'string' && name !== '' && Number.isInteger(n) && n >= CHAIN_MIN_MEMBERS) {
-      frequency[name] = n;
-    }
   }
   return {
     text: `with local_counts as (
@@ -79,9 +78,20 @@ export function chainDetectionSql(
    group by name_norm
   having count(*) >= 3
 ),
+statewide_run as (
+  select r.stats -> 'statewide_name_frequency' as f
+    from ingest_runs r
+   where r.org_id = $1::uuid
+     and r.source_key = 'tx_comptroller'
+     and r.status = 'complete'
+     and jsonb_typeof(r.stats -> 'statewide_name_frequency') = 'object'
+   order by r.started_at desc nulls last, r.id desc
+   limit 1
+),
 statewide as (
   select s.key as name_norm
-    from jsonb_each_text($2::jsonb) s
+    from statewide_run sr
+   cross join jsonb_each_text(sr.f) s
    where s.value::int >= 3
 ),
 chains as (
@@ -115,22 +125,22 @@ live as (
 select (select count(distinct name_norm) from live)::int as names,
        (select count(*) from live)::int as rows,
        (select count(*) from flagged)::int as flagged,
-       (select count(*) from cleared)::int as cleared`,
-    values: [orgId, JSON.stringify(frequency)],
+       (select count(*) from cleared)::int as cleared,
+       exists (select 1 from statewide_run) as statewide`,
+    values: [orgId],
   };
 }
 
 /** Runs chain detection in the caller's transaction and returns the counts for `stats`. */
-export async function detectChains(
-  tx: EtlExecutor,
-  orgId: string,
-  statewide?: ReadonlyMap<string, number>,
-): Promise<ChainDetectionResult> {
-  const stmt = chainDetectionSql(orgId, statewide);
-  const { rows } = await tx.query<Record<keyof ChainDetectionResult, number | string>>(
-    stmt.text,
-    stmt.values,
-  );
+export async function detectChains(tx: EtlExecutor, orgId: string): Promise<ChainDetectionResult> {
+  const stmt = chainDetectionSql(orgId);
+  const { rows } = await tx.query<{
+    names: number | string;
+    rows: number | string;
+    flagged: number | string;
+    cleared: number | string;
+    statewide: boolean;
+  }>(stmt.text, stmt.values);
   const r = rows[0];
   if (!r) throw new Error('detectChains: the statement returned no report row');
   return {
@@ -138,5 +148,6 @@ export async function detectChains(
     rows: Number(r.rows),
     flagged: Number(r.flagged),
     cleared: Number(r.cleared),
+    statewide: r.statewide === true,
   };
 }

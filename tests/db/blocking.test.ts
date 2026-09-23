@@ -223,6 +223,19 @@ describe('candidate blocking', () => {
       expect(written).toEqual([
         expect.objectContaining({ left_id: l, right_id: rr, block_key: 'addr:78537:301', block_size: 1 }),
       ]);
+
+      // B1 carries the same cap: 33 places on one blockable number (the real worst is 32 → 496
+      // pairs, which fits) is refused whole, named, and writes nothing.
+      for (let i = 0; i < MALL; i++) {
+        await biz(c, a, { name: `answering service client ${i + 1}`, phone: '+19566300000', blockable: true });
+      }
+      const p = await runBlock(x, phoneBlockSql(a));
+      expect(p).toEqual({
+        shape: 'phone',
+        inserted: 0,
+        skippedBlocks: [{ block_key: 'phone:+19566300000', size: mallPairs }],
+      });
+      expect((await candidates(c, a)).filter((w) => w.block_key.startsWith('phone:'))).toHaveLength(0);
     });
   });
 

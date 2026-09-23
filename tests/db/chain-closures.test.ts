@@ -1,6 +1,12 @@
 /**
- * D-11 chain detection (src/lib/resolve/chain.ts) and the D-03 closure feed
- * (src/lib/ingest/closure-apply.ts) against the live local database.
+ * D-11 chain detection (src/lib/resolve/chain.ts) and the D-03 closure feed against the live
+ * local database.
+ *
+ * 🔴 THE CLOSURE WRITE UNDER TEST IS 03-12's SHIPPED ONE — `applyClosures` /
+ * `CLOSURE_UPDATE_SQL` in scripts/ingest-comptroller.ts — imported, never re-typed. A test that
+ * copies the statement cannot catch the script drifting from it. (The research SQL set
+ * `closed_at` from a `source_records.closed_at` column that does not exist; the shipped
+ * statement reads `payload->>'out_of_business_date'` in America/Chicago.)
  *
  * 🔴 DESK-SCRIPT CONNECTION SHAPE: the owner connection with `setEtlActor` + `resolveEtlOrg`,
  * NO `actAs` — both statements run inside desk scripts (the resolve pass, the Comptroller
@@ -14,7 +20,7 @@
  */
 import type { Client } from 'pg';
 import { describe, expect, it } from 'vitest';
-import { applyClosures } from '@/lib/ingest/closure-apply';
+import { applyClosures } from '../../scripts/ingest-comptroller';
 import { resolveEtlOrg, setEtlActor } from '@/lib/ingest/etl-actor';
 import { upsertBusinessFromSource, upsertSourceRecord } from '@/lib/ingest/upsert';
 import { detectChains } from '@/lib/resolve/chain';
@@ -26,7 +32,29 @@ import {
   overtureIngestInput,
   OVERTURE_FIXTURE,
   seedComptrollerFixture,
+  seedIngestRun,
 } from './_ingest-fixtures';
+
+/**
+ * A `tx_comptroller` run carrying `stats.statewide_name_frequency`, exactly where 03-12's
+ * `runPermitsPass` writes it (`stats || jsonb_build_object('statewide_name_frequency', …)`).
+ */
+async function seedStatewideRun(
+  c: Client,
+  orgId: string,
+  frequency: Record<string, number>,
+  status: 'complete' | 'failed' = 'complete',
+): Promise<string> {
+  const runId = await seedIngestRun(c, orgId, 'tx_comptroller');
+  await c.query(
+    `update ingest_runs
+        set status = $2, finished_at = clock_timestamp(),
+            stats = jsonb_build_object('statewide_name_frequency', $3::jsonb)
+      where id = $1`,
+    [runId, status, JSON.stringify(frequency)],
+  );
+  return runId;
+}
 
 async function asDeskScript(c: Client): Promise<{ a: string; b: string }> {
   const orgs = await seedTwoOrgs(c);
@@ -107,7 +135,7 @@ const closures = async (c: Client, orgId: string): Promise<Map<string, Closure>>
 describe('chain detection', () => {
   it('chain_key >= 3', async () => {
     await withRollback(async (c) => {
-      const { a } = await asDeskScript(c);
+      const { a, b } = await asDeskScript(c);
       const three = [
         await named(c, a, 'firestone complete auto care'),
         await named(c, a, 'firestone complete auto care'),
@@ -117,7 +145,7 @@ describe('chain detection', () => {
       const one = await named(c, a, 'la estrella bakery');
 
       const r = await detectChains(asEtlExecutor(c), a);
-      expect(r).toEqual({ names: 1, rows: 3, flagged: 3, cleared: 0 });
+      expect(r).toEqual({ names: 1, rows: 3, flagged: 3, cleared: 0, statewide: false });
 
       const keys = await chainKeys(c, [...three, ...two, one]);
       for (const id of three) expect(keys.get(id)).toBe('firestone complete auto care');
@@ -125,13 +153,22 @@ describe('chain detection', () => {
       expect(keys.get(one)).toBeNull();
 
       // Write-gated: a re-run over an unchanged spine touches nothing.
-      expect(await detectChains(asEtlExecutor(c), a)).toEqual({ names: 1, rows: 3, flagged: 0, cleared: 0 });
+      expect(await detectChains(asEtlExecutor(c), a)).toEqual({
+        names: 1, rows: 3, flagged: 0, cleared: 0, statewide: false,
+      });
 
-      // A statewide count makes a two-outlet RGV name a chain (03-12's frequency map).
-      const statewide = new Map([['tacos el guero', 41]]);
-      expect(await detectChains(asEtlExecutor(c), a, statewide)).toEqual({ names: 2, rows: 5, flagged: 2, cleared: 0 });
-      const after = await chainKeys(c, two);
+      // "Across Texas" (03-12's contract): the statewide frequency on the latest COMPLETE
+      // tx_comptroller run makes a two-outlet RGV name a chain. Neither a FAILED run's map nor
+      // ANOTHER ORG's may count — each names the one-outlet bakery, which must stay unflagged.
+      await seedStatewideRun(c, a, { 'tacos el guero': 41 });
+      await seedStatewideRun(c, a, { 'la estrella bakery': 12 }, 'failed');
+      await seedStatewideRun(c, b, { 'la estrella bakery': 12 });
+      expect(await detectChains(asEtlExecutor(c), a)).toEqual({
+        names: 2, rows: 5, flagged: 2, cleared: 0, statewide: true,
+      });
+      const after = await chainKeys(c, [...two, one]);
       for (const id of two) expect(after.get(id)).toBe('tacos el guero');
+      expect(after.get(one)).toBeNull();
     });
   });
 
@@ -143,7 +180,9 @@ describe('chain detection', () => {
       // Three rows share the name, but one is merged away: two LIVE members, not a chain.
       const merged = await named(c, a, 'valley auto glass', winner);
 
-      expect(await detectChains(asEtlExecutor(c), a)).toEqual({ names: 0, rows: 0, flagged: 0, cleared: 0 });
+      expect(await detectChains(asEtlExecutor(c), a)).toEqual({
+        names: 0, rows: 0, flagged: 0, cleared: 0, statewide: false,
+      });
       const keys = await chainKeys(c, [winner, live2, merged]);
       expect([...keys.values()]).toEqual([null, null, null]);
 
@@ -151,7 +190,9 @@ describe('chain detection', () => {
       // of three — flagged on the three live rows and NOT on the merged one.
       await c.query('update businesses set chain_key = $2 where id = $1', [merged, 'valley auto glass']);
       const live3 = await named(c, a, 'valley auto glass');
-      expect(await detectChains(asEtlExecutor(c), a)).toEqual({ names: 1, rows: 3, flagged: 3, cleared: 1 });
+      expect(await detectChains(asEtlExecutor(c), a)).toEqual({
+        names: 1, rows: 3, flagged: 3, cleared: 1, statewide: false,
+      });
       const after = await chainKeys(c, [winner, live2, live3, merged]);
       expect(after.get(winner)).toBe('valley auto glass');
       expect(after.get(live2)).toBe('valley auto glass');
@@ -177,7 +218,7 @@ describe('the closure feed', () => {
       const { sourceRecordId, closedAtMs } = await seedClosure(c, a, '32006170057', '5', '2023-12-31T00:00:00.000');
       expect(new Date(closedAtMs).toISOString()).toBe('2023-12-31T06:00:00.000Z');
 
-      expect(await applyClosures(asEtlExecutor(c), a)).toBe(1);
+      expect(await applyClosures(asEtlExecutor(c), a)).toEqual({ closed: 1, viaMerge: 0 });
 
       const rows = await closures(c, a);
       const hit = rows.get(byKey.get('32006170057-5')!)!;
@@ -193,7 +234,7 @@ describe('the closure feed', () => {
       expect(bRow?.closed_ms).toBeNull();
 
       // Write-gated: a re-run of an unchanged feed closes nothing new.
-      expect(await applyClosures(asEtlExecutor(c), a)).toBe(0);
+      expect(await applyClosures(asEtlExecutor(c), a)).toEqual({ closed: 0, viaMerge: 0 });
     });
   });
 
@@ -207,7 +248,7 @@ describe('the closure feed', () => {
       const { sourceRecordId, closedAtMs } = await seedClosure(c, a, '17498765432', '1', '2025-07-04T00:00:00.000');
       expect(new Date(closedAtMs).toISOString()).toBe('2025-07-04T05:00:00.000Z'); // CDT
 
-      expect(await applyClosures(asEtlExecutor(c), a)).toBe(1);
+      expect(await applyClosures(asEtlExecutor(c), a)).toEqual({ closed: 1, viaMerge: 1 });
       const rows = await closures(c, a);
       expect(Number(rows.get(winner)?.closed_ms)).toBe(closedAtMs);
       expect(rows.get(winner)?.closed_at_source_id).toBe(sourceRecordId);
@@ -235,7 +276,7 @@ describe('the closure feed', () => {
       const [permit] = await seedComptrollerFixture(c, a, COMPTROLLER_FIXTURE.slice(4, 5)); // 32045678901-1
       await seedClosure(c, a, '32045678901', '1', '2024-02-01T00:00:00.000');
 
-      expect(await applyClosures(x, a)).toBe(1);
+      expect(await applyClosures(x, a)).toEqual({ closed: 1, viaMerge: 0 });
 
       const row = (
         await c.query<{ operating_status: string | null; closed_at: string | null; closed_at_source_id: string | null }>(
