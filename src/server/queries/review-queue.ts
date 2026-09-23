@@ -155,6 +155,28 @@ export async function readReviewRemaining(tx: Tx): Promise<number> {
   return row?.remaining ?? 0;
 }
 
+/**
+ * 🔴 THE GOOGLE ITEM'S PREDICATE, shared by the count and the top listing (D-05, D-08): a
+ * `tentative` attachment in the review band whose spine business is still LIVE. A merged-away
+ * loser's listing is not a question a person can answer — confirming it would hang a signal on
+ * a business nobody sees — so it is neither shown nor counted. `record_places_page` (0029)
+ * already refuses to attach to a merged business; this covers a merge that happened AFTER the
+ * listing went tentative. Decided listings (`attached` / `rejected`) never reach the queue.
+ */
+export async function readGoogleReviewRemaining(tx: Tx): Promise<number> {
+  const row = rowsOf<{ remaining: number }>(
+    await tx.execute(sql`
+      select count(*)::int as remaining
+        from place_attachments a
+        join businesses b on b.id = a.business_id and b.org_id = a.org_id
+       where a.org_id = (select app.current_org_id())
+         and a.status = 'tentative'
+         and a.score >= ${REVIEW_BAND_FLOOR}
+         and b.merged_into_id is null`),
+  )[0];
+  return row?.remaining ?? 0;
+}
+
 export async function readReviewQueue(tx: Tx): Promise<ReviewQueue> {
   const top = rowsOf<{
     id: string;
