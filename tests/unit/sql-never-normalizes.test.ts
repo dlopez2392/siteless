@@ -11,9 +11,10 @@
  *
  * Allow-list, exactly:
  *   1. drizzle/0021_extensions.sql: the `create extension` migration.
- *   2. The single /businesses free-text search predicate (src/server/queries/businesses.ts).
- *      That module does not exist yet: 03-18 adds this entry IN THE SAME COMMIT that adds the
- *      predicate. Until then the allow-list has one entry.
+ *   2. The single /businesses free-text search predicate (src/server/queries/businesses.ts),
+ *      added by plan 03-15 IN THE SAME COMMIT as the predicate. It folds what a person typed
+ *      against what a source spelled; neither side is a match key, so it is not a blocking or
+ *      scoring path. The allow-list is exactly these two named paths, never a directory.
  *
  * Hygiene: this file names the forbidden call only through a constructed string, so it never
  * matches itself. It lives under tests/, which the walk does not cover. Comment lines
@@ -32,7 +33,7 @@ import { describe, expect, it } from 'vitest';
  *  (SQL is), tolerant of whitespace before the paren, and it also matches `public.` + name. */
 const FORBIDDEN = new RegExp('unacc' + 'ent\\s*\\(', 'i');
 
-const ALLOWED = new Set(['drizzle/0021_extensions.sql']);
+const ALLOWED = new Set(['drizzle/0021_extensions.sql', 'src/server/queries/businesses.ts']);
 
 // A comment line in TS or SQL: the plan's grep -v filter, as a regex. (A line comment, not a
 // block comment, because the character class below contains the block-comment terminator.)
