@@ -8,11 +8,42 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { naicsPredicate } from '@/lib/socrata/client';
+import {
+  naicsPredicate,
+  SOCRATA_PAGE_LIMIT,
+  socrataQuery,
+  socrataRowsUpdatedAt,
+} from '@/lib/socrata/client';
+import permitsFixture from './msw/fixtures/socrata-jrea-page.json';
+import {
+  RECORDED_ORDER,
+  RECORDED_WHERE,
+  resetSocrata,
+  server,
+  socrataRequests,
+  startReplayServer,
+} from './msw/server';
+
+beforeAll(() => {
+  startReplayServer();
+});
+afterEach(() => {
+  server.resetHandlers();
+  resetSocrata();
+});
+afterAll(() => {
+  server.close();
+});
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
+
+const permitsQuery = (extra: Record<string, string> = {}) => ({
+  $where: RECORDED_WHERE.permits,
+  $order: RECORDED_ORDER.permits,
+  ...extra,
+});
 
 function walk(dir: string): string[] {
   const out: string[] = [];
@@ -92,5 +123,73 @@ describe('SOCRATA_APP_TOKEN in src/env.ts', () => {
   it('socrata app token: a real value is carried through', async () => {
     process.env.SOCRATA_APP_TOKEN = 'app-token-for-test';
     expect((await loadEnv()).SOCRATA_APP_TOKEN).toBe('app-token-for-test');
+  });
+
+  it('socrata app token: the X-App-Token header is sent only when a token is present', async () => {
+    delete process.env.SOCRATA_APP_TOKEN;
+    await socrataQuery('jrea-zgmq', permitsQuery());
+    process.env.SOCRATA_APP_TOKEN = '';
+    await socrataQuery('jrea-zgmq', permitsQuery());
+    process.env.SOCRATA_APP_TOKEN = 'app-token-for-test';
+    await socrataQuery('jrea-zgmq', permitsQuery());
+
+    expect(socrataRequests.map((r) => r.appToken)).toEqual([null, null, 'app-token-for-test']);
+  });
+});
+
+describe('the Socrata client against recorded pages', () => {
+  it('socrata replay: the recorded permits $where pages through the whole recording', async () => {
+    // 40 recorded rows at a page size of 15: three requests, the last one short, which is
+    // the loop's only stop condition.
+    const rows = await socrataQuery('jrea-zgmq', permitsQuery({ $limit: '15' }));
+
+    expect(rows).toEqual(permitsFixture);
+    expect(socrataRequests.map((r) => r.url.searchParams.get('$offset'))).toEqual([
+      '0',
+      '15',
+      '30',
+    ]);
+    // Every page carried the same $order, which is what makes offset paging stable.
+    for (const r of socrataRequests) {
+      expect(r.url.searchParams.get('$order')).toBe(RECORDED_ORDER.permits);
+    }
+  });
+
+  it('socrata replay: the default page size is the measured 50,000', async () => {
+    await socrataQuery('jrea-zgmq', permitsQuery());
+    expect(socrataRequests).toHaveLength(1);
+    expect(socrataRequests[0]?.url.searchParams.get('$limit')).toBe(String(SOCRATA_PAGE_LIMIT));
+  });
+
+  it('socrata replay: an unrecorded $where is refused, never answered with the recorded rows', async () => {
+    await expect(
+      socrataQuery('jrea-zgmq', {
+        $where: "outlet_county_code in ('031')",
+        $order: RECORDED_ORDER.permits,
+      }),
+    ).rejects.toThrow(/501[\s\S]*unrecorded/);
+  });
+
+  it('socrata: $order is mandatory and is checked before any request', async () => {
+    await expect(socrataQuery('jrea-zgmq', { $where: RECORDED_WHERE.permits })).rejects.toThrow(
+      /\$order is required/,
+    );
+    expect(socrataRequests).toHaveLength(0);
+  });
+
+  it('socrata: a dataset id or parameter name outside the allowed shape is refused before any request', async () => {
+    // T-3-05: the dataset is one path segment of a constant host and nothing else.
+    await expect(socrataQuery('../views/x', permitsQuery())).rejects.toThrow(/dataset id/);
+    await expect(socrataQuery('jrea-zgmq.json?x=1', permitsQuery())).rejects.toThrow(/dataset id/);
+    await expect(socrataQuery('jrea-zgmq', { ...permitsQuery(), '$where&x': '1' })).rejects.toThrow(
+      /parameter name/,
+    );
+    expect(socrataRequests).toHaveLength(0);
+  });
+
+  it('socrata rows updated at: epoch seconds become the ISO source version', async () => {
+    // 1789805121 was recorded with the permits page; 03-RESEARCH records the same instant.
+    await expect(socrataRowsUpdatedAt('jrea-zgmq')).resolves.toBe('2026-09-19T08:05:21.000Z');
+    await expect(socrataRowsUpdatedAt('3kx8-uryv')).resolves.toBe('2026-09-21T15:48:35.000Z');
   });
 });

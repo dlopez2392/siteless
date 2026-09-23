@@ -1,7 +1,9 @@
 /**
- * The Census Geocoder, replayed from the four recorded payloads in `./fixtures/`.
+ * The Census Geocoder, replayed from the four recorded payloads in `./fixtures/` — and,
+ * since plan 03-03, the Texas Comptroller's Socrata datasets (see the Socrata section
+ * below and the fixtures README).
  *
- * 🔴 CI MUST NEVER REACH THE NETWORK. `onUnhandledRequest: 'error'` is set inside
+ * 🔴 CI MUST NEVER REACH THE NETWORK. `onUnhandledRequest` is set to `'error'` inside
  * `startCensusServer()` rather than at each call site precisely so no test can weaken it
  * by forgetting it: a request that slips past the handler fails the test instead of
  * silently going out to a third party whose uptime would then decide whether CI is green.
@@ -26,6 +28,10 @@ import mcallen from './fixtures/census-mcallen.json';
 import noMatch from './fixtures/census-no-match.json';
 import rioGrandeCity from './fixtures/census-rio-grande-city.json';
 import serviceUnavailable from './fixtures/census-503.json';
+import closuresPage from './fixtures/socrata-3kx8-page.json';
+import typeMismatch from './fixtures/socrata-400-type-mismatch.json';
+import permitsPage from './fixtures/socrata-jrea-page.json';
+import socrataRecordings from './fixtures/socrata-recordings.json';
 
 export const CENSUS_ORIGIN = 'https://geocoding.geo.census.gov';
 export const CENSUS_PATHNAME = '/geocoder/geographies/onelineaddress';
@@ -47,10 +53,7 @@ const BY_ADDRESS = new Map<string, JsonBodyType>([
 
 // Load-time envelope check. If someone re-records this file as a 200 body, every 503 test
 // would quietly start asserting against a geocoder payload.
-if (
-  typeof serviceUnavailable.status !== 'number' ||
-  typeof serviceUnavailable.body !== 'string'
-) {
+if (typeof serviceUnavailable.status !== 'number' || typeof serviceUnavailable.body !== 'string') {
   throw new Error(
     'tests/unit/msw/server.ts: census-503.json is not a { status, body } envelope. ' +
       'See tests/unit/msw/fixtures/README.md - the other three files are verbatim 200 ' +
@@ -102,12 +105,151 @@ export const censusHandler = http.get(CENSUS_ENDPOINT, ({ request }) => {
   return HttpResponse.json(BY_ADDRESS.get(address) ?? noMatch);
 });
 
-export const server = setupServer(censusHandler);
+// ─── Socrata (data.texas.gov) ────────────────────────────────────────────────────────────
+//
+// 🔴 DISPATCH IS BY THE RECORDED `$where`, READ OUT OF `socrata-recordings.json`. That file
+// is written by the same capture run that wrote the two page bodies, from the same
+// variables, so the `$where` it names is by construction the one that produced them. A
+// Socrata page is a bare JSON array with nowhere to carry its own request (unlike the
+// Census payload, which echoes its input address), hence the sidecar. Nothing below
+// restates a predicate by hand.
+//
+// A request whose `$where` or `$order` is not the recorded one gets a 501 naming the
+// mismatch, never a best-effort page: the live service would have answered a different
+// question, and silently serving the recorded rows would make a wrong query look right.
+
+export const SOCRATA_ORIGIN = 'https://data.texas.gov';
+
+type Recording = {
+  file: string;
+  where: string;
+  order: string;
+  limit: number;
+  rowCount: number;
+  rowsUpdatedAt: number;
+};
+
+const RECORDINGS: Record<string, { recording: Recording; rows: JsonBodyType[] }> = {
+  'jrea-zgmq': { recording: socrataRecordings.datasets['jrea-zgmq'], rows: permitsPage },
+  '3kx8-uryv': { recording: socrataRecordings.datasets['3kx8-uryv'], rows: closuresPage },
+};
+
+/** The exact `$where` / `$order` each page was recorded under, read from the sidecar. */
+export const RECORDED_WHERE = {
+  permits: socrataRecordings.datasets['jrea-zgmq'].where,
+  closures: socrataRecordings.datasets['3kx8-uryv'].where,
+} as const;
+
+export const RECORDED_ORDER = {
+  permits: socrataRecordings.datasets['jrea-zgmq'].order,
+  closures: socrataRecordings.datasets['3kx8-uryv'].order,
+} as const;
+
+// Load-time checks, the same discipline as the census-503 envelope check above: a
+// re-recording that drifted from its sidecar, or a 400 re-captured as a 200 body, fails
+// here before any test can assert against it.
+for (const [dataset, { recording, rows }] of Object.entries(RECORDINGS)) {
+  if (rows.length !== recording.rowCount || rows.length === 0) {
+    throw new Error(
+      `tests/unit/msw/server.ts: ${recording.file} has ${rows.length} rows but ` +
+        `socrata-recordings.json says ${dataset} recorded ${recording.rowCount}.`,
+    );
+  }
+}
+if (
+  typeMismatch.status !== 400 ||
+  typeof typeMismatch.body !== 'string' ||
+  !typeMismatch.body.includes('query.soql.type-mismatch')
+) {
+  throw new Error(
+    'tests/unit/msw/server.ts: socrata-400-type-mismatch.json is not a { status: 400, body } ' +
+      'envelope carrying the SoQL type-mismatch. See tests/unit/msw/fixtures/README.md.',
+  );
+}
+
+/** Every Socrata request the handlers saw, with the app-token header as it arrived. */
+export const socrataRequests: Array<{ url: URL; appToken: string | null }> = [];
+
+let socrataOneShot: 'type-mismatch' | null = null;
+
+/** Make the NEXT Socrata request replay the recorded 400. One call only. */
+export function failNextSocrataWithTypeMismatch(): void {
+  socrataOneShot = 'type-mismatch';
+}
+
+/** Clear the request log and any pending one-shot. Call in `afterEach`. */
+export function resetSocrata(): void {
+  socrataRequests.length = 0;
+  socrataOneShot = null;
+}
+
+function datasetFromFile(file: unknown): string {
+  return typeof file === 'string' ? file.replace(/\.json$/, '') : '';
+}
+
+export const socrataResourceHandler = http.get(
+  `${SOCRATA_ORIGIN}/resource/:file`,
+  ({ request, params }) => {
+    const url = new URL(request.url);
+    socrataRequests.push({ url, appToken: request.headers.get('x-app-token') });
+
+    if (socrataOneShot === 'type-mismatch') {
+      socrataOneShot = null;
+      return new HttpResponse(typeMismatch.body, {
+        status: typeMismatch.status,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+
+    const entry = RECORDINGS[datasetFromFile(params.file)];
+    if (!entry) {
+      return new HttpResponse(`msw: no Socrata recording for ${url.pathname}`, { status: 501 });
+    }
+    const { recording, rows } = entry;
+    const where = url.searchParams.get('$where');
+    const order = url.searchParams.get('$order');
+    if (where !== recording.where || order !== recording.order) {
+      return new HttpResponse(
+        `msw: unrecorded request for ${recording.file}: $where=${where} $order=${order}`,
+        { status: 501 },
+      );
+    }
+
+    const limit = Number(url.searchParams.get('$limit') ?? '1000');
+    const offset = Number(url.searchParams.get('$offset') ?? '0');
+    // A recording that filled its own `$limit` is a TRUNCATED result set: rows exist past it
+    // that were never captured. A request reaching past that edge cannot be answered
+    // truthfully, so it is refused rather than served a short page that would read as "done".
+    const truncated = recording.rowCount === recording.limit;
+    if (truncated && offset + limit > recording.limit) {
+      return new HttpResponse(
+        `msw: ${recording.file} is a truncated page of ${recording.limit}; ` +
+          `$offset=${offset} $limit=${limit} reaches past what was recorded`,
+        { status: 501 },
+      );
+    }
+    return HttpResponse.json(rows.slice(offset, offset + limit));
+  },
+);
+
+/** `/api/views/<id>.json`, reduced to the one field the client reads. The real metadata
+ *  payload is tens of kilobytes of column descriptions; `rowsUpdatedAt` is the value the
+ *  capture run recorded for the page it fetched. */
+export const socrataViewsHandler = http.get(`${SOCRATA_ORIGIN}/api/views/:file`, ({ params }) => {
+  const entry = RECORDINGS[datasetFromFile(params.file)];
+  if (!entry) return new HttpResponse('msw: no Socrata recording', { status: 501 });
+  return HttpResponse.json({ rowsUpdatedAt: entry.recording.rowsUpdatedAt });
+});
+
+export const server = setupServer(censusHandler, socrataResourceHandler, socrataViewsHandler);
 
 /**
- * Start the replay server. 🔴 The `onUnhandledRequest` setting lives here, once, so it
- * cannot be relaxed per test file.
+ * Start the replay server — Census and Socrata both. 🔴 The `onUnhandledRequest` setting
+ * lives here, once, so it cannot be relaxed per test file.
  */
 export function startCensusServer(): void {
   server.listen({ onUnhandledRequest: 'error' });
 }
+
+/** The same server under a name that does not read as Census-only. */
+export const startReplayServer = startCensusServer;
