@@ -31,7 +31,8 @@
     "ingest:overture": "tsx scripts/ingest-overture.ts",
     "resolve": "tsx scripts/resolve.ts",
     "rederive": "tsx scripts/rederive.ts",
-    "purge:places": "tsx scripts/purge-places.ts"
+    "purge:places": "tsx scripts/purge-places.ts",
+    "record:places": "node --conditions=react-server --import tsx scripts/record-places-fixtures.ts"
   },
   "dependencies": {
     "@clerk/nextjs": "7.9.4",

@@ -386,8 +386,12 @@ The four error files are `{ status, body }` envelopes like `census-503.json`, wh
 is Google's documented error shape `{ error: { code, message, status, details? } }` with a
 `Synthetic:` message. `places.ts` checks at load that every envelope's `status` equals its
 `body.error.code`, that every `places-*.json` on disk is listed in the sidecar with the right
-place count, and — while the sidecar says `synthetic: true` — that every id starts
-`synthetic-`.
+place count, and — per file since 04-19 — that every id in a hand-authored file starts
+`synthetic-`, while a file whose sidecar entry says `"anonymized": true` (and
+`"synthetic": false`) has exactly the anonymized shape: `assertAnonymizedPage`
+(`scripts/lib/anonymize-places.ts`) — only known keys, every name, address, phone and URL one
+of the synthetic forms, ratings the fixed 4 / 10, coordinates at 4 decimals. A raw capture
+dropped in beside them fails one rule or the other at load.
 
 ### The spine contract (with `tests/db/_places-fixtures.ts` `PLACES_SPINE`, plan 04-09)
 
@@ -421,6 +425,8 @@ them.
 
 Not until the D-01 legal checkpoint (plan 04-29) has passed, and only through
 `scripts/record-places-fixtures.ts`, which anonymizes in memory. Never hand-edit a recorded
-file into shape and never commit a raw response. When anonymized recordings land, flip the
-sidecar to `"anonymized": true` (and `"synthetic": false` for those files), keep the match
-page's spine contract intact, and re-read every assertion that names a `synthetic-` id.
+file into shape and never commit a raw response. The recorder writes
+`places-recorded-<out>-p<N>.json` and sets the sidecar itself (`"anonymized": true` at the top,
+and `"synthetic": false, "anonymized": true, recordedAt, requests` on each recorded file); keep
+the match page's spine contract intact, and re-read every assertion that names a `synthetic-` id.
+Invocation, guards and the ledger it writes: the header of `scripts/record-places-fixtures.ts`.
