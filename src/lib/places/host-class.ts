@@ -30,7 +30,10 @@ export type HostClass = (typeof HOST_CLASSES)[number];
 const TABLE: ReadonlyArray<readonly [HostClass, readonly string[]]> = [
   ['business_site_dead', ['business.site', 'g.page']],
   ['social', ['facebook.com', 'instagram.com', 'linktr.ee', 'beacons.ai']],
-  ['directory', ['yelp.com', 'yellowpages.com', 'bbb.org', 'nextdoor.com', 'mapquest.com', 'manta.com']],
+  [
+    'directory',
+    ['yelp.com', 'yellowpages.com', 'bbb.org', 'nextdoor.com', 'mapquest.com', 'manta.com'],
+  ],
   ['platform_subdomain', ['wixsite.com', 'square.site', 'myshopify.com', 'godaddysites.com']],
 ];
 

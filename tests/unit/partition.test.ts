@@ -76,24 +76,31 @@ describe('partition', () => {
     const alone = five.map(partitionOf);
 
     // …and the same five, shuffled into a list of 17 where none keeps its old position.
-    const seventeen = [
-      twelveMore[0],
-      five[4],
-      twelveMore[1],
-      twelveMore[2],
-      five[2],
-      twelveMore[3],
-      twelveMore[4],
-      twelveMore[5],
-      five[0],
-      twelveMore[6],
-      twelveMore[7],
-      five[3],
-      twelveMore[8],
-      twelveMore[9],
-      twelveMore[10],
-      five[1],
-      twelveMore[11],
+    const pick = (list: readonly string[], i: number): string => {
+      const cell = list[i];
+      if (cell === undefined) throw new Error(`no cell at ${i}`);
+      return cell;
+    };
+    const f = (i: number) => pick(five, i);
+    const m = (i: number) => pick(twelveMore, i);
+    const seventeen: string[] = [
+      m(0),
+      f(4),
+      m(1),
+      m(2),
+      f(2),
+      m(3),
+      m(4),
+      m(5),
+      f(0),
+      m(6),
+      m(7),
+      f(3),
+      m(8),
+      m(9),
+      m(10),
+      f(1),
+      m(11),
     ];
     expect(seventeen).toHaveLength(17);
     const inList = seventeen.map(partitionOf);
