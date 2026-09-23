@@ -378,6 +378,7 @@ type SideRow = {
   phone_blockable: boolean;
   street_num: string | null;
   street_norm: string | null;
+  unit: string | null;
   postal: string | null;
   lat: number | string | null;
   lng: number | string | null;
@@ -394,6 +395,7 @@ const SIDE_COLUMNS = [
   'phone_blockable',
   'street_num',
   'street_norm',
+  'unit',
   'postal',
   'lat',
   'lng',
@@ -428,6 +430,7 @@ export function sideOf(r: SideRow): Side {
     phoneBlockable: r.phone_blockable === true,
     streetNum: r.street_num,
     streetNorm: r.street_norm,
+    unit: r.unit,
     postal: r.postal,
     lat: numOrNull(r.lat),
     lng: numOrNull(r.lng),
@@ -639,7 +642,14 @@ export async function mergeCandidate(t: ResolveTx, candidateId: string): Promise
   return r.mergeId === null ? 'already_one' : 'merged';
 }
 
-export async function stageMerge(db: ResolveDb): Promise<MergeStageResult> {
+/** One candidate's merge, as stage 5 calls it. A test seam: production is `mergeCandidate`. */
+export type MergeOne = (t: ResolveTx, candidateId: string) => Promise<MergeOutcome>;
+
+export async function stageMerge(
+  db: ResolveDb,
+  opts: { mergeOne?: MergeOne } = {},
+): Promise<MergeStageResult> {
+  const mergeOne = opts.mergeOne ?? mergeCandidate;
   const queue = await db.run(({ tx, orgId }) => autoMergeQueue(tx, orgId));
   const out: MergeStageResult = {
     considered: queue.length,
@@ -654,19 +664,104 @@ export async function stageMerge(db: ResolveDb): Promise<MergeStageResult> {
     for (let attempt = 0; ; attempt += 1) {
       try {
         // One transaction per candidate, each re-installing the actor and the org claim.
-        const outcome = await db.run((t) => mergeCandidate(t, candidateId));
+        const outcome = await db.run((t) => mergeOne(t, candidateId));
         out[outcome] += 1;
         break;
       } catch (e) {
-        if (pgFailure(e)?.code === '40001' && attempt < MERGE_RETRIES) {
+        const code = pgFailure(e)?.code;
+        // 🔴 A-WR-10 (review 03). 40001 (a concurrent merge moved the pair) AND 40P01 (a
+        // deadlock with a concurrent undo_merge) are transient: the transaction rolled back
+        // whole, so re-running it from the top is safe.
+        if ((code === '40001' || code === '40P01') && attempt < MERGE_RETRIES) {
           out.retries += 1;
           continue;
+        }
+        // 55000: the definer refused a candidate that is no longer pending — a reviewer
+        // decided it (or an unmerge ruled it distinct) after the queue was read. That is the
+        // same outcome as the pending check at the top of mergeCandidate, reached a moment
+        // later; it must never kill the rest of a pass that took minutes to block and score.
+        if (code === '55000') {
+          out.not_pending += 1;
+          break;
         }
         throw e;
       }
     }
   }
   return out;
+}
+
+// ---------------------------------------------------------------------------------------
+// Stage 6 — tidy the pending pairs the merges (and the reviewers) have made stale
+// ---------------------------------------------------------------------------------------
+
+export interface TidyStageResult {
+  /** Pending pairs whose two sides are now ONE cluster — marked `merged`. */
+  already_one: number;
+  /** Pending pairs between two clusters a `distinct` decision already spans — marked `distinct`. */
+  spanned_distinct: number;
+}
+
+/**
+ * A-WR-03 (review 03). Stage 5 settled "both sides are one root" only for the >= 95 queue it
+ * walks, and left a `skipped_distinct` candidate `pending` forever. So the review queue kept:
+ *   - an 80–94 pair whose two sides had been merged through OTHER edges — asking "Same
+ *     business?" about a pair that already IS one business (answering "Different" wrote a
+ *     `distinct` inside a single cluster);
+ *   - a >= 95 pair between two clusters a person had ruled apart (an unmerge, a "Different"),
+ *     ranked FIRST by score, one tap from re-merging what was just unmerged (D-20).
+ * This stage settles both, for every pending pair at every score, set-based, in one
+ * transaction:
+ *   - roots coincide            → `merged` (it is one business; nothing is written but the row)
+ *   - a `distinct` decision already joins the two ROOT clusters → `distinct`
+ * Attributed to the ETL actor (`etl:resolve`), stamped `decided_at`. `merge_candidates` carries
+ * no log_event (0023); the decision columns are its audit. A write-gated statement: a pair
+ * already settled is not pending, so a re-run settles nothing twice.
+ */
+export const TIDY_SQL = `
+  with roots as (
+    select mc.id, mc.decision,
+           coalesce(l.merged_into_id, l.id) as lr,
+           coalesce(r.merged_into_id, r.id) as rr
+      from merge_candidates mc
+      join businesses l on l.id = mc.left_id and l.org_id = mc.org_id
+      join businesses r on r.id = mc.right_id and r.org_id = mc.org_id
+     where mc.org_id = $1::uuid
+  ),
+  ruled_apart as (
+    select distinct least(lr, rr) as a, greatest(lr, rr) as b
+      from roots where decision = 'distinct' and lr <> rr
+  ),
+  one as (
+    update merge_candidates mc
+       set decision = 'merged', decided_at = now(),
+           decided_by = coalesce(current_setting('app.actor_id', true), 'system')
+      from roots x
+     where mc.id = x.id and mc.org_id = $1::uuid and mc.decision = 'pending' and x.lr = x.rr
+    returning 1
+  ),
+  apart as (
+    update merge_candidates mc
+       set decision = 'distinct', decided_at = now(),
+           decided_by = coalesce(current_setting('app.actor_id', true), 'system')
+      from roots x
+      join ruled_apart d on d.a = least(x.lr, x.rr) and d.b = greatest(x.lr, x.rr)
+     where mc.id = x.id and mc.org_id = $1::uuid and mc.decision = 'pending' and x.lr <> x.rr
+    returning 1
+  )
+  select (select count(*) from one)::int as already_one,
+         (select count(*) from apart)::int as spanned_distinct`;
+
+export async function stageTidy(db: ResolveDb): Promise<TidyStageResult> {
+  return db.run(async ({ tx, orgId }) => {
+    const { rows } = await tx.query<{ already_one: number; spanned_distinct: number }>(TIDY_SQL, [
+      orgId,
+    ]);
+    return {
+      already_one: Number(rows[0]?.already_one ?? 0),
+      spanned_distinct: Number(rows[0]?.spanned_distinct ?? 0),
+    };
+  });
 }
 
 // ---------------------------------------------------------------------------------------
@@ -687,6 +782,8 @@ export interface ResolveStats {
   /** Pending candidates per band after scoring: >= 95, 80–94, < 80. */
   bands: BandCounts;
   merges: MergeStageResult | null;
+  /** Stage 6 (A-WR-03): pending pairs settled because they went stale. Null on a dry run. */
+  tidy: TidyStageResult | null;
   ms: Record<string, number>;
 }
 
@@ -701,6 +798,8 @@ export interface ResolvePassOptions {
   log?: (line: string) => void;
   /** Test lever only; the desk run always uses TRIGRAM_GUARD_MIN_ROWS. */
   trigramGuardMinRows?: number;
+  /** Test lever only (stage 5's per-candidate merge); the desk run uses `mergeCandidate`. */
+  mergeOne?: MergeOne;
 }
 
 export async function runResolvePass(
@@ -720,66 +819,116 @@ export async function runResolvePass(
   const orgId = await timed('preflight', () => preflight(db));
   log(`resolve: stage 0 preflight ok — org ${db.clerkOrgId} → ${orgId}`);
 
-  const chains = await timed('chains', () => stageChains(db));
-  log(`resolve: stage 1 chains — ${chains.names} names / ${chains.rows} rows flagged (statewide ${chains.statewide})`);
+  // The report is built as the stages finish, so a failure part-way still has something true to
+  // say. A-WR-10 (review 03): a pass that died in stage 5 used to leave NO report at all, after
+  // minutes of blocking and scoring had been committed.
+  const partial: Record<string, unknown> = { dry_run: opts.dryRun === true, ms };
+  const emitReport = (stats: Record<string, unknown>) =>
+    db.run(async ({ tx }) => {
+      const { rows } = await tx.query<{ id: string }>(
+        "select app.emit_event('businesses', null, 'resolve', $1::jsonb)::text as id",
+        [JSON.stringify(stats)],
+      );
+      const id = rows[0]?.id;
+      if (!id) throw new Error('resolve: emit_event returned no id');
+      return id;
+    });
 
-  const blocks = await timed('block', () =>
-    stageBlock(db, { trigramGuardMinRows: opts.trigramGuardMinRows }),
-  );
-  log(
-    `resolve: stage 2 block — phone ${blocks.inserted.phone}, address ${blocks.inserted.address}, ` +
-      `trigram ${blocks.inserted.trigram} (plan ${blocks.trigramPlan}); ` +
-      `${blocks.skippedBlocks.length} block(s) over the cap skipped`,
-  );
+  let stage = 'chains';
+  try {
+    const chains = await timed('chains', () => stageChains(db));
+    partial.chains = chains;
+    log(`resolve: stage 1 chains — ${chains.names} names / ${chains.rows} rows flagged (statewide ${chains.statewide})`);
 
-  const gated = await timed('gate', () => stageDistanceGate(db));
-  log(`resolve: stage 3 gate — ${gated} pair(s) over 25 km marked distinct`);
-
-  const scored = await timed('score', () => stageScore(db));
-  log(
-    `resolve: stage 4 score — ${scored.scored} pending scored (${scored.written} rewritten): ` +
-      `>=${AUTO_MERGE_SCORE} ${scored.bands.merge}, ${REVIEW_SCORE}–${AUTO_MERGE_SCORE - 1} ` +
-      `${scored.bands.review}, <${REVIEW_SCORE} ${scored.bands.ignore}`,
-  );
-
-  let merges: MergeStageResult | null = null;
-  if (!opts.dryRun) {
-    merges = await timed('merge', () => stageMerge(db));
+    stage = 'block';
+    const blocks = await timed('block', () =>
+      stageBlock(db, { trigramGuardMinRows: opts.trigramGuardMinRows }),
+    );
+    Object.assign(partial, {
+      blocks: blocks.inserted,
+      trigram_plan: blocks.trigramPlan,
+      skipped_blocks: blocks.skippedBlocks,
+    });
     log(
-      `resolve: stage 5 merge — ${merges.merged} merged, ${merges.already_one} already one, ` +
-        `${merges.skipped_chain} chain-skipped, ${merges.skipped_distinct} distinct-skipped, ` +
-        `${merges.not_pending} no longer pending, ${merges.retries} retries`,
+      `resolve: stage 2 block — phone ${blocks.inserted.phone}, address ${blocks.inserted.address}, ` +
+        `trigram ${blocks.inserted.trigram} (plan ${blocks.trigramPlan}); ` +
+        `${blocks.skippedBlocks.length} block(s) over the cap skipped`,
     );
-  } else {
-    log('resolve: --dry-run — stage 5 not run, nothing merged');
+
+    stage = 'gate';
+    const gated = await timed('gate', () => stageDistanceGate(db));
+    partial.distance_gated = gated;
+    log(`resolve: stage 3 gate — ${gated} pair(s) over 25 km marked distinct`);
+
+    stage = 'score';
+    const scored = await timed('score', () => stageScore(db));
+    Object.assign(partial, {
+      scored: scored.scored,
+      score_rows_written: scored.written,
+      bands: scored.bands,
+    });
+    log(
+      `resolve: stage 4 score — ${scored.scored} pending scored (${scored.written} rewritten): ` +
+        `>=${AUTO_MERGE_SCORE} ${scored.bands.merge}, ${REVIEW_SCORE}–${AUTO_MERGE_SCORE - 1} ` +
+        `${scored.bands.review}, <${REVIEW_SCORE} ${scored.bands.ignore}`,
+    );
+
+    let merges: MergeStageResult | null = null;
+    if (!opts.dryRun) {
+      stage = 'merge';
+      merges = await timed('merge', () => stageMerge(db, { mergeOne: opts.mergeOne }));
+      log(
+        `resolve: stage 5 merge — ${merges.merged} merged, ${merges.already_one} already one, ` +
+          `${merges.skipped_chain} chain-skipped, ${merges.skipped_distinct} distinct-skipped, ` +
+          `${merges.not_pending} no longer pending, ${merges.retries} retries`,
+      );
+    } else {
+      log('resolve: --dry-run — stage 5 not run, nothing merged');
+    }
+    partial.merges = merges;
+
+    let tidy: TidyStageResult | null = null;
+    if (!opts.dryRun) {
+      stage = 'tidy';
+      tidy = await timed('tidy', () => stageTidy(db));
+      log(
+        `resolve: stage 6 tidy — ${tidy.already_one} pending pair(s) already one business, ` +
+          `${tidy.spanned_distinct} across a distinct ruling`,
+      );
+    }
+    ms.total = Date.now() - t0;
+
+    const stats: ResolveStats = {
+      dry_run: opts.dryRun === true,
+      chains,
+      blocks: blocks.inserted,
+      trigram_plan: blocks.trigramPlan,
+      skipped_blocks: blocks.skippedBlocks,
+      distance_gated: gated,
+      scored: scored.scored,
+      score_rows_written: scored.written,
+      bands: scored.bands,
+      merges,
+      tidy,
+      ms,
+    };
+
+    // The run report: one event, attributed etl:resolve, in its own transaction.
+    stage = 'report';
+    const eventId = await emitReport(stats);
+    return { orgId, eventId, stats };
+  } catch (e) {
+    if (stage === 'report') throw e;
+    ms.total = Date.now() - t0;
+    partial.failed = {
+      stage,
+      error: (e instanceof Error ? `${e.name}: ${e.message}` : String(e)).slice(0, 2000),
+    };
+    // Best effort: the stage's own error is the one the operator must see, so a failure to
+    // write the partial report never replaces it.
+    await emitReport(partial).catch(() => undefined);
+    throw e;
   }
-  ms.total = Date.now() - t0;
-
-  const stats: ResolveStats = {
-    dry_run: opts.dryRun === true,
-    chains,
-    blocks: blocks.inserted,
-    trigram_plan: blocks.trigramPlan,
-    skipped_blocks: blocks.skippedBlocks,
-    distance_gated: gated,
-    scored: scored.scored,
-    score_rows_written: scored.written,
-    bands: scored.bands,
-    merges,
-    ms,
-  };
-
-  // The run report: one event, attributed etl:resolve, in its own transaction.
-  const eventId = await db.run(async ({ tx }) => {
-    const { rows } = await tx.query<{ id: string }>(
-      "select app.emit_event('businesses', null, 'resolve', $1::jsonb)::text as id",
-      [JSON.stringify(stats)],
-    );
-    const id = rows[0]?.id;
-    if (!id) throw new Error('resolve: emit_event returned no id');
-    return id;
-  });
-  return { orgId, eventId, stats };
 }
 
 // ---------------------------------------------------------------------------------------

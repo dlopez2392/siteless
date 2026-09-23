@@ -29,7 +29,14 @@
  * no TRUNCATE, REFERENCES or TRIGGER on any tenant table' both go red.
  */
 import { describe, expect, it } from 'vitest';
-import { actAsOwner, actAsRole, seedTwoOrgs, withRollback } from './_fixtures';
+import {
+  actAs,
+  actAsOwner,
+  actAsRole,
+  seedTwoOrgs,
+  SQL_FRESH_EXTERNAL_KEY,
+  withRollback,
+} from './_fixtures';
 
 const TENANT_TABLES = [
   'orgs',
@@ -203,9 +210,15 @@ describe('grants audit', () => {
       // evaluated only after the grant layer lets the statement through.
       expect(rows[0]).toEqual({
         b_select: true,
-        b_insert: true,
-        b_update: true,
-        b_delete: true,
+        // A-WR-01 (review 03): revoked by drizzle/0025. The merge state lives on businesses
+        // (merged_into_id, status, the six *_source_id pairs), and every writer is the
+        // owner-tier desk ETL or a SECURITY DEFINER that reads its own org and actor. A
+        // session with the old grant could set merged_into_id with no business_merges row,
+        // or point location_source_id at another tenant's durable record (the composite FK
+        // checks durability, not tenancy).
+        b_insert: false,
+        b_update: false,
+        b_delete: false,
         e_select: true,
         // WR-01: revoked by 0011. Append-only protected the past and left the present
         // writable — a session could author an events row with any actor_id it liked. The
@@ -441,6 +454,80 @@ describe('grants audit', () => {
         // let a cited version disappear and take SRCH-03 with it.
         fk_action: 'a',
       });
+    }));
+
+  /**
+   * A-WR-02 (review 03). When `pg_temp` is not named in a function's search_path, PostgreSQL
+   * searches it FIRST for relations. A session that can create a temp table called
+   * `businesses` or `merge_candidates` and then call a definer would have the definer read and
+   * write the temp table as the owner — the documented SECURITY DEFINER pitfall. Naming
+   * `pg_temp` LAST closes it. Read off the catalog for every definer in the two schemas we own
+   * (plus the two invoker helpers only definers call), so a definer added later without it is
+   * a named failure here, not a code-review catch.
+   */
+  it('every SECURITY DEFINER function searches pg_temp last', () =>
+    withRollback(async (c) => {
+      const { rows } = await c.query<{ fn: string; config: string[] | null }>(`
+        select p.oid::regprocedure::text as fn, p.proconfig as config
+          from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+         where n.nspname in ('app', 'public')
+           and (p.prosecdef
+                or p.oid in ('app.survivorship_snapshot(uuid,uuid)'::regprocedure,
+                             'app.apply_survivorship(uuid,uuid,jsonb,text)'::regprocedure))
+         order by 1`);
+      // The control: the enumeration found the definers this phase and the last two wrote.
+      expect(rows.map((r) => r.fn)).toEqual(
+        expect.arrayContaining([
+          'app.record_merge(uuid,uuid,uuid,text,integer,jsonb,jsonb)',
+          'app.record_candidate_decision(uuid,text)',
+          'app.emit_event(text,uuid,text,jsonb)',
+          'app.reserve_budget(text,date,bigint,uuid,text,interval)',
+        ]),
+      );
+      const bad = rows.filter((r) => !(r.config ?? []).includes('search_path=public, pg_temp'));
+      expect(bad).toEqual([]);
+    }));
+
+  /**
+   * A-WR-01 (review 03). The two refusals the revoke exists for, attempted rather than read
+   * off the catalog, and each as a Clerk user WITH a valid org claim on its OWN rows: RLS
+   * would let both through, so only the grant can refuse them — and the message pins that
+   * it is the grant ("permission denied for table …"), not a policy.
+   */
+  it('a Clerk user cannot write merged_into_id on its own business', () =>
+    withRollback(async (c) => {
+      const { a } = await seedTwoOrgs(c);
+      const ids = await c.query<{ id: string }>(
+        `insert into businesses (org_id, display_name, external_key)
+         values ($1, 'Winner', ${SQL_FRESH_EXTERNAL_KEY}), ($1, 'Loser', ${SQL_FRESH_EXTERNAL_KEY})
+         returning id`,
+        [a],
+      );
+      const [winner, loser] = ids.rows.map((r) => r.id);
+      await actAs(c, { o: { id: 'org_A' }, sub: 'user_danlo', role: 'authenticated' });
+      // Positive control: the same caller reads the row, so the refusal below is not RLS
+      // hiding it.
+      const seen = await c.query('select 1 from businesses where id = $1', [loser]);
+      expect(seen.rowCount).toBe(1);
+      const attempt = c.query(
+        "update businesses set merged_into_id = $1, status = 'merged' where id = $2",
+        [winner, loser],
+      );
+      await expect(attempt).rejects.toMatchObject({ code: '42501' });
+      await expect(attempt).rejects.toThrow(/permission denied for table businesses/);
+    }));
+
+  it('a Clerk user cannot insert a source record', () =>
+    withRollback(async (c) => {
+      const { a } = await seedTwoOrgs(c);
+      await actAs(c, { o: { id: 'org_A' }, sub: 'user_danlo', role: 'authenticated' });
+      const attempt = c.query(
+        `insert into source_records (org_id, source_key, retention_class)
+         values ($1, 'overture', 'durable')`,
+        [a],
+      );
+      await expect(attempt).rejects.toMatchObject({ code: '42501' });
+      await expect(attempt).rejects.toThrow(/permission denied for table source_records/);
     }));
 
   /**

@@ -15,9 +15,24 @@
  * domain column still moves updated_at and stamps updated_by' goes red, and only that one.
  */
 import { describe, expect, it } from 'vitest';
-import { actAs, seedTwoOrgs, SQL_FRESH_EXTERNAL_KEY, withRollback } from './_fixtures';
+import type { Client } from 'pg';
+import { seedTwoOrgs, SQL_FRESH_EXTERNAL_KEY, withRollback } from './_fixtures';
 
 const ORG_A_CLAIMS = { o: { id: 'org_A' }, sub: 'user_danlo', role: 'authenticated' } as const;
+
+/**
+ * The Clerk claims, installed transaction-locally, WITHOUT `set role authenticated`.
+ *
+ * A-WR-01 (review 03, drizzle/0025) made `businesses` SELECT-only for `authenticated`: every
+ * writer is the owner-tier desk ETL or a SECURITY DEFINER. The two tests below are about the
+ * TRIGGERS — that a raw write nothing in src/ made still lands in the audit trail, attributed
+ * to the actor the trigger reads out of the transaction-local claims — not about which role
+ * may write. So they write as the owner with the claims installed, which is exactly the shape
+ * a definer's write has, and the trigger's actor resolution is exercised unchanged.
+ */
+async function withClaimsAsOwner(c: Client, claims: object): Promise<void> {
+  await c.query("select set_config('request.jwt.claims', $1, true)", [JSON.stringify(claims)]);
+}
 
 /**
  * The event-scope boundary, as a Set literal IN THIS FILE rather than a config file, so
@@ -133,7 +148,7 @@ describe('attribution is a property of the database', () => {
   it('a direct write still produces an event', () =>
     withRollback(async (c) => {
       const { a } = await seedTwoOrgs(c);
-      await actAs(c, ORG_A_CLAIMS);
+      await withClaimsAsOwner(c, ORG_A_CLAIMS);
 
       // Raw SQL issued by the test itself — no ORM, no helper, no emit(). That is the
       // entire claim: a write nothing in src/ made still lands in the audit trail, with
@@ -191,7 +206,7 @@ describe('attribution is a property of the database', () => {
       expect(businessId).toBeTruthy();
       expect(beforeEpoch).toBeGreaterThan(0);
 
-      await actAs(c, ORG_A_CLAIMS);
+      await withClaimsAsOwner(c, ORG_A_CLAIMS);
       // city is a domain column and nothing else is named: no updated_at, no updated_by.
       const upd = await c.query<{ epoch: string; updated_by: string | null }>(
         "update businesses set city = 'McAllen' where id = $1 " +

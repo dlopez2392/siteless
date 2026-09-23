@@ -43,8 +43,9 @@ export interface EtlExecutor {
   query<R = Record<string, unknown>>(text: string, params?: unknown[]): Promise<{ rows: R[] }>;
 }
 
-/** The three desk scripts. The actor string is `etl:<script>` and nothing else. */
-export type EtlScript = 'ingest-comptroller' | 'ingest-overture' | 'resolve';
+/** The desk scripts. The actor string is `etl:<script>` and nothing else. `rederive` is
+ *  scripts/rederive.ts (review 03, A-WR-06): it writes businesses only, never a merge. */
+export type EtlScript = 'ingest-comptroller' | 'ingest-overture' | 'resolve' | 'rederive';
 
 /** Thrown when no `clerk_org_id` was passed. Never recovered by picking an org. */
 export class EtlOrgRequiredError extends Error {

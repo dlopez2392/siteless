@@ -157,6 +157,29 @@ describe('survivorship (D-14)', () => {
     expect(closed.closedAt).toEqual({ value: '1993-03-03T06:00:00.000Z', sourceId: 'sr-x' });
   });
 
+  /**
+   * A-WR-04 (review 03). Closures carry null confidence, so the canonical order put the
+   * SMALLEST uuid first and survive() took its date — while CLOSURE_UPDATE_SQL
+   * (scripts/ingest-comptroller.ts) takes `order by closed_at desc, sr.id`. The two writers
+   * disagreed, so a merge wrote one date, the next closures run rewrote the other (a
+   * businesses event on an unchanged feed), and the next merge flipped it back. One rule now:
+   * the LATEST date, ties to the smaller id.
+   */
+  it('survivorship: closed_at takes the LATEST closure date, as the closures pass does', () => {
+    // sr-a sorts first by id and carries the EARLIER date: the old rule took it.
+    const s = survive([
+      closure('sr-b', '2024-06-30T05:00:00.000Z'),
+      closure('sr-a', '2019-03-31T05:00:00.000Z'),
+    ]);
+    expect(s.closedAt).toEqual({ value: '2024-06-30T05:00:00.000Z', sourceId: 'sr-b' });
+    // An equal date resolves to the smaller id, whatever the input order.
+    const tie = survive([
+      closure('sr-d', '2024-06-30T05:00:00.000Z'),
+      closure('sr-c', '2024-06-30T05:00:00.000Z'),
+    ]);
+    expect(tie.closedAt).toEqual({ value: '2024-06-30T05:00:00.000Z', sourceId: 'sr-c' });
+  });
+
   it('survivorship: every surviving field returns the id of the source record it came from', () => {
     const s = survive([
       comptroller('sr-c'),

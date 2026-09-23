@@ -2,6 +2,8 @@ import { createHash } from 'node:crypto';
 import { newExternalKey } from '@/lib/ids/external-key';
 import type { EtlExecutor } from './etl-actor';
 import type { IngestSourceKey } from './run-report';
+import type { DerivationContext } from '@/lib/resolve/derivation';
+import { clusterOf, rederiveRoot } from '@/lib/resolve/rederive';
 
 /**
  * The one shared write path both desk ingests use (D-05, DATA-04): idempotent by external id,
@@ -214,6 +216,39 @@ const DERIVED_COLUMNS: ReadonlyArray<readonly [keyof BusinessDerived, string]> =
   ['operatingStatus', 'operating_status'],
 ];
 
+/**
+ * The columns `app.apply_survivorship` owns (drizzle/0024's fixed list): on a clustered
+ * business they come from survive() over the whole cluster, never from one record. Every other
+ * column in `DERIVED_COLUMNS` (name_norm, comptroller_key, primary_source) belongs to the
+ * business the record created.
+ */
+const SURVIVORSHIP_OWNED: ReadonlySet<string> = new Set([
+  'legal_name',
+  'legal_name_source_id',
+  'display_name',
+  'display_name_source_id',
+  'phone_e164',
+  'phone_blockable',
+  'phone_source_id',
+  'street',
+  'street_num',
+  'street_norm',
+  'unit',
+  'postal',
+  'city',
+  'address_source_id',
+  'lat',
+  'lng',
+  'location_match_type',
+  'location_source_id',
+  'closed_at',
+  'closed_at_source_id',
+  'basic_category',
+  'cluster_key',
+  'confidence',
+  'operating_status',
+]);
+
 export interface BusinessWriteOpts {
   orgId: string;
   /** `upsertSourceRecord(...).changed`. */
@@ -227,6 +262,11 @@ export interface BusinessWriteOpts {
   locationSourceId?: string;
   /** Test seam for the collision-retry loop. Production always uses `newExternalKey`. */
   keyGen?: () => string;
+  /**
+   * The derivation context a clustered re-derivation reads (src/lib/resolve/derivation.ts).
+   * Loaded on demand when absent; a batch caller may pass one to save the three small reads.
+   */
+  ctx?: DerivationContext;
 }
 
 export interface BusinessWriteResult {
@@ -319,6 +359,31 @@ export async function upsertBusinessFromSource(
   }
 
   const assignments = assignmentsFor(sourceRecordId, derived, opts.locationSourceId);
+
+  // 🔴 A-CR-02 (review 03). A business in a merge cluster does NOT take this one record's
+  // values. Its survivorship-owned columns are a function of EVERY parent in the cluster
+  // (D-14), and the business this record created may be the winner (whose Overture name and
+  // address a direct write reverted) or a dead loser (where the write landed while the winner
+  // kept citing this record). So: the record's OWN columns — the ones no merge owns
+  // (name_norm, comptroller_key, primary_source) — go on the business it created, and the
+  // cluster ROOT is re-derived through the merge's survive(), write-gated.
+  if (existing !== null) {
+    const position = await clusterOf(tx, opts.orgId, existing);
+    if (position.clustered) {
+      const own = assignments.filter((a) => !SURVIVORSHIP_OWNED.has(a.column));
+      if (own.length > 0) {
+        const set = own.map((a, i) => `${a.column} = $${i + 3}`).join(', ');
+        const changed = own.map((a, i) => `${a.column} is distinct from $${i + 3}`).join(' or ');
+        await tx.query(`update businesses set ${set} where id = $1 and org_id = $2 and (${changed})`, [
+          existing,
+          opts.orgId,
+          ...own.map((a) => a.value),
+        ]);
+      }
+      await rederiveRoot(tx, opts.orgId, position.root, { caller: 'ingest', ctx: opts.ctx });
+      return { wrote: true, inserted: false, businessId: existing };
+    }
+  }
 
   if (existing !== null) {
     const set = assignments.map((a, i) => `${a.column} = $${i + 3}`).join(', ');

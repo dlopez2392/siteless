@@ -45,12 +45,15 @@ describe('criterion 5: the Texas side', () => {
   it('a naive-RGV-bbox radius search returns no Mexican-side row', () =>
     withRollback(async (c) => {
       const { a } = await seedTwoOrgs(c);
-      await actAs(c, ORG_A_CLAIMS);
       // ~40 TX/US rows PLUS real Reynosa / Matamoros / Río Bravo rows, every one of them
-      // INSIDE the naive bbox — through the Texas-side filter and the shipped write path.
+      // INSIDE the naive bbox — through the Texas-side filter and the shipped write path. The
+      // seed runs as the OWNER, the connection the desk ingest writes on (businesses and
+      // source_records are SELECT-only for the Clerk role since drizzle/0025, A-WR-01); the
+      // SEARCH below runs as the Clerk user, which is the half criterion 5 is about.
       const { skipped } = await seedOvertureFixture(c, a);
       // The filter SAW Mexican rows and turned them away — not merely "none came out".
       expect(skipped).toBe(OVERTURE_FIXTURE.filter((r) => r.country === 'MX').length);
+      await actAs(c, ORG_A_CLAIMS);
 
       const { rows } = await c.query<{ display_name: string; city: string }>(
         `select display_name, city from businesses

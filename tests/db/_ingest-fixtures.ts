@@ -13,7 +13,16 @@ import {
   startRun,
   type IngestSourceKey,
 } from '@/lib/ingest/run-report';
-import { addressKey, nameNorm } from '@/lib/normalize';
+import { nameNorm } from '@/lib/normalize';
+import {
+  comptrollerDerived,
+  loadDerivationContext,
+  overtureClusterKey,
+  seededClusterRanges,
+  type DerivationContext,
+} from '@/lib/resolve/derivation';
+import type { PermitRow } from '@/lib/socrata/permits';
+import overtureCategories from '@/seed/data/overture-categories.json';
 import { isSkipped, overtureRowToSourceRecord } from '@/lib/overture/transform';
 import { SQL_FRESH_EXTERNAL_KEY } from './_fixtures';
 
@@ -120,29 +129,57 @@ export const COMPTROLLER_FIXTURE: readonly ComptrollerFixtureRow[] = [
 ];
 
 /**
- * A fixture row → what the Comptroller transform (03-12) will produce: the D-05 external id
- * `taxpayer_number-outlet_number`, the SELECTED fields as the payload, and the derived columns
- * through the shipped normalizers. The transform itself ships in 03-12; this is the minimum
- * the write-path tests need, and it never becomes the production transform.
+ * The derivation context a fixture uses when the caller has no database handy: the seeded
+ * NAICS ranges and category map (the same committed files `pnpm db:seed` loads) and NO city
+ * fold. A seeder that has a connection loads the real one instead (`fixtureDerivationContext`),
+ * which is what survivorship reads — so a fixture whose re-derivation is compared against its
+ * ingest (the unmerge and rederive tests) must use that.
  */
-export function comptrollerIngestInput(row: ComptrollerFixtureRow): IngestInput {
+export const STATIC_DERIVATION_CONTEXT: DerivationContext = {
+  clusters: seededClusterRanges(),
+  categoryMap: new Map(
+    overtureCategories
+      .filter((e): e is { basic_category: string; cluster_key: string; rows: number } =>
+        'cluster_key' in e,
+      )
+      .map((e) => [e.basic_category, e.cluster_key] as const),
+  ),
+  cityFold: new Map(),
+};
+
+/** The live context — built-in category map and city fold read from the database. */
+export async function fixtureDerivationContext(c: Client): Promise<DerivationContext> {
+  return loadDerivationContext(asEtlExecutor(c));
+}
+
+/**
+ * A fixture row → what the Comptroller ingest produces: the D-05 external id
+ * `taxpayer_number-outlet_number`, the SELECTED fields as the payload, and the derived columns
+ * through `comptrollerDerived` — the one function the ingest writes with and survivorship
+ * re-reads with (A-CR-03), so a seeded business carries its cluster exactly as a real one does.
+ */
+export function comptrollerIngestInput(
+  row: ComptrollerFixtureRow,
+  ctx: DerivationContext = STATIC_DERIVATION_CONTEXT,
+): IngestInput {
   const externalId = `${row.taxpayer_number}-${row.outlet_number}`;
-  const addr = addressKey(row.outlet_address, row.outlet_zip_code);
+  const d = comptrollerDerived(row as unknown as PermitRow, ctx);
   return {
     externalId,
     payload: { ...row },
     derived: {
-      displayName: row.outlet_name,
-      legalName: row.outlet_name,
+      displayName: d.displayName,
+      legalName: d.legalName,
       primarySource: 'tx_comptroller',
       comptrollerKey: externalId,
       nameNorm: nameNorm(row.outlet_name),
-      city: row.outlet_city,
-      street: row.outlet_address,
-      streetNum: addr.streetNum,
-      streetNorm: addr.streetNorm,
-      unit: addr.unit,
-      postal: addr.postal,
+      city: d.city,
+      street: d.street,
+      streetNum: d.streetNum,
+      streetNorm: d.streetNorm,
+      unit: d.unit,
+      postal: d.postal,
+      clusterKey: d.clusterKey,
     },
   };
 }
@@ -310,10 +347,18 @@ export function toOvertureRow(row: OvertureFixtureRow): Record<string, unknown> 
  * test and the unit `texas side filter` test both exercise `overtureRowToSourceRecord`, so
  * mutation M23 on the transform (drop the `country` half) reds both — executed in 03-13.
  */
-export function overtureIngestInput(row: OvertureFixtureRow): IngestInput | null {
+export function overtureIngestInput(
+  row: OvertureFixtureRow,
+  categoryMap: ReadonlyMap<string, string> = STATIC_DERIVATION_CONTEXT.categoryMap,
+): IngestInput | null {
   const r = overtureRowToSourceRecord(toOvertureRow(row), OVERTURE_FIXTURE_RELEASE);
   if (isSkipped(r)) return null;
-  return { externalId: r.externalId, payload: { ...r.payload }, derived: r.derived };
+  // The cluster exactly as scripts/ingest-overture.ts resolves it (A-CR-03).
+  return {
+    externalId: r.externalId,
+    payload: { ...r.payload },
+    derived: { ...r.derived, clusterKey: overtureClusterKey(r.derived.basicCategory, categoryMap) },
+  };
 }
 
 // ---------------------------------------------------------------------------------------
@@ -358,8 +403,17 @@ export async function seedComptrollerFixture(
   c: Client,
   orgId: string,
   rows: readonly ComptrollerFixtureRow[] = COMPTROLLER_FIXTURE,
+  /** Pass `await fixtureDerivationContext(c)` when the test compares a re-derivation. */
+  ctx: DerivationContext = STATIC_DERIVATION_CONTEXT,
 ): Promise<SeededBusiness[]> {
-  return writeAll(c, orgId, 'tx_comptroller', rows.map(comptrollerIngestInput), new Date(), '2026-09-20T00:00:00.000Z');
+  return writeAll(
+    c,
+    orgId,
+    'tx_comptroller',
+    rows.map((r) => comptrollerIngestInput(r, ctx)),
+    new Date(),
+    '2026-09-20T00:00:00.000Z',
+  );
 }
 
 /**
@@ -372,7 +426,7 @@ export async function seedOvertureFixture(
   orgId: string,
   rows: readonly OvertureFixtureRow[] = OVERTURE_FIXTURE,
 ): Promise<{ seeded: SeededBusiness[]; skipped: number }> {
-  const kept = rows.map(overtureIngestInput).filter((i): i is IngestInput => i !== null);
+  const kept = rows.map((r) => overtureIngestInput(r)).filter((i): i is IngestInput => i !== null);
   const seeded = await writeAll(c, orgId, 'overture', kept, new Date(), OVERTURE_FIXTURE_RELEASE);
   return { seeded, skipped: rows.length - kept.length };
 }

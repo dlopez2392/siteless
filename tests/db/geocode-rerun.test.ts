@@ -123,4 +123,69 @@ describe('DATA-04: the Census geocode pass on a re-run', () => {
       expect((await location(c, b.businessId))?.lat).toBe(26.23);
       expect(await location(c, a.businessId)).toEqual(survivor);
     }));
+
+  /**
+   * A-WR-07 (review 03). "No_Match writes nothing" is right for a transient failure and wrong
+   * when the permit's ADDRESS changed: the permits pass rewrites street/postal, the new address
+   * comes back No_Match, and the business kept the OLD point, still citing a census record whose
+   * `payload.input` names the old address — so the distance tiers, the geo gate and the 25 km
+   * rule scored the new address at the old location. Now a No_Match or Tie whose stored census
+   * input differs from the address just submitted clears the location. A ChunkFailed never
+   * does, and neither does a No_Match for an address that did not move.
+   */
+  it('a No_Match after the address moved clears the stale location; a transient one does not', () =>
+    withRollback(async (c) => {
+      const orgs = await seedTwoOrgs(c);
+      const x = asEtlExecutor(c);
+      await setEtlActor(x, 'ingest-comptroller');
+      expect(await resolveEtlOrg(x, 'org_A')).toBe(orgs.a);
+      const [moved, stayed, failed] = await seedComptrollerFixture(
+        c,
+        orgs.a,
+        COMPTROLLER_FIXTURE.slice(0, 3),
+      );
+      if (!moved || !stayed || !failed) throw new Error('fixture seeded fewer than three businesses');
+      const input = (s: typeof moved, street: string) => ({
+        externalId: s.externalId,
+        businessId: s.businessId,
+        geocodeInput: { street, city: 'MCALLEN', zip: '78501' },
+      });
+      const db = etlTransactions(x, 'org_A', { nested: true });
+
+      // Run 1: all three located.
+      const at = { lat: 26.21, lng: -98.231 };
+      await runGeocodePass(
+        db,
+        [input(moved, '100 MAIN ST'), input(stayed, '200 MAIN ST'), input(failed, '300 MAIN ST')],
+        exactAt({ [moved.externalId]: at, [stayed.externalId]: at, [failed.externalId]: at }),
+      );
+      for (const s of [moved, stayed, failed]) {
+        expect((await location(c, s.businessId))?.location_match_type).toBe('census_exact');
+      }
+
+      // Run 2: `moved` has a new address that does not match; `stayed` did not move and does not
+      // match this time (transient); `failed` lands in a failed chunk.
+      const second = await runGeocodePass(
+        db,
+        [input(moved, '900 ELM ST'), input(stayed, '200 MAIN ST'), input(failed, '300 MAIN ST')],
+        async (rows) =>
+          new Map(
+            rows.map((r): [string, BatchOutcome] => [
+              r.id,
+              r.id === failed.externalId
+                ? { kind: 'ChunkFailed', reason: 'unreachable' }
+                : { kind: 'No_Match' },
+            ]),
+          ),
+      );
+      expect(second.stats.location_cleared).toBe(1);
+      expect(await location(c, moved.businessId)).toEqual({
+        lat: null,
+        lng: null,
+        location_match_type: null,
+        location_source_id: null,
+      });
+      expect((await location(c, stayed.businessId))?.location_match_type).toBe('census_exact');
+      expect((await location(c, failed.businessId))?.location_match_type).toBe('census_exact');
+    }));
 });

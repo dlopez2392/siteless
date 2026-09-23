@@ -40,7 +40,8 @@ npx vitest run --config vitest.db.config.ts --pool=forks tests/db/ingest-idempot
 - `.env.local` holds `TEST_DATABASE_URL`. It points at the local `siteless_test` database
   (`docs/local-postgres.md`). Every script defaults to `--target=test`, and a test target refuses
   any Supabase host.
-- Migrations are applied through `0024_merge_functions.sql`:
+- Migrations are applied through `0025_review_fixes_spine.sql` (the review-03 fixes: the
+  write-gated re-derivation helper the ingests call for merged businesses):
 
   ```sh
   $PNPM db:migrate
@@ -192,7 +193,8 @@ select source_key, status, added, changed, unchanged, gone, total_seen,
 
 The per-source detail is in `ingest_runs.stats`:
 
-- `census_geocoder`: `matched, exact, non_exact, tie, no_match, chunks_failed, locations_written`
+- `census_geocoder`: `matched, exact, non_exact, tie, no_match, chunks_failed, locations_written,
+  location_cleared` (a No_Match or Tie for an address the permit moved to clears the old point)
 - `tx_comptroller`: `unmapped_naics, city_unfolded, rejected_rows, statewide_names`
 - `tx_comptroller_closures`: `businesses_closed, closed_via_merge_winner`
 - `overture`: `confidence_bands, unmapped_basic_category, skipped, permanently_closed`
@@ -249,3 +251,45 @@ merge-chosen locations.
 Production gets the same three commands with `--target=prod`. That needs `SUPABASE_DB_URL`
 pointed at the **session** pooler on `:5432`, and the scripts refuse anything else. Production
 runs behind danlo's go-ahead only (plan 03-21). Never run them from a test session.
+
+## 7. 🔴 When a derivation rule changes — the rederive pass
+
+Section 4's guarantee has a cost. A re-run writes nothing for an unchanged payload, so a change
+to anything that is **not in the payload** never reaches a stored row by re-ingesting:
+
+- a normalizer fix (`src/lib/normalize/` — `name_norm`, `street_norm`, phone blockability),
+- the Overture phone pick (`pickPhone`, `src/lib/overture/transform.ts`),
+- a new or edited `overture_category_map` row, or a changed NAICS range in `clusters.json`
+  (`cluster_key` — D-02's "adding a cluster is a mapping change, not a re-ingest"),
+- a new `cities.name_variants` spelling (the Comptroller `city` fold).
+
+Every one of those derivations lives in `src/lib/resolve/derivation.ts` (or is called from it),
+and the ingests AND survivorship both go through it. When you change one, **bump
+`DERIVATION_VERSION`** in that file, then run the rederive pass for each org:
+
+```sh
+$PNPM rederive --org=<clerk_org_id> --dry-run     # every batch rolled back; read the counts
+$PNPM rederive --org=<clerk_org_id>
+```
+
+This is `tsx scripts/rederive.ts`. For every business it recomputes, from the STORED payloads:
+
+1. `name_norm`, from the record that created the business (merged-away rows included — an
+   unmerge re-derives a loser's other columns but never its `name_norm`);
+2. every survivorship-owned column of every cluster **root**, through the same `survive()` a
+   merge uses (a single-record business is a cluster of one).
+
+It writes a row only when a value really differs (`app.apply_survivorship_if_changed`, 0025),
+so a pass over an up-to-date spine writes **zero** rows and zero `businesses` events. The report
+is one `rederive` event (`etl:rederive`) carrying `derivation_version`, `name_norm_written`,
+`survivorship_written` and up to 20 sample root ids — open two or three on `/businesses/[id]`
+and check the change is the one you meant.
+
+🔴 **Then run `pnpm resolve --org=<clerk_org_id>`** whenever `name_norm_written > 0`. Chain flags
+(`chain_key` is a `name_norm`), blocking and every pending candidate's score are computed from
+`name_norm`; the resolve pass recomputes them.
+
+🔴 Order after merging the review-03 normalizer fixes (B-CR-01 `name.ts`, B-WR-01..03): migrate,
+then `rederive --dry-run`, read the counts, `rederive`, then `resolve --dry-run`, `resolve`.
+Do it against the test database first; production is the same commands with `--target=prod`,
+behind danlo's go-ahead.

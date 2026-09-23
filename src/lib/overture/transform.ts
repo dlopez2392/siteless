@@ -141,6 +141,27 @@ const present = (s: string | null): s is string => s !== null && s.trim() !== ''
 
 const NO_PHONE: PhoneKey = { e164: null, blockable: false };
 
+/**
+ * THE phone pick for an Overture `phones[]` list — the ONE implementation both the ingest
+ * (below) and survivorship's `sourceRecordView` (src/lib/resolve/merge.ts) call, so the two
+ * cannot pick differently. tests/unit/payload-contract.test.ts pins that they agree.
+ *
+ * The first BLOCKABLE number wins; failing that, the first one that normalises at all.
+ * B-WR-04 (review 03): taking the first dialable entry picked the corporate 800 number a
+ * franchisee lists first, so the local number — the B1 blocking key and the R3 identifier —
+ * was never considered and the row dropped out of phone blocking. A toll-free-only list still
+ * keeps its number for display and dialling; it just never blocks. The raw list stays in the
+ * payload, so nothing is lost by the choice.
+ */
+export function pickPhone(raw: ReadonlyArray<string | null | undefined>): PhoneKey {
+  const keys: PhoneKey[] = [];
+  for (const p of raw) {
+    if (typeof p !== 'string' || p.trim() === '') continue;
+    keys.push(phoneE164(p));
+  }
+  return keys.find((k) => k.blockable) ?? keys.find((k) => k.e164 !== null) ?? NO_PHONE;
+}
+
 export function overtureRowToSourceRecord(row: unknown, release: string): OvertureTransformResult {
   const parsed = overtureRowSchema.safeParse(row);
   if (!parsed.success) {
@@ -163,9 +184,10 @@ export function overtureRowToSourceRecord(row: unknown, release: string): Overtu
   const socials: string[] = (r.socials?.items ?? []).filter(present);
   const emails: string[] = (r.emails?.items ?? []).filter(present);
 
-  // The first phone that normalises. `phones[]` is raw (four measured forms plus junk), and a
-  // junk first entry must not hide a dialable second one. The raw list stays in the payload.
-  const phone = phones.map((p) => phoneE164(p)).find((p) => p.e164 !== null) ?? NO_PHONE;
+  // `phones[]` is raw (four measured forms plus junk): a junk first entry must not hide a
+  // dialable second one, and a toll-free first entry must not hide a blockable local one.
+  // The raw list stays in the payload.
+  const phone = pickPhone(phones);
   const addr = addressKey(r.addr_freeform, r.addr_postcode);
 
   return {

@@ -26,6 +26,7 @@
 import type { Client } from 'pg';
 import { describe, expect, it } from 'vitest';
 import { resolveEtlOrg, setEtlActor } from '@/lib/ingest/etl-actor';
+import { finishRun } from '@/lib/ingest/run-report';
 import { localDate } from '@/lib/time';
 import { seedTwoOrgs, withRollback } from './_fixtures';
 import {
@@ -37,7 +38,7 @@ import {
   type IngestInput,
 } from './_ingest-fixtures';
 
-const INPUTS: IngestInput[] = COMPTROLLER_FIXTURE.map(comptrollerIngestInput);
+const INPUTS: IngestInput[] = COMPTROLLER_FIXTURE.map((r) => comptrollerIngestInput(r));
 const N = INPUTS.length;
 
 /** The desk-script transaction preamble: the actor GUC, then the org claim. Nothing else. */
@@ -116,7 +117,7 @@ describe('DATA-04: the ingest write path', () => {
       const target = COMPTROLLER_FIXTURE[3]!;
       const edited = COMPTROLLER_FIXTURE.map((r) =>
         r === target ? { ...r, outlet_name: 'LA ESTRELLA BAKERY & CAFE' } : r,
-      ).map(comptrollerIngestInput);
+      ).map((r) => comptrollerIngestInput(r));
       const externalId = `${target.taxpayer_number}-${target.outlet_number}`;
 
       const second = await runFixtureIngest(c, a, 'tx_comptroller', edited);
@@ -306,6 +307,37 @@ describe('the ETL tier has org context without Clerk claims', () => {
       );
       expect(ev.rows[0]!.org_id).toBe(a);
       expect(ev.rows[0]!.actor_id).toBe('etl:ingest-comptroller'); // sub omitted ⇒ GUC wins
+    }));
+
+  /**
+   * A-WR-08 (review 03). finishRun was the one owner-tier write in the ingest path with no org
+   * predicate (`where id = $1`). The owner bypasses RLS, so a wrong runId — a future scheduler
+   * reusing ids, a copy-paste in a desk script — completed ANOTHER org's run row, and the event
+   * was emitted under this org's claim pointing at the foreign row.
+   */
+  it("finishRun refuses another org's run id and leaves that run untouched", () =>
+    withRollback(async (c) => {
+      const { a, b } = await seedTwoOrgs(c);
+      const foreignRun = await seedIngestRun(c, b);
+      const before = await c.query('select status, added from ingest_runs where id = $1', [
+        foreignRun,
+      ]);
+      await c.query("select set_config('app.actor_id','etl:ingest-comptroller',true)");
+      expect(await resolveEtlOrg(asEtlExecutor(c), 'org_A')).toBe(a);
+      await expect(
+        finishRun(asEtlExecutor(c), foreignRun, {
+          status: 'complete',
+          added: 99,
+          changed: 0,
+          unchanged: 0,
+          totalSeen: 99,
+          gone: 0,
+        }),
+      ).rejects.toThrow(`finishRun: no ingest_runs row ${foreignRun}`);
+      const after = await c.query('select status, added from ingest_runs where id = $1', [
+        foreignRun,
+      ]);
+      expect(after.rows).toEqual(before.rows);
     }));
 
   it('emit_event refuses an owner connection that skipped resolveEtlOrg', () =>

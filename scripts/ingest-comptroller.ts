@@ -77,7 +77,17 @@ import {
   type BatchOutcome,
   type BatchRow,
 } from '@/lib/geocode/census-batch';
-import { addressKey, nameNorm } from '@/lib/normalize';
+import { nameNorm } from '@/lib/normalize';
+import {
+  censusInput,
+  censusInputIsStale,
+  cityFoldKey,
+  comptrollerDerived,
+  loadCityFold,
+  seededClusterRanges,
+  type CityFold,
+} from '@/lib/resolve/derivation';
+import { clusterOf, rederiveRoot } from '@/lib/resolve/rederive';
 import {
   paddedCountyCode,
   quote,
@@ -106,7 +116,7 @@ import {
   type ClusterNaicsRanges,
   type PermitRow,
 } from '@/lib/socrata/permits';
-import type { ClustersFile, CountiesFile } from '../src/seed/types';
+import type { CountiesFile } from '../src/seed/types';
 
 const SCRIPT: EtlScript = 'ingest-comptroller';
 
@@ -334,12 +344,12 @@ function readSeedFile<T>(name: string): T {
   return JSON.parse(readFileSync(path, 'utf8')) as T;
 }
 
-/** The seeded clusters' half-open NAICS ranges — the same file `pnpm db:seed` loads. */
+/**
+ * The seeded clusters' half-open NAICS ranges — the same file `pnpm db:seed` loads, read
+ * through the one derivation module survivorship also reads it through (A-CR-03).
+ */
 export function seededClusters(): ClusterNaicsRanges[] {
-  return readSeedFile<ClustersFile>('clusters.json').clusters.map((c) => ({
-    key: c.key,
-    naicsRanges: c.naicsRanges,
-  }));
+  return seededClusterRanges();
 }
 
 /** Cameron, Hidalgo, Starr, Willacy as integers (31, 108, 214, 245), from the seed. */
@@ -351,32 +361,12 @@ export function seededRgvComptrollerCodes(): number[] {
 }
 
 /**
- * `outlet_city` spelling → the seeded city `name`, per county: the Phase 2 ∥ 3 shared
- * contract (`cities.name_variants`, matched upper-case, displayed as `name`). Read from the
- * database's built-in rows, so the fold is exactly what the geo presets resolve against.
+ * `outlet_city` spelling → the seeded city `name`, per county (`cities.name_variants`). The
+ * fold lives in src/lib/resolve/derivation.ts since A-CR-03: survivorship re-derives a merged
+ * winner's city through the same fold the ingest writes it with. Re-exported here for the
+ * callers that already import it from this script.
  */
-export type CityFold = Map<string, string>;
-
-export const cityFoldKey = (countyCode: number, outletCity: string) =>
-  `${countyCode}|${outletCity.trim().replace(/\s+/g, ' ').toUpperCase()}`;
-
-export async function loadCityFold(tx: EtlExecutor): Promise<CityFold> {
-  const { rows } = await tx.query<{
-    comptroller_code: number;
-    name: string;
-    name_variants: string[];
-  }>(
-    `select co.comptroller_code, ci.name, ci.name_variants
-       from cities ci join counties co on co.id = ci.county_id
-      where ci.org_id is null and co.org_id is null`,
-  );
-  const fold: CityFold = new Map();
-  for (const r of rows) {
-    for (const v of [r.name, ...r.name_variants])
-      fold.set(cityFoldKey(r.comptroller_code, v), r.name);
-  }
-  return fold;
-}
+export { cityFoldKey, loadCityFold, type CityFold };
 
 // ---------------------------------------------------------------------------------------
 // The permits feed: fetch → validate → transform.
@@ -468,6 +458,10 @@ export interface PermitIngest {
  * Pure. `outlet_address` is the location; the taxpayer's mailing address is stripped by the
  * schema and never read (PITFALLS). An unmapped NAICS leaves `cluster_key` NULL: the row stays
  * in the spine and never enters the funnel (D-02).
+ *
+ * 🔴 THE DERIVED COLUMNS COME FROM `comptrollerDerived` (src/lib/resolve/derivation.ts), the
+ * function survivorship's `sourceRecordView` re-reads a stored permit through (A-CR-03). Two
+ * implementations of "what a permit derives" is how a merge used to drop the cluster.
  */
 export function permitToIngest(
   row: PermitRow,
@@ -476,7 +470,7 @@ export function permitToIngest(
   cityFold: CityFold,
 ): PermitIngest {
   const rec = comptrollerRowToSourceRecord(row, sourceVersion, clusters);
-  const addr = addressKey(row.outlet_address, row.outlet_zip_code);
+  const d = comptrollerDerived(row, { clusters, cityFold, categoryMap: new Map() });
   const folded =
     row.outlet_city === undefined
       ? undefined
@@ -486,23 +480,23 @@ export function permitToIngest(
     sourceVersion: rec.sourceVersion,
     payload: rec.payload,
     derived: {
-      displayName: rec.legalName,
-      legalName: rec.legalName,
+      displayName: d.displayName,
+      legalName: d.legalName,
       primarySource: 'tx_comptroller',
       comptrollerKey: rec.externalId,
       nameNorm: nameNorm(row.outlet_name),
-      city: folded ?? rec.city,
-      street: rec.street,
-      streetNum: addr.streetNum,
-      streetNorm: addr.streetNorm,
-      unit: addr.unit,
-      postal: addr.postal,
-      clusterKey: rec.clusterKey,
+      city: d.city,
+      street: d.street,
+      streetNum: d.streetNum,
+      streetNorm: d.streetNorm,
+      unit: d.unit,
+      postal: d.postal,
+      clusterKey: d.clusterKey,
       // lat/lng deliberately UNDEFINED: a re-ingest of a changed permit must not null the
       // location the Census pass wrote (upsert.ts: undefined = not written).
     },
     geocodeInput: { street: rec.street, city: rec.city, zip: rec.postal },
-    unmappedNaics: rec.clusterKey === null,
+    unmappedNaics: d.clusterKey === null,
     cityFolded: folded !== undefined,
   };
 }
@@ -667,6 +661,9 @@ const WRITE_LOCATION = `
  * 🔴 A `No_Match`, a `Tie` or a `ChunkFailed` writes NOTHING: `lat`/`lng` stay as they are
  * (NULL on a first run) and the business falls back to text matching (D-08). No location is
  * ever invented, and a transient chunk failure never erases a location an earlier run found.
+ * ONE exception (A-WR-07): a `No_Match` or `Tie` for an address the stored census record did
+ * NOT answer — the permit moved — clears the location that record supplied, counted as
+ * `stats.location_cleared`. A `ChunkFailed` never clears anything.
  *
  * 🔴 Expect ≈7,000 of 34,928 to end unlocated (03-20 desk run: 79.9 % matched, 6,889 no match,
  * 136 tie; research had 70.9 %). Not a failure: those rows fall back to text matching.
@@ -703,6 +700,9 @@ export async function runGeocodePass(
       const failureReasons: Record<string, number> = {};
       let failedRows = 0;
       const matches: Array<{ w: PermitWritten; row: BatchRow; o: BatchMatch }> = [];
+      // A-WR-07: No_Match / Tie answers — candidates for clearing a location that describes an
+      // address the permit no longer has. Never a ChunkFailed: that is transient by definition.
+      const unmatched: Array<{ w: PermitWritten; row: BatchRow }> = [];
       submit.forEach((row, index) => {
         const o = outcomes.get(row.id);
         const w = byId.get(row.id);
@@ -713,9 +713,13 @@ export async function runGeocodePass(
           failedChunks.add(Math.floor(index / CENSUS_BATCH_CHUNK));
           const reason = o?.kind === 'ChunkFailed' ? o.reason : 'missing_outcome';
           failureReasons[reason] = (failureReasons[reason] ?? 0) + 1;
-        } else if (o.kind === 'Tie') counts.tie += 1;
-        else if (o.kind === 'No_Match') counts.no_match += 1;
-        else {
+        } else if (o.kind === 'Tie') {
+          counts.tie += 1;
+          unmatched.push({ w, row });
+        } else if (o.kind === 'No_Match') {
+          counts.no_match += 1;
+          unmatched.push({ w, row });
+        } else {
           counts.matched += 1;
           if (o.matchType === 'Exact') counts.exact += 1;
           else counts.non_exact += 1;
@@ -741,7 +745,7 @@ export async function runGeocodePass(
               sourceKey: 'census_geocoder',
               externalId: w.externalId,
               payload: {
-                input: { street: row.street, city: row.city, state: 'TX', zip: row.zip },
+                input: censusInput({ street: row.street, city: row.city, zip: row.zip }),
                 match_type: o.matchType,
                 // Display the service's resolved address, never the input (census-batch.ts).
                 matched_address: o.matchedAddress,
@@ -754,6 +758,17 @@ export async function runGeocodePass(
             recordOutcome(tally, sr);
             // The gate: an unchanged census record writes nothing (see WRITE_LOCATION).
             if (!sr.inserted && !sr.changed) continue;
+            // 🔴 A-CR-02: a business in a merge cluster takes its location from survive()
+            // over the WHOLE cluster (Overture, then Census Exact, then Non_Exact), never
+            // straight from this record — the direct write overwrote a winner's Overture
+            // point. The root is re-derived instead, write-gated.
+            const position = await clusterOf(tx, orgId, w.businessId);
+            if (position.clustered) {
+              if (await rederiveRoot(tx, orgId, position.root, { caller: 'census' })) {
+                locationsWritten += 1;
+              }
+              continue;
+            }
             const { rows } = await tx.query<{ id: string }>(WRITE_LOCATION, [
               w.businessId,
               orgId,
@@ -767,9 +782,62 @@ export async function runGeocodePass(
         });
       }
       stats.locations_written = locationsWritten;
+
+      // 🔴 A-WR-07. A No_Match or Tie is normally "write nothing" — a transient miss must never
+      // erase a location an earlier run found. But when the STORED census record answered a
+      // DIFFERENT address than the one just submitted, the permit has moved and that answer
+      // describes a place the business no longer is: the old point would keep scoring the new
+      // address (distance tiers, the 500 m geo gate, the 25 km rule). So the location it
+      // supplied is cleared — on a single business only while it still cites that record, and
+      // on a merge cluster by re-deriving the root, where readParents drops the stale census
+      // parent (merge.ts) and the location falls to the next parent or to NULL.
+      let locationCleared = 0;
+      for (const batch of chunks(unmatched, INGEST_BATCH_SIZE)) {
+        await db.run(async ({ tx, orgId }) => {
+          const { rows: stored } = await tx.query<{ id: string; external_id: string; input: unknown }>(
+            `select sr.id, sr.external_id, sr.payload -> 'input' as input
+               from source_records sr
+              where sr.org_id = $1::uuid and sr.source_key = 'census_geocoder'
+                and sr.external_id in (select jsonb_array_elements_text($2::jsonb))`,
+            [orgId, JSON.stringify(batch.map((u) => u.w.externalId))],
+          );
+          const byKey = new Map(stored.map((s) => [s.external_id, s]));
+          for (const { w, row } of batch) {
+            const prior = byKey.get(w.externalId);
+            if (!prior) continue;
+            const now = censusInput({ street: row.street, city: row.city, zip: row.zip });
+            if (!censusInputIsStale(prior.input, now)) continue;
+            const position = await clusterOf(tx, orgId, w.businessId);
+            if (position.clustered) {
+              if (await rederiveRoot(tx, orgId, position.root, { caller: 'census' })) {
+                locationCleared += 1;
+              }
+              continue;
+            }
+            const { rows } = await tx.query<{ id: string }>(CLEAR_LOCATION, [
+              w.businessId,
+              orgId,
+              prior.id,
+            ]);
+            locationCleared += rows.length;
+          }
+        });
+      }
+      stats.location_cleared = locationCleared;
     },
   );
 }
+
+/**
+ * A-WR-07: clears a location that a now-stale census record supplied. Only while the business
+ * still CITES that record — a location that has since come from anywhere else is not this
+ * record's to clear.
+ */
+const CLEAR_LOCATION = `
+  update businesses
+     set lat = null, lng = null, location_source_id = null, location_match_type = null
+   where id = $1 and org_id = $2 and location_source_id = $3::uuid
+  returning id`;
 
 type BatchMatch = Extract<BatchOutcome, { kind: 'Match' }>;
 

@@ -8,9 +8,15 @@
  * Under RLS a cross-org SELECT/UPDATE/DELETE is FILTERED to zero rows, not refused; only
  * an INSERT carrying a foreign org_id raises. Criterion 2 needs both halves.
  *
- * Mutation: drop the `with check` clause from the businesses_insert policy in
- * drizzle/0003_policies.sql — 'org A cannot INSERT into org B, and the refusal is 42501'
- * goes red, and only that one.
+ * Mutation: drop the `with check` clause from the searches_insert policy — 'org A cannot
+ * INSERT into org B, and the refusal is 42501' goes red, and only that one.
+ *
+ * 🔴 THE WRITE HALF RUNS ON `searches`, NOT `businesses` (A-WR-01, review 03). drizzle/0025
+ * made businesses and source_records SELECT-only for the Clerk role: a Clerk user's write
+ * there is now refused by the GRANT (tests/db/grants-audit.test.ts pins that), so it can no
+ * longer prove anything about a POLICY. `searches` is an org-scoped table the Clerk role
+ * really writes, under the same orgPolicies() factory, so the policy half of criterion 2 is
+ * still proved where it is still load-bearing. The SELECT half stays on businesses.
  * Second mutation: `grant update on public.orgs to authenticated` against the live database
  * — 'a tenant cannot re-key its own clerk_org_id' goes red, and only that one.
  */
@@ -18,6 +24,7 @@ import { describe, expect, it } from 'vitest';
 import { actAs, actAsRole, seedTwoOrgs, SQL_FRESH_EXTERNAL_KEY, withRollback } from './_fixtures';
 
 const INSERT_BUSINESS = `insert into businesses (org_id, display_name, external_key) values ($1,$2,${SQL_FRESH_EXTERNAL_KEY})`;
+const INSERT_SEARCH = 'insert into searches (org_id, name_internal, display_name) values ($1,$2,$2)';
 
 describe('RLS tenant isolation', () => {
   it('org A sees only its own org rows under a v1 flat claim', () =>
@@ -50,7 +57,7 @@ describe('RLS tenant isolation', () => {
     withRollback(async (c) => {
       const { b } = await seedTwoOrgs(c);
       await actAs(c, { o: { id: 'org_A' }, sub: 'user_danlo', role: 'authenticated' });
-      const attempt = c.query(INSERT_BUSINESS, [b, 'pwned']);
+      const attempt = c.query(INSERT_SEARCH, [b, 'pwned']);
       await expect(attempt).rejects.toMatchObject({ code: '42501' });
       // 42501 also covers a plain grant refusal, and plan 09's events tests turn on
       // telling the two apart — so pin the message as well as the code.
@@ -79,15 +86,21 @@ describe('RLS tenant isolation', () => {
   it('a cross-org UPDATE and DELETE are filtered, not refused', () =>
     withRollback(async (c) => {
       const { a, b } = await seedTwoOrgs(c);
-      await c.query(INSERT_BUSINESS, [a, 'Alpha Roofing']);
-      await c.query(INSERT_BUSINESS, [b, 'Bravo Plumbing']);
+      await c.query(INSERT_SEARCH, [a, 'Alpha presets']);
+      await c.query(INSERT_SEARCH, [b, 'Bravo presets']);
       await actAs(c, { org_id: 'org_A', sub: 'user_danlo', role: 'authenticated' });
-      const updated = await c.query('update businesses set display_name = $2 where org_id = $1', [
+      // Positive control: the same statement shape DOES reach the caller's own row, so the
+      // zeros below are the policy filtering org B, not a statement that matches nothing.
+      const own = await c.query('update searches set display_name = display_name where org_id = $1', [
+        a,
+      ]);
+      expect(own.rowCount).toBe(1);
+      const updated = await c.query('update searches set display_name = $2 where org_id = $1', [
         b,
         'x',
       ]);
       expect(updated.rowCount).toBe(0);
-      const deleted = await c.query('delete from businesses where org_id = $1', [b]);
+      const deleted = await c.query('delete from searches where org_id = $1', [b]);
       expect(deleted.rowCount).toBe(0);
     }));
 

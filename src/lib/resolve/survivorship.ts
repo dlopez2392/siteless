@@ -175,7 +175,21 @@ export function survive(parents: SourceRecordView[]): SurvivingFields {
 
   // closed_at: tx_comptroller_closures ONLY (D-03). An Overture 'permanently_closed' lives in
   // operating_status and never reaches here.
-  const closure = first(ps, (p) => is('tx_comptroller_closures')(p) && p.closedAt !== null);
+  //
+  // 🔴 THE LATEST DATE, ties to the smaller id — exactly CLOSURE_UPDATE_SQL's `order by
+  // closed_at desc, sr.id` (scripts/ingest-comptroller.ts). A-WR-04: closures carry null
+  // confidence, so `first()` over the canonical order took the SMALLEST uuid's date, and the
+  // two writers of closed_at flip-flopped it on every merge and every closures run. Two
+  // writers, one rule. (A closure that later vanishes from the feed still closes the
+  // business: `3kx8-uryv` is a historical out-of-business record, its source record is never
+  // deleted, and a business is not reopened on a feed's absence alone — D-05.)
+  const closure = ps
+    .filter((p) => is('tx_comptroller_closures')(p) && p.closedAt !== null)
+    .reduce<SourceRecordView | undefined>((best, p) => {
+      if (best === undefined) return p;
+      const d = Date.parse(p.closedAt as string) - Date.parse(best.closedAt as string);
+      return d > 0 || (d === 0 && p.id < best.id) ? p : best;
+    }, undefined);
 
   // Derived columns: Overture first, then any parent carrying a value.
   const derivedFrom = <K extends 'basicCategory' | 'clusterKey' | 'confidence' | 'operatingStatus'>(

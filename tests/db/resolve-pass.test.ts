@@ -42,6 +42,7 @@ import {
   stageBlock,
   stageChains,
   stageDistanceGate,
+  mergeCandidate,
   stageMerge,
   stageScore,
   TrigramPlanError,
@@ -71,6 +72,8 @@ interface Biz {
   source?: 'tx_comptroller' | 'overture';
   /** Back-dates created_at, which decides the merge winner (older wins). */
   ageHours?: number;
+  /** The suite/unit as the record carries it (B-WR-01). */
+  unit?: string | null;
 }
 
 /** One owner-inserted business. `name` is written straight into `name_norm` (already normal). */
@@ -78,9 +81,9 @@ async function biz(c: Client, orgId: string, b: Biz): Promise<string> {
   const r = await c.query<{ id: string }>(
     `insert into businesses (org_id, external_key, display_name, name_norm, phone_e164,
                              phone_blockable, street_num, street_norm, postal, lat, lng,
-                             location_match_type, cluster_key, primary_source, created_at)
+                             location_match_type, cluster_key, primary_source, created_at, unit)
      values ($1, ${SQL_FRESH_EXTERNAL_KEY}, $2, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-             now() - make_interval(hours => $13::int))
+             now() - make_interval(hours => $13::int), $14)
      returning id`,
     [
       orgId,
@@ -96,6 +99,7 @@ async function biz(c: Client, orgId: string, b: Biz): Promise<string> {
       b.cluster ?? null,
       b.source ?? 'tx_comptroller',
       b.ageHours ?? 0,
+      b.unit ?? null,
     ],
   );
   const id = r.rows[0]?.id;
@@ -539,5 +543,176 @@ describe('the resolve pass (DEDUP-01, DEDUP-02)', () => {
       await c.query('set local enable_bitmapscan = off');
       const check = (tx: EtlExecutor, orgId: string) => assertTrigramPlan(tx, orgId, 0);
       await expect(db.run(({ tx, orgId }) => check(tx, orgId))).rejects.toBeInstanceOf(TrigramPlanError);
+    }));
+});
+
+/**
+ * B-WR-01 (review 03), end to end: the pass must hand the scorer each side's UNIT. Two tenants
+ * of one building — same name, same street number, 22 m apart, same cluster — scored 95 and
+ * auto-merged while the suite was stripped from the key and never compared.
+ */
+describe('two suites at one street number are not one business (B-WR-01)', () => {
+  it('the pass scores different suites below 95 and merges nothing', () =>
+    withRollback(async (c) => {
+      const { a } = await seedTwoOrgs(c);
+      const addr = { streetNum: '900', streetNorm: 'e business 83', postal: '78501', cluster: 'home_services' };
+      const ste5 = await biz(c, a, {
+        name: 'valley dental',
+        ...addr,
+        unit: 'STE 5',
+        lat: 26.18,
+        lng: -98.21,
+        match: 'census_exact',
+        ageHours: 24,
+      });
+      const ste7 = await biz(c, a, {
+        name: 'valley dental',
+        ...addr,
+        unit: 'SUITE 7',
+        lat: 26.1802,
+        lng: -98.21,
+        match: 'overture',
+        source: 'overture',
+      });
+      await withPermissiveClaims(c);
+      await runPass(c);
+      const cand = await candidate(c, a, ste5, ste7);
+      expect(cand?.decision).toBe('pending');
+      expect(cand!.score).toBeLessThan(95);
+      expect(cand!.features).toMatchObject({ address: 15 });
+      expect((await mergedInto(c, [ste5, ste7]))[ste7]).toBeNull();
+    }));
+});
+
+/**
+ * A-WR-03 (review 03). The pass settled "both sides are one root" only for the >= 95 queue, and
+ * left a distinct-blocked >= 95 pair pending forever — so the review queue asked about pairs
+ * that were already one business, and ranked FIRST a pair between two clusters a person had
+ * just ruled apart. The pass now settles every pending pair of either kind.
+ */
+describe('the pass settles stale pending pairs (A-WR-03)', () => {
+  it('a pending pair inside one cluster is marked merged, and one across a distinct ruling distinct', () =>
+    withRollback(async (c) => {
+      const { a } = await seedTwoOrgs(c);
+      const far = { streetNum: '1', streetNorm: 'far rd', postal: '78599', cluster: null };
+      // Cluster one: x absorbs y and z by hand (the merges happened through other edges).
+      const x = await biz(c, a, { name: 'alpha one', ...far, ageHours: 3 });
+      const y = await biz(c, a, { name: 'bravo two', ...far });
+      const z = await biz(c, a, { name: 'charlie three', ...far });
+      // Two clusters a person ruled apart: p | q, with r merged into q.
+      const p = await biz(c, a, { name: 'delta four', ...far });
+      const q = await biz(c, a, { name: 'echo five', ...far, ageHours: 3 });
+      const r = await biz(c, a, { name: 'foxtrot six', ...far });
+      await c.query('update businesses set merged_into_id = $1, status = $2 where id = any($3::uuid[])', [
+        x,
+        'merged',
+        [y, z],
+      ]);
+      await c.query("update businesses set merged_into_id = $1, status = 'merged' where id = $2", [q, r]);
+      const cand = async (u: string, v: string, score: number, decision = 'pending') => {
+        const [l, rr] = pairOf(u, v);
+        const res = await c.query<{ id: string }>(
+          `insert into merge_candidates (org_id, left_id, right_id, block_key, score, features, decision)
+           values ($1, $2, $3, 'test', $4, '{}'::jsonb, $5) returning id`,
+          [a, l, rr, score, decision],
+        );
+        return res.rows[0]!.id;
+      };
+      const inside = await cand(y, z, 88); // both sides are x now
+      const ruled = await cand(p, q, 90, 'distinct'); // the person's "Different"
+      const across = await cand(p, r, 96); // r is q's now: the same two clusters
+      const live = await cand(p, x, 85); // an honest open question — must stay pending
+      await withPermissiveClaims(c);
+
+      const report = await runPass(c);
+      expect(report.stats.tidy).toEqual({ already_one: 1, spanned_distinct: 1 });
+      const d = await c.query<{ id: string; decision: string; decided_by: string | null }>(
+        'select id, decision, decided_by from merge_candidates where id = any($1::uuid[])',
+        [[inside, ruled, across, live]],
+      );
+      const byId = Object.fromEntries(d.rows.map((row) => [row.id, row.decision]));
+      expect(byId).toEqual({
+        [inside]: 'merged',
+        [ruled]: 'distinct',
+        [across]: 'distinct',
+        [live]: 'pending',
+      });
+      // Nothing was merged by the settling: the >= 95 pair across the ruling stayed apart.
+      expect((await mergedInto(c, [p, r]))[p]).toBeNull();
+    }));
+});
+
+/**
+ * A-WR-10 (review 03). Stage 5 retried 40001 only. A 55000 from a reviewer deciding the same
+ * pair mid-pass (now also the refusals A-CR-01 added), or a 40P01 deadlock between
+ * record_merge and undo_merge, killed the rest of the merge loop after minutes of blocking and
+ * scoring — and the run report, emitted after stage 5, was never written. The refusals are
+ * injected through stage 5's `mergeOne` seam: a real race cannot be staged on one connection.
+ */
+const pgError = (code: string, message: string) => Object.assign(new Error(message), { code });
+
+describe('stage 5 survives the refusals a live queue produces (A-WR-10)', () => {
+  it('a 55000 mid-pass is counted not_pending and the loop merges the rest', () =>
+    withRollback(async (c) => {
+      const { a } = await seedTwoOrgs(c);
+      await seedPair95(c, a, 'riverside stone');
+      await seedPair95(c, a, 'harlingen granite');
+      const db = deskDb(c);
+      await stageBlock(db);
+      await stageScore(db);
+      let first = true;
+      const out = await stageMerge(db, {
+        mergeOne: async (t, candidateId) => {
+          if (first) {
+            first = false;
+            throw pgError('55000', 'record_merge: candidate already decided');
+          }
+          return mergeCandidate(t, candidateId);
+        },
+      });
+      expect(out).toMatchObject({ considered: 2, not_pending: 1, merged: 1 });
+    }));
+
+  it('a 40P01 deadlock is retried like a serialization failure', () =>
+    withRollback(async (c) => {
+      const { a } = await seedTwoOrgs(c);
+      await seedPair95(c, a);
+      const db = deskDb(c);
+      await stageBlock(db);
+      await stageScore(db);
+      let deadlocks = 1;
+      const out = await stageMerge(db, {
+        mergeOne: async (t, candidateId) => {
+          if (deadlocks > 0) {
+            deadlocks -= 1;
+            throw pgError('40P01', 'deadlock detected');
+          }
+          return mergeCandidate(t, candidateId);
+        },
+      });
+      expect(out).toMatchObject({ considered: 1, merged: 1, retries: 1 });
+    }));
+
+  it('a pass that fails in stage 5 still writes its partial run report, then rethrows', () =>
+    withRollback(async (c) => {
+      const { a } = await seedTwoOrgs(c);
+      await seedPair95(c, a);
+      await expect(
+        runResolvePass(deskDb(c), {
+          mergeOne: async () => {
+            throw new Error('boom: something no stage expects');
+          },
+        }),
+      ).rejects.toThrow('boom: something no stage expects');
+      const ev = await c.query<{ after: Record<string, unknown> }>(
+        `select after from events
+          where org_id = $1 and entity_type = 'businesses' and action = 'resolve'`,
+        [a],
+      );
+      expect(ev.rows).toHaveLength(1);
+      expect(ev.rows[0]!.after).toMatchObject({
+        failed: { stage: 'merge', error: 'Error: boom: something no stage expects' },
+        scored: 1,
+      });
     }));
 });

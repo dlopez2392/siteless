@@ -5,6 +5,7 @@ import type { Claims } from './_fixtures';
 import {
   asEtlExecutor,
   comptrollerIngestInput,
+  fixtureDerivationContext,
   overtureIngestInput,
   type ComptrollerFixtureRow,
   type OvertureFixtureRow,
@@ -96,7 +97,16 @@ export interface SeededSide {
 export async function seedComptrollerSide(
   c: Client,
   orgId: string,
-  spec: { name: string; address: string; zip: string; city: string; lat: number; lng: number },
+  spec: {
+    name: string;
+    address: string;
+    zip: string;
+    city: string;
+    lat: number;
+    lng: number;
+    /** Defaults to 238220 (home_services). A NAICS outside every seeded range → no cluster. */
+    naics?: string;
+  },
 ): Promise<SeededSide & { censusRecordId: string }> {
   seq += 1;
   const row: ComptrollerFixtureRow = {
@@ -107,9 +117,12 @@ export async function seedComptrollerSide(
     outlet_city: spec.city,
     outlet_zip_code: spec.zip,
     outlet_county_code: '108',
-    outlet_naics_code: '238220',
+    outlet_naics_code: spec.naics ?? '238220',
   };
-  const input = comptrollerIngestInput(row);
+  // The LIVE derivation context (the database's city fold and category map), the one
+  // survivorship re-derives with: a fixture whose unmerge re-derivation is compared against
+  // its ingest must have been ingested through the same fold (A-CR-03).
+  const input = comptrollerIngestInput(row, await fixtureDerivationContext(c));
   const x = asEtlExecutor(c);
   const seenAt = new Date();
   const sr = await upsertSourceRecord(x, {
@@ -164,6 +177,8 @@ export async function seedOvertureSide(
     lat: number;
     lng: number;
     phone?: string | null;
+    /** Defaults to 'stone_supplier' (unmapped). 'restaurant' maps to food_hospitality. */
+    basicCategory?: string;
   },
 ): Promise<SeededSide> {
   const row: OvertureFixtureRow = {
@@ -174,12 +189,12 @@ export async function seedOvertureSide(
     locality: spec.city,
     lat: spec.lat,
     lng: spec.lng,
-    basic_category: 'stone_supplier',
+    basic_category: spec.basicCategory ?? 'stone_supplier',
     phone: spec.phone ?? null,
     street: spec.street,
     postcode: spec.zip,
   };
-  const input = overtureIngestInput(row);
+  const input = overtureIngestInput(row, (await fixtureDerivationContext(c)).categoryMap);
   // Since 03-13 this runs the production transform, which returns null for a skipped row.
   if (input === null) throw new Error(`seedOvertureSide: the transform skipped ${spec.name}`);
   const x = asEtlExecutor(c);

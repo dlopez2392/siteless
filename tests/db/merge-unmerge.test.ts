@@ -38,13 +38,19 @@
 import type { Client } from 'pg';
 import { describe, expect, it } from 'vitest';
 import { resolveEtlOrg, setEtlActor } from '@/lib/ingest/etl-actor';
+import { upsertSourceRecord } from '@/lib/ingest/upsert';
+import { closureRowSchema, closureRowToSourceRecord } from '@/lib/socrata/closures';
+import { applyClosures } from '../../scripts/ingest-comptroller';
 import { mergePair, recordCandidateDecision, unmergeBusinesses } from '@/lib/resolve/merge';
 import { actAs, actAsRole, seedTwoOrgs, withRollback } from './_fixtures';
 import { asEtlExecutor } from './_ingest-fixtures';
 import {
   CLAIMS_A,
   CLAIMS_B,
+  seedCandidate,
+  seedComptrollerSide,
   seedMergePair,
+  seedOvertureSide,
   seedTriple,
   survivorshipColumns,
 } from './_merge-fixtures';
@@ -117,6 +123,56 @@ describe('merge and unmerge (DEDUP-02)', () => {
       expect(w.location_source_id).toBe(overture.sourceRecordId);
     }));
 
+  /**
+   * A-CR-03 (review 03). survive() derives cluster_key "Overture first, then any parent", but
+   * the view it reads never set a cluster — the Overture payload carries none (the ingest looks
+   * it up in overture_category_map) and the Comptroller view never mapped its NAICS code. So a
+   * Comptroller winner outside every seeded range kept cluster_key NULL after absorbing its
+   * Overture 'restaurant' twin, and under D-02 the merged business silently left the funnel.
+   */
+  it('a merge keeps the Overture-mapped cluster when the Comptroller winner has none', () =>
+    withRollback(async (c) => {
+      const { a } = await seedTwoOrgs(c);
+      const comptroller = await seedComptrollerSide(c, a, {
+        name: 'EL FARO RESTAURANT LLC',
+        address: '1200 N 10TH ST',
+        zip: '78501',
+        city: 'MCALLEN',
+        lat: 26.2034,
+        lng: -98.23,
+        naics: '522110', // banking: outside all four seeded ranges
+      });
+      const overture = await seedOvertureSide(c, a, {
+        name: 'El Faro Restaurant',
+        street: '1200 N 10th St',
+        zip: '78501',
+        city: 'McAllen',
+        lat: 26.2035,
+        lng: -98.23,
+        basicCategory: 'restaurant',
+      });
+      // Positive controls: the two sides really start with different clusters.
+      expect((await survivorshipColumns(c, comptroller.businessId)).cluster_key).toBeNull();
+      expect((await survivorshipColumns(c, overture.businessId)).cluster_key).toBe('food_hospitality');
+      const candidateId = await seedCandidate(c, a, comptroller.businessId, overture.businessId);
+
+      await actAs(c, CLAIMS_A);
+      const r = await mergePair(asEtlExecutor(c), {
+        candidateId,
+        leftId: comptroller.businessId,
+        rightId: overture.businessId,
+        reason: 'review',
+        score: 95,
+        features: FEATURES,
+      });
+      expect(r.winnerId).toBe(comptroller.businessId);
+      const w = await survivorshipColumns(c, comptroller.businessId);
+      expect({ basic_category: w.basic_category, cluster_key: w.cluster_key }).toEqual({
+        basic_category: 'restaurant',
+        cluster_key: 'food_hospitality',
+      });
+    }));
+
   it('unmerge restores', () =>
     withRollback(async (c) => {
       const { a } = await seedTwoOrgs(c);
@@ -167,6 +223,69 @@ describe('merge and unmerge (DEDUP-02)', () => {
       expect(await survivorshipColumns(c, overture.businessId)).toEqual(loserBefore);
     }));
 
+  /**
+   * A-WR-05 (review 03). Unmerge restored the winner from `winner_fields_before`, which is right
+   * only if nothing but merges touched the winner in between — and the LIFO check covers
+   * merges only. The review's case, exactly: after the merge the closures pass sets the
+   * winner's closed_at from the winner's OWN closure record; the unmerge wrote NULL back from
+   * the snapshot, and a dead business read as active again until the next closures run. The
+   * winner is now re-derived like the loser: survive() over its remaining cluster (every
+   * member minus the loser's subtree). The snapshot stays for audit.
+   */
+  it("unmerge keeps a closure the winner gained after the merge", () =>
+    withRollback(async (c) => {
+      const { a } = await seedTwoOrgs(c);
+      const { comptroller, overture, candidateId } = await seedMergePair(c, a);
+      await asResolvePass(c);
+      const x = asEtlExecutor(c);
+      const { mergeId } = await mergePair(x, {
+        candidateId,
+        leftId: comptroller.businessId,
+        rightId: overture.businessId,
+        reason: 'auto',
+        score: 95,
+        features: FEATURES,
+      });
+
+      // After the merge: the winner's own outlet shows up in the out-of-business feed.
+      const key = (
+        await c.query<{ k: string }>('select comptroller_key as k from businesses where id = $1', [
+          comptroller.businessId,
+        ])
+      ).rows[0]!.k;
+      const [tp, loc] = key.split('-') as [string, string];
+      const rec = closureRowToSourceRecord(
+        closureRowSchema.parse({
+          tp_number: tp,
+          loc_number: loc,
+          loc_name: 'RIVERSIDE STONE, INC.',
+          loc_county: '108',
+          out_of_business_date: '2026-06-30T00:00:00.000',
+        }),
+        '2026-09-20T00:00:00.000Z',
+      );
+      const closure = await upsertSourceRecord(x, {
+        orgId: a,
+        sourceKey: rec.sourceKey,
+        externalId: rec.externalId,
+        payload: rec.payload,
+        sourceVersion: rec.sourceVersion,
+        seenAt: new Date(),
+      });
+      expect(await applyClosures(x, a)).toEqual({ closed: 1, viaMerge: 0 });
+      const closedBefore = await survivorshipColumns(c, comptroller.businessId);
+      expect(closedBefore.closed_at_source_id).toBe(closure.id);
+
+      await unmergeBusinesses(x, { mergeId: mergeId! });
+
+      const w = await survivorshipColumns(c, comptroller.businessId);
+      expect(w.closed_at).toEqual(closedBefore.closed_at);
+      expect(w.closed_at_source_id).toBe(closure.id);
+      // And the rest of the winner is its own again: the Comptroller name, not the loser's.
+      expect(w.display_name).toBe('RIVERSIDE STONE, INC.');
+      expect(w.display_name_source_id).toBe(comptroller.sourceRecordId);
+    }));
+
   it('never auto-re-merges', () =>
     withRollback(async (c) => {
       const { a } = await seedTwoOrgs(c);
@@ -196,6 +315,70 @@ describe('merge and unmerge (DEDUP-02)', () => {
       await expect(mergePair(x, { ...pair, reason: 'auto' })).rejects.toMatchObject({
         code: '55000',
         message: 'record_merge: pair was marked distinct',
+      });
+    }));
+
+  /**
+   * A-CR-01 (review 03, suspected race #1, confirmed). The reviewer race needed no precise
+   * timing: reviewer B's action reads the pair as pending, reviewer A's "Different" commits
+   * `distinct`, and B's `record_merge` then saw `distinct`, let it through because the reason
+   * was 'review', merged the two businesses and overwrote the candidate to 'merged' — A's
+   * decision gone without a trace. The definer is now the lock-holder and refuses a
+   * non-pending candidate for BOTH reasons. The action's pending read is exactly the step the
+   * race skips, so this calls the shared merge path directly, after the distinct commit.
+   */
+  it('a reviewer "Same business" after a "Different" is refused, never a silent overwrite', () =>
+    withRollback(async (c) => {
+      const { a } = await seedTwoOrgs(c);
+      const { comptroller, overture, candidateId } = await seedMergePair(c, a);
+      await actAs(c, CLAIMS_A);
+      const x = asEtlExecutor(c);
+      await recordCandidateDecision(x, { candidateId, decision: 'distinct' });
+      // Positive control: the distinct decision is what the second reviewer meets.
+      const before = await c.query('select decision from merge_candidates where id = $1', [
+        candidateId,
+      ]);
+      expect(before.rows).toEqual([{ decision: 'distinct' }]);
+
+      await expect(
+        mergePair(x, {
+          candidateId,
+          leftId: comptroller.businessId,
+          rightId: overture.businessId,
+          reason: 'review',
+          score: 95,
+          features: FEATURES,
+        }),
+      ).rejects.toMatchObject({ code: '55000', message: 'record_merge: pair was marked distinct' });
+    }));
+
+  it('a candidate already merged is refused by name, not re-merged', () =>
+    withRollback(async (c) => {
+      const { a } = await seedTwoOrgs(c);
+      const { comptroller, overture, candidateId } = await seedMergePair(c, a);
+      await actAs(c, CLAIMS_A);
+      const x = asEtlExecutor(c);
+      const pair = {
+        candidateId,
+        leftId: comptroller.businessId,
+        rightId: overture.businessId,
+        reason: 'review' as const,
+        score: 95,
+        features: FEATURES,
+      };
+      const first = await mergePair(x, pair);
+      expect(first.mergeId).not.toBeNull();
+      // The candidate stays 'merged'; its two businesses are split by hand (a test lever, as
+      // the owner) so the definer reaches the candidate check instead of the "already one"
+      // early return that a re-submitted pair of one cluster takes.
+      await c.query('reset role');
+      await c.query("update businesses set merged_into_id = null, status = 'active' where id = $1", [
+        overture.businessId,
+      ]);
+      await actAs(c, CLAIMS_A);
+      await expect(mergePair(x, pair)).rejects.toMatchObject({
+        code: '55000',
+        message: 'record_merge: candidate already decided',
       });
     }));
 
