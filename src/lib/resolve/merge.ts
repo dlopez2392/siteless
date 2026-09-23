@@ -243,6 +243,16 @@ async function readParents(
 export function survivorshipJson(
   s: SurvivingFields,
   parentCount: number,
+  opts: {
+    /**
+     * A FULL re-derivation (scripts/rederive.ts, a re-ingest of a clustered business, the
+     * winner side of an unmerge): the parents handed in are EVERY parent the business has, so
+     * a derived column no parent carries is NULL, not "keep" — keeping it would leave, say, the
+     * basic_category an unmerged Overture loser gave the winner. A merge keeps the old
+     * "absent keeps the current value" rule.
+     */
+    complete?: boolean;
+  } = {},
 ): Record<string, unknown> {
   if (parentCount === 0) return {};
   const out: Record<string, unknown> = {
@@ -269,11 +279,36 @@ export function survivorshipJson(
     out.display_name = s.displayName.value;
     out.display_name_source_id = s.displayName.sourceId;
   }
-  if (s.derived.basicCategory !== undefined) out.basic_category = s.derived.basicCategory;
-  if (s.derived.clusterKey !== undefined) out.cluster_key = s.derived.clusterKey;
-  if (s.derived.confidence !== undefined) out.confidence = s.derived.confidence;
-  if (s.derived.operatingStatus !== undefined) out.operating_status = s.derived.operatingStatus;
+  const absent = opts.complete === true ? null : undefined;
+  const put = (key: string, v: unknown) => {
+    const value = v === undefined ? absent : v;
+    if (value !== undefined) out[key] = value;
+  };
+  put('basic_category', s.derived.basicCategory);
+  put('cluster_key', s.derived.clusterKey);
+  put('confidence', s.derived.confidence);
+  put('operating_status', s.derived.operatingStatus);
   return out;
+}
+
+/**
+ * Every durable parent of the cluster rooted at `rootId`: the root and every business merged
+ * into it (clusters are flattened, so one level is the whole cluster). `id = $1 or
+ * merged_into_id = $1` rather than `coalesce(merged_into_id, id) = $1`, so
+ * `businesses_merged_idx` serves it (A-IN-02).
+ */
+export async function readRootParents(
+  tx: EtlExecutor,
+  rootId: string,
+  ctx?: DerivationContext,
+): Promise<SourceRecordView[]> {
+  return readParents(
+    tx,
+    `select id, comptroller_key from businesses
+      where org_id = app.current_org_id() and (id = $1::uuid or merged_into_id = $1::uuid)`,
+    [rootId],
+    ctx,
+  );
 }
 
 // ---------------------------------------------------------------------------------------

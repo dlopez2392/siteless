@@ -85,6 +85,7 @@ import {
   seededClusterRanges,
   type CityFold,
 } from '@/lib/resolve/derivation';
+import { clusterOf, rederiveRoot } from '@/lib/resolve/rederive';
 import {
   paddedCountyCode,
   quote,
@@ -745,6 +746,17 @@ export async function runGeocodePass(
             recordOutcome(tally, sr);
             // The gate: an unchanged census record writes nothing (see WRITE_LOCATION).
             if (!sr.inserted && !sr.changed) continue;
+            // 🔴 A-CR-02: a business in a merge cluster takes its location from survive()
+            // over the WHOLE cluster (Overture, then Census Exact, then Non_Exact), never
+            // straight from this record — the direct write overwrote a winner's Overture
+            // point. The root is re-derived instead, write-gated.
+            const position = await clusterOf(tx, orgId, w.businessId);
+            if (position.clustered) {
+              if (await rederiveRoot(tx, orgId, position.root, { caller: 'census' })) {
+                locationsWritten += 1;
+              }
+              continue;
+            }
             const { rows } = await tx.query<{ id: string }>(WRITE_LOCATION, [
               w.businessId,
               orgId,

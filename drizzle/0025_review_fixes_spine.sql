@@ -351,3 +351,64 @@ begin
   end loop;
 end $$;
 --> statement-breakpoint
+
+-- 5. A-CR-02 / A-WR-06. app.apply_survivorship_if_changed — the write-gated re-derivation.
+--
+-- A changed source record whose business belongs to a merge cluster no longer writes its own
+-- single-record columns onto "its" business (which reverted D-14 on the winner, or landed on a
+-- dead loser). The desk tier re-derives the cluster ROOT from every member's parents through
+-- the same survive() a merge uses and hands the result here. So does scripts/rederive.ts, which
+-- re-derives every business when a derivation rule changes.
+--
+-- 🔴 WRITE-GATED, because businesses carries app.log_event and a no-op UPDATE still writes an
+-- event: DATA-04's "an unchanged re-run writes zero events" must survive a re-derivation that
+-- changes nothing. The comparison is made on the TYPED row — the fields populated into the
+-- business's own row type, `is distinct from` the row — so a timestamp spelled 'Z' in the
+-- jsonb and '+00:00' in the column, or a double that round-trips, is not a phantom change.
+-- Only when something differs does it call app.apply_survivorship, which validates the keys
+-- and the cited records' org exactly as a merge does. Returns whether it wrote.
+--
+-- SECURITY INVOKER with execute revoked from every API role: only the owner-tier desk scripts
+-- (and nothing a session can reach) call it, like the two helpers in 0024.
+create or replace function app.apply_survivorship_if_changed(
+  p_org uuid, p_id uuid, p_fields jsonb, p_caller text)
+returns boolean language plpgsql security invoker set search_path = public, pg_temp as $$
+declare
+  v_changed boolean;
+begin
+  if p_fields is null or jsonb_typeof(p_fields) <> 'object' then
+    raise exception '%: survivorship fields must be a json object', p_caller using errcode = '22023';
+  end if;
+
+  select row(r.legal_name, r.legal_name_source_id, r.display_name, r.display_name_source_id,
+             r.phone_e164, r.phone_blockable, r.phone_source_id,
+             r.street, r.street_num, r.street_norm, r.unit, r.postal, r.city, r.address_source_id,
+             r.lat, r.lng, r.location_match_type, r.location_source_id,
+             r.closed_at, r.closed_at_source_id,
+             r.basic_category, r.cluster_key, r.confidence, r.operating_status)
+         is distinct from
+         row(b.legal_name, b.legal_name_source_id, b.display_name, b.display_name_source_id,
+             b.phone_e164, b.phone_blockable, b.phone_source_id,
+             b.street, b.street_num, b.street_norm, b.unit, b.postal, b.city, b.address_source_id,
+             b.lat, b.lng, b.location_match_type, b.location_source_id,
+             b.closed_at, b.closed_at_source_id,
+             b.basic_category, b.cluster_key, b.confidence, b.operating_status)
+    into v_changed
+    from businesses b
+   cross join lateral jsonb_populate_record(b, p_fields) r
+   where b.id = p_id and b.org_id = p_org;
+  if v_changed is null then
+    raise exception '%: business not in this org', p_caller using errcode = '42501';
+  end if;
+  if not v_changed then
+    return false;
+  end if;
+
+  perform app.apply_survivorship(p_org, p_id, p_fields, p_caller);
+  return true;
+end $$;
+--> statement-breakpoint
+
+revoke execute on function app.apply_survivorship_if_changed(uuid, uuid, jsonb, text)
+  from public, anon, authenticated, service_role;
+--> statement-breakpoint
