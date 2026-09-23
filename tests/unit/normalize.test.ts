@@ -20,7 +20,14 @@
  *   - Keep the suite in street_norm → 'suite stripped not lost'.
  */
 import { describe, expect, it } from 'vitest';
-import { nameNorm, nameNormDetail, phoneE164, TOLL_FREE_NPAS } from '@/lib/normalize';
+import {
+  addressKey,
+  nameNorm,
+  nameNormDetail,
+  phoneE164,
+  TOLL_FREE_NPAS,
+  USPS_ABBREVIATIONS,
+} from '@/lib/normalize';
 
 describe('nameNorm', () => {
   /**
@@ -179,5 +186,113 @@ it('toll-free is not an identifier', () => {
     const r = phoneE164(`${npa}4879643`);
     expect(r.e164, npa).toBe(`+1${npa}4879643`);
     expect(r.blockable, npa).toBe(false);
+  }
+});
+
+describe('addressKey', () => {
+  it('addressKey splits number, street, suite and ZIP', () => {
+    expect(addressKey('2426 E TYLER AVE STE 1C', '78550')).toEqual({
+      streetNum: '2426',
+      streetNorm: 'e tyler ave',
+      unit: 'STE 1C',
+      postal: '78550',
+    });
+  });
+
+  it('addressKey folds USPS suffixes and truncates ZIP+4', () => {
+    const k = addressKey('500 N CLOSNER BOULEVARD', '78539-1234');
+    expect(k.streetNorm).toBe('n closner blvd');
+    expect(k.postal).toBe('78539');
+    expect(k.streetNum).toBe('500');
+    expect(k.unit).toBeNull();
+  });
+
+  it('addressKey folds EXPRESSWAY the way the Census geocoder does', () => {
+    // Census's own matchedAddress reads "E EXPY 83" for a raw Comptroller "E EXPRESSWAY 83".
+    const raw = addressKey('E EXPRESSWAY 83', '78501');
+    const census = addressKey('E EXPY 83', '78501');
+    expect(raw.streetNorm).toBe('e expy 83');
+    expect(raw).toEqual(census);
+    expect(raw.streetNum).toBeNull();
+  });
+
+  it('addressKey: a PO box has no street number', () => {
+    const k = addressKey('PO BOX 764', '78147');
+    expect(k.streetNum).toBeNull();
+    expect(k.postal).toBe('78147');
+  });
+
+  it('addressKey folds directions and is case-insensitive', () => {
+    expect(addressKey('1200 north 10th street', '78501').streetNorm).toBe('n 10th st');
+    expect(addressKey('1200 N 10TH ST', '78501').streetNorm).toBe('n 10th st');
+    expect(addressKey('77 Southwest Parkway', '78520').streetNorm).toBe('sw pkwy');
+  });
+
+  it('addressKey folds accents in street names', () => {
+    expect(addressKey('100 Calle Peñitas', '78576').streetNorm).toBe('calle penitas');
+  });
+
+  it('addressKey returns nulls for missing input', () => {
+    expect(addressKey(null, null)).toEqual({
+      streetNum: null,
+      streetNorm: null,
+      unit: null,
+      postal: null,
+    });
+    expect(addressKey('123 MAIN ST', 'not a zip').postal).toBeNull();
+  });
+
+  it('USPS_ABBREVIATIONS carries the committed minimum table', () => {
+    const REQUIRED: Record<string, string> = {
+      STREET: 'ST',
+      AVENUE: 'AVE',
+      BOULEVARD: 'BLVD',
+      DRIVE: 'DR',
+      ROAD: 'RD',
+      HIGHWAY: 'HWY',
+      EXPRESSWAY: 'EXPY',
+      PARKWAY: 'PKWY',
+      LANE: 'LN',
+      COURT: 'CT',
+      CIRCLE: 'CIR',
+      PLACE: 'PL',
+      TRAIL: 'TRL',
+      NORTH: 'N',
+      SOUTH: 'S',
+      EAST: 'E',
+      WEST: 'W',
+      NORTHEAST: 'NE',
+      NORTHWEST: 'NW',
+      SOUTHEAST: 'SE',
+      SOUTHWEST: 'SW',
+    };
+    for (const [long, short] of Object.entries(REQUIRED)) {
+      expect(USPS_ABBREVIATIONS[long], long).toBe(short);
+    }
+  });
+});
+
+it('suite stripped not lost', () => {
+  // D-12: the suite leaves the MATCH KEY (a shopping centre produced a 57,568-pair block) and
+  // stays on the RECORD (it is the only thing telling two tenants of one building apart).
+  const CASES: Array<[string, string, string]> = [
+    ['2426 E TYLER AVE STE 1C', 'e tyler ave', 'STE 1C'],
+    ['2426 E TYLER AVE SUITE 200', 'e tyler ave', 'SUITE 200'],
+    ['2426 E TYLER AVE UNIT B', 'e tyler ave', 'UNIT B'],
+    ['2426 E TYLER AVE APT 4', 'e tyler ave', 'APT 4'],
+    ['2426 E TYLER AVE # 12', 'e tyler ave', '# 12'],
+    ['2426 E TYLER AVE #12', 'e tyler ave', '#12'],
+    ['2426 E TYLER AVE BLDG A', 'e tyler ave', 'BLDG A'],
+    ['2426 E TYLER AVE RM 3', 'e tyler ave', 'RM 3'],
+    ['2426 E TYLER AVE SPC 7', 'e tyler ave', 'SPC 7'],
+    ['2426 E TYLER AVE LOT 9', 'e tyler ave', 'LOT 9'],
+    ['2426 E TYLER AVE FL 2', 'e tyler ave', 'FL 2'],
+    ['2426 E TYLER AVE, STE 1C', 'e tyler ave', 'STE 1C'],
+  ];
+  for (const [raw, street, unit] of CASES) {
+    const k = addressKey(raw, '78550');
+    expect(k.streetNorm, raw).toBe(street);
+    expect(k.unit, raw).toBe(unit);
+    expect(k.streetNorm, raw).not.toMatch(/\b(ste|suite|unit|apt|bldg|rm|spc|lot|fl)\b|#/);
   }
 });
