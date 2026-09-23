@@ -153,6 +153,12 @@ function parseQuotedCsvLine(line: string): string[] | null {
   return fields;
 }
 
+/** One half of the `"lng,lat"` pair: a signed decimal, never empty. */
+const COORDINATE_TEXT = /^-?\d+(?:\.\d+)?$/;
+
+/** Texas with a margin (the state spans ~25.8–36.5 N, ~93.5–106.6 W). */
+const TEXAS_BOUNDS = { minLat: 25, maxLat: 37, minLng: -107, maxLng: -93 } as const;
+
 const badShape = (id: string): { id: string } & BatchOutcome => ({
   id,
   kind: 'ChunkFailed',
@@ -192,17 +198,26 @@ export function parseBatchLine(line: string): { id: string } & BatchOutcome {
   // `(lat, lng)`, and reading these in written order puts every RGV point in the Indian
   // Ocean. `census-batch.test.ts` pins it by SIGN (lng < -90, lat > 20), because a swap
   // still yields two finite numbers and would sail past any presence check.
-  const [lng, lat] = f[5].split(',').map(Number);
+  //
+  // 🔴 B-WR-07: EACH HALF MUST BE NUMERIC TEXT. `Number('')` is 0 — finite, inside ±90/±180 —
+  // so `"-97.6,"` used to parse as a Match at latitude 0: a real point on the equator, written
+  // to `businesses.lat/lng`, where the 25 km rule then marks the business distinct from
+  // everything.
+  const halves = f[5].split(',').map((s) => s.trim());
+  if (!halves.every((s) => COORDINATE_TEXT.test(s))) return badShape(id);
+  const [lng, lat] = halves.map(Number);
   if (
     lng === undefined ||
     lat === undefined ||
     !Number.isFinite(lng) ||
     !Number.isFinite(lat) ||
-    // A latitude outside ±90 is what a swapped RGV pair looks like (-97.67 as a latitude),
-    // so this range check turns a future axis swap upstream into `bad_shape`, not a point
-    // in the Indian Ocean.
-    Math.abs(lat) > 90 ||
-    Math.abs(lng) > 180
+    // Every row is sent with state TX (`buildBatchCsv`), so a Match outside Texas is a defect,
+    // not a location. The box is tighter than ±90/±180, so it also turns a future axis swap
+    // (-97.67 as a latitude) into `bad_shape` rather than a point in the Indian Ocean.
+    lat < TEXAS_BOUNDS.minLat ||
+    lat > TEXAS_BOUNDS.maxLat ||
+    lng < TEXAS_BOUNDS.minLng ||
+    lng > TEXAS_BOUNDS.maxLng
   ) {
     return badShape(id);
   }

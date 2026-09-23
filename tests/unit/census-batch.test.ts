@@ -318,6 +318,31 @@ describe('the Census batch geocoder — transport bounds (T-3-05, T-3-12)', () =
     expect(censusBatchRequests).toHaveLength(0);
   });
 
+  it('census batch B-WR-07: a half-missing coordinate is bad_shape, never a point on the equator', () => {
+    // The recorded Harlingen Match with position 6 rewritten. `Number('')` is 0, which is
+    // finite and inside ±90/±180, so an empty half used to become lat 0 or lng 0.
+    const recorded = fieldsOf(linesOf('match')[0] ?? '');
+    expect(recorded[2]).toBe('Match');
+    const withLngLat = (lngLat: string): string =>
+      recorded.map((f, i) => `"${i === 5 ? lngLat : f}"`).join(',');
+    // Positive control: the untouched field still parses as the Harlingen point.
+    expect(parseBatchLine(withLngLat(recorded[5] ?? ''))).toMatchObject({
+      kind: 'Match',
+      lng: -97.672649743751,
+      lat: 26.189604634647,
+    });
+    for (const broken of ['-97.672649743751,', ',26.189604634647', ',', ' , ', '-97.67, ']) {
+      expect(parseBatchLine(withLngLat(broken)), JSON.stringify(broken)).toEqual({
+        id: recorded[0],
+        kind: 'ChunkFailed',
+        reason: 'bad_shape',
+      });
+    }
+    // Every row is sent as TX: a finite point outside Texas is a defect, not a location.
+    expect(parseBatchLine(withLngLat('0,0'))).toMatchObject({ kind: 'ChunkFailed' });
+    expect(parseBatchLine(withLngLat('-97.67,-26.18'))).toMatchObject({ kind: 'ChunkFailed' });
+  });
+
   it('census batch turns a malformed line into bad_shape', () => {
     expect(parseBatchLine('"7","X","Match","Exact","X","not-a-number,26","1","L"')).toEqual({
       id: '7',
