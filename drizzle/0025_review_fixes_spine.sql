@@ -300,3 +300,20 @@ begin
     'merge_id', v_merge.id, 'winner_id', v_merge.winner_id, 'loser_id', v_merge.loser_id));
 end $$;
 --> statement-breakpoint
+
+-- 3. A-WR-01. businesses and source_records become SELECT-only for authenticated.
+--
+-- 0023 made the four new spine tables SELECT-only and 0024 says merges happen "only" through
+-- the definers — but the merge state lives on businesses (merged_into_id, status,
+-- external_key, the six *_source_id pairs), and authenticated still held full DML there from
+-- 0008's blanket grant, as it did on source_records. An org session reaching the grant layer
+-- (0008's own premise: Supabase third-party auth plus the Data API) could set merged_into_id
+-- with no business_merges row and no attributed actor (T-3-08), or point location_source_id at
+-- ANOTHER tenant's durable record: the composite FK checks (id, retention_class), not org, and
+-- bypasses RLS. Nothing in the app writes either table — the only writers are the owner-tier
+-- desk scripts (ingest, resolve, rederive) and the SECURITY DEFINER merge functions.
+--
+-- The org policies on both tables stay: they still govern SELECT, and they are the second wall
+-- if a grant is ever re-added.
+revoke insert, update, delete on businesses, source_records from authenticated;
+--> statement-breakpoint

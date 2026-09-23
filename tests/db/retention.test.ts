@@ -33,7 +33,7 @@
  * statement reports 25P02 instead of its own reason.
  */
 import { describe, expect, it } from 'vitest';
-import { actAs, seedTwoOrgs, SQL_FRESH_EXTERNAL_KEY, withRollback } from './_fixtures';
+import { seedTwoOrgs, SQL_FRESH_EXTERNAL_KEY, withRollback } from './_fixtures';
 
 const INSERT_SOURCE_NO_TTL =
   'insert into source_records (org_id, source_key, retention_class, expires_at) ' +
@@ -45,8 +45,6 @@ const INSERT_SOURCE_TTL =
   "values ($1,$2,$3, now() + interval '21 days') returning id";
 
 const INSERT_BUSINESS_CITING = `insert into businesses (org_id, display_name, phone_source_id, external_key) values ($1,$2,$3,${SQL_FRESH_EXTERNAL_KEY})`;
-
-const ORG_A_CLAIMS = { o: { id: 'org_A' }, sub: 'user_danlo', role: 'authenticated' } as const;
 
 /** One business insert citing a source record from the given provenance column. */
 const insertBusinessCiting = (column: string) =>
@@ -81,7 +79,6 @@ describe('Places retention is a database constraint', () => {
   it('google content cannot be durable', () =>
     withRollback(async (c) => {
       const { a } = await seedTwoOrgs(c);
-      await actAs(c, ORG_A_CLAIMS);
       // The whole legal story in one statement: place_id is the only field exempt from
       // the caching restriction, so a Google payload may never become the durable record.
       const attempt = c.query(INSERT_SOURCE_NO_TTL, [a, 'google_places', 'durable']);
@@ -94,7 +91,6 @@ describe('Places retention is a database constraint', () => {
   it('an ephemeral source record without expires_at is refused', () =>
     withRollback(async (c) => {
       const { a } = await seedTwoOrgs(c);
-      await actAs(c, ORG_A_CLAIMS);
       // Ephemeral means a TTL. Without one the purge job has nothing to select on and the
       // row lives forever — which is the breach the retention class exists to prevent.
       const attempt = c.query(INSERT_SOURCE_NO_TTL, [a, 'overture', 'ephemeral']);
@@ -107,7 +103,6 @@ describe('Places retention is a database constraint', () => {
   it('a durable source record with an expires_at is refused', () =>
     withRollback(async (c) => {
       const { a } = await seedTwoOrgs(c);
-      await actAs(c, ORG_A_CLAIMS);
       // The CHECK is an equivalence, so it bites in both directions: a durable record
       // carrying a TTL would be silently purged out from under the fields citing it.
       const attempt = c.query(INSERT_SOURCE_TTL, [a, 'overture', 'durable']);
@@ -120,7 +115,6 @@ describe('Places retention is a database constraint', () => {
   it('durable cites durable: a durable field citing an ephemeral source is refused', () =>
     withRollback(async (c) => {
       const { a } = await seedTwoOrgs(c);
-      await actAs(c, ORG_A_CLAIMS);
       const src = await c.query<{ id: string }>(INSERT_SOURCE_TTL, [
         a,
         'google_places',
@@ -141,7 +135,6 @@ describe('Places retention is a database constraint', () => {
   it('positive control: a durable field citing a durable source is accepted', () =>
     withRollback(async (c) => {
       const { a } = await seedTwoOrgs(c);
-      await actAs(c, ORG_A_CLAIMS);
       const src = await c.query<{ id: string }>(INSERT_SOURCE_NO_TTL, [a, 'overture', 'durable']);
       const sourceId = src.rows[0]?.id;
       expect(sourceId).toBeTruthy();
@@ -160,7 +153,6 @@ describe('Places retention is a database constraint', () => {
     it(`positive control: ${pair.field} cites durable source and is accepted`, () =>
       withRollback(async (c) => {
         const { a } = await seedTwoOrgs(c);
-        await actAs(c, ORG_A_CLAIMS);
         const src = await c.query<{ id: string }>(INSERT_SOURCE_NO_TTL, [
           a,
           pair.durableSourceKey,
@@ -175,7 +167,6 @@ describe('Places retention is a database constraint', () => {
     it(`${pair.field} cites durable: an ephemeral google_places source is refused`, () =>
       withRollback(async (c) => {
         const { a } = await seedTwoOrgs(c);
-        await actAs(c, ORG_A_CLAIMS);
         const src = await c.query<{ id: string }>(INSERT_SOURCE_TTL, [
           a,
           'google_places',
@@ -197,7 +188,6 @@ describe('Places retention is a database constraint', () => {
   it('source key known: the four Phase 3 keys are accepted', () =>
     withRollback(async (c) => {
       const { a } = await seedTwoOrgs(c);
-      await actAs(c, ORG_A_CLAIMS);
       // All four /sources rows are durable: public-domain Comptroller data and a free
       // federal geocoder, neither under a caching restriction.
       for (const key of ['tx_comptroller', 'tx_comptroller_closures', 'overture', 'census_geocoder']) {
@@ -209,7 +199,6 @@ describe('Places retention is a database constraint', () => {
   it('source key known: an unknown key is refused', () =>
     withRollback(async (c) => {
       const { a } = await seedTwoOrgs(c);
-      await actAs(c, ORG_A_CLAIMS);
       // A plausible-looking typo of a real key, not garbage: that is the mistake the CHECK
       // exists to catch before a source tag renders as something /sources has no row for.
       const attempt = c.query(INSERT_SOURCE_NO_TTL, [a, 'tx_comptroller_closure', 'durable']);
