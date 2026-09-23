@@ -122,7 +122,9 @@ describe('the Places replay harness (plan 04-10)', () => {
   it('the places handler refuses a request without includePureServiceAreaBusinesses', async () => {
     setPlacesRoutes([{ name: 'saturated', when: plumbers, pages: PLACES_PAGES.saturated }]);
 
-    const { includePureServiceAreaBusinesses: _dropped, ...withoutFlag } = VALID_BODY;
+    const withoutFlag = { ...VALID_BODY };
+    delete withoutFlag.includePureServiceAreaBusinesses;
+    expect(withoutFlag).not.toHaveProperty('includePureServiceAreaBusinesses');
     const missing = await search(withoutFlag);
     expect(missing.status).toBe(501);
     expect(await missing.text()).toMatch(/includePureServiceAreaBusinesses/);
