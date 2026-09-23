@@ -53,15 +53,53 @@ export const USPS_ABBREVIATIONS: Readonly<Record<string, string>> = {
 };
 
 /**
- * A secondary-unit designator and its identifier, from the designator to the end of the
- * string. Designators: STE SUITE UNIT APT BLDG RM SPC LOT FL, or `#`. It must follow
- * whitespace or a comma (never the first token — "LOT" is not the start of a street), and a
- * word designator must be followed by an identifier, so "LOTUS DR" is not a unit.
+ * A CANDIDATE secondary-unit designator and its identifier. Designators: STE SUITE UNIT APT
+ * BLDG RM SPC LOT FL, or `#`. It must follow whitespace or a comma (never the first token —
+ * "LOT" is not the start of a street), and a word designator must be followed by an
+ * identifier, so "LOTUS DR" is not a unit. The unit runs from the designator to the end of
+ * the string. `isUnit` then decides whether a candidate really is one.
  */
-const UNIT_RE =
-  /[\s,]+((?:(?:STE|SUITE|UNIT|APT|BLDG|RM|SPC|LOT|FL)\.?\s+|#\s*)[A-Z0-9][A-Z0-9-]*(?:\s.*)?)$/i;
+const UNIT_CANDIDATE =
+  /[\s,]+(?:(?:STE|SUITE|UNIT|APT|BLDG|RM|SPC|LOT|FL)\.?\s+|#\s*)([A-Z0-9][A-Z0-9-]*)(?=\s|$)/gi;
 
 const LEADING_NUMBER = /^(\d+)(?:\s+|$)/;
+
+const DIRECTIONALS = new Set(['N', 'S', 'E', 'W', 'NE', 'NW', 'SE', 'SW']);
+
+/** Street-type suffixes, short and long form ("RD" and "ROAD"). */
+const STREET_TYPES = new Set(
+  Object.entries(USPS_ABBREVIATIONS)
+    .filter(([, short]) => !DIRECTIONALS.has(short))
+    .flatMap(([long, short]) => [long, short]),
+);
+
+const upperTokens = (s: string): string[] =>
+  s
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, ' ')
+    .split(' ')
+    .filter((t) => t.length > 0);
+
+/**
+ * 🔴 B-WR-02: a designator word can START a street name. `RM` is Texas's Ranch-to-Market
+ * prefix ("12345 RM 620 N"), and "100 LOT 5 RD", "1201 W UNIT RD", "500 N APT BLVD" and
+ * "6 SPC ST" are streets. Read as units, each lost its street key (null, or a lone `w` that
+ * matches every other `W …` street). A candidate is NOT a unit when:
+ *   - what precedes it, less the house number, is empty or a lone directional (there would be
+ *     no street left), or
+ *   - its identifier, or the token right after it, is a street type ("UNIT RD", "LOT 5 RD").
+ * `RM` stays a designator: behind a real street ("… TYLER AVE RM 3") it is a room.
+ */
+function isUnit(before: string, identifier: string, after: string): boolean {
+  const street = upperTokens(before.replace(LEADING_NUMBER, ''));
+  if (street.length === 0) return false;
+  if (street.length === 1 && DIRECTIONALS.has(USPS_ABBREVIATIONS[street[0]!] ?? street[0]!)) {
+    return false;
+  }
+  if (STREET_TYPES.has(identifier.toUpperCase())) return false;
+  const next = upperTokens(after)[0];
+  return next === undefined || !STREET_TYPES.has(next);
+}
 
 export interface AddressKey {
   streetNum: string | null;
@@ -85,10 +123,17 @@ export function addressKey(
 
   let rest = collapsed;
   let unit: string | null = null;
-  const unitMatch = rest.match(UNIT_RE);
-  if (unitMatch?.[1] !== undefined) {
-    unit = unitMatch[1].trim();
-    rest = rest.slice(0, unitMatch.index);
+  for (const m of collapsed.matchAll(UNIT_CANDIDATE)) {
+    const identifier = m[1];
+    if (identifier === undefined) continue;
+    const before = collapsed.slice(0, m.index);
+    if (!isUnit(before, identifier, collapsed.slice(m.index + m[0].length))) continue;
+    unit = collapsed
+      .slice(m.index)
+      .replace(/^[\s,]+/, '')
+      .trim();
+    rest = before;
+    break;
   }
 
   let streetNum: string | null = null;

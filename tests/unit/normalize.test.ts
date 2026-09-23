@@ -289,6 +289,33 @@ describe('addressKey', () => {
     expect(addressKey('300 FLORIDA AVE', '78501').streetNorm).toBe('florida ave');
   });
 
+  it('addressKey B-WR-02: a road that starts with a unit word is a street, not a unit', () => {
+    // RM is Texas's Ranch-to-Market prefix; LOT/UNIT/APT/SPC can begin a real street name.
+    // Each of these used to lose its street key (null, or a lone directional like 'w').
+    const CASES: Array<[string, string, string]> = [
+      ['12345 RM 620 N', '12345', 'rm 620 n'],
+      ['100 LOT 5 RD', '100', 'lot 5 rd'],
+      ['1201 W UNIT RD', '1201', 'w unit rd'],
+      ['500 N APT BLVD', '500', 'n apt blvd'],
+      ['6 SPC ST', '6', 'spc st'],
+    ];
+    for (const [raw, num, street] of CASES) {
+      expect(addressKey(raw, '78501'), raw).toEqual({
+        streetNum: num,
+        streetNorm: street,
+        unit: null,
+        postal: '78501',
+      });
+    }
+    // A real suite after such a road is still the unit.
+    expect(addressKey('12345 RM 620 N STE 5', '78501')).toEqual({
+      streetNum: '12345',
+      streetNorm: 'rm 620 n',
+      unit: 'STE 5',
+      postal: '78501',
+    });
+  });
+
   it('addressKey folds directions and is case-insensitive', () => {
     expect(addressKey('1200 north 10th street', '78501').streetNorm).toBe('n 10th st');
     expect(addressKey('1200 N 10TH ST', '78501').streetNorm).toBe('n 10th st');
