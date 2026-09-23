@@ -205,6 +205,16 @@ describe('phoneE164', () => {
     expect(phoneE164('+18004879643')).toEqual({ e164: '+18004879643', blockable: false });
   });
 
+  it('phoneE164 B-WR-03: a number with an extension is dialable but not blockable', () => {
+    // An extension means a shared switchboard (a PBX in a medical building), the same
+    // reasoning that excludes toll-free: stored for dialling, never an identity.
+    expect(phoneE164('956-423-1234 x5')).toEqual({ e164: '+19564231234', blockable: false });
+    expect(phoneE164('(956) 423-1234 ext 12')).toEqual({ e164: '+19564231234', blockable: false });
+    expect(phoneE164('(956) 423-1234 ext. 12')).toEqual({ e164: '+19564231234', blockable: false });
+    // Positive control: the same number without an extension is still an identifier.
+    expect(phoneE164('956-423-1234')).toEqual({ e164: '+19564231234', blockable: true });
+  });
+
   it('phoneE164 rejects the 555 exchange', () => {
     expect(phoneE164('956-555-0100')).toEqual({ e164: null, blockable: false });
   });
