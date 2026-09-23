@@ -118,11 +118,16 @@ export interface RunReport extends RunTally {
  * Returns the `events.id` of that one event.
  */
 export async function finishRun(tx: EtlExecutor, runId: string, report: RunReport): Promise<string> {
+  // 🔴 A-WR-08 (review 03): org-scoped like every other owner-tier write. The owner bypasses
+  // RLS, so `where id = $1` alone let a wrong runId complete ANOTHER org's run, with the event
+  // then emitted under this org's claim. `app.current_org_id()` is non-null here by
+  // construction — the `emit_event` below already requires it — so a foreign or unknown id is
+  // "no ingest_runs row", never a write.
   const updated = await tx.query<{ id: string }>(
     `update ingest_runs
         set status = $2, added = $3, changed = $4, unchanged = $5, gone = $6, total_seen = $7,
             stats = $8::jsonb, error = $9, finished_at = clock_timestamp()
-      where id = $1
+      where id = $1 and org_id = app.current_org_id()
       returning id`,
     [
       runId,
