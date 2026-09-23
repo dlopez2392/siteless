@@ -457,6 +457,38 @@ describe('grants audit', () => {
     }));
 
   /**
+   * A-WR-02 (review 03). When `pg_temp` is not named in a function's search_path, PostgreSQL
+   * searches it FIRST for relations. A session that can create a temp table called
+   * `businesses` or `merge_candidates` and then call a definer would have the definer read and
+   * write the temp table as the owner — the documented SECURITY DEFINER pitfall. Naming
+   * `pg_temp` LAST closes it. Read off the catalog for every definer in the two schemas we own
+   * (plus the two invoker helpers only definers call), so a definer added later without it is
+   * a named failure here, not a code-review catch.
+   */
+  it('every SECURITY DEFINER function searches pg_temp last', () =>
+    withRollback(async (c) => {
+      const { rows } = await c.query<{ fn: string; config: string[] | null }>(`
+        select p.oid::regprocedure::text as fn, p.proconfig as config
+          from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+         where n.nspname in ('app', 'public')
+           and (p.prosecdef
+                or p.oid in ('app.survivorship_snapshot(uuid,uuid)'::regprocedure,
+                             'app.apply_survivorship(uuid,uuid,jsonb,text)'::regprocedure))
+         order by 1`);
+      // The control: the enumeration found the definers this phase and the last two wrote.
+      expect(rows.map((r) => r.fn)).toEqual(
+        expect.arrayContaining([
+          'app.record_merge(uuid,uuid,uuid,text,integer,jsonb,jsonb)',
+          'app.record_candidate_decision(uuid,text)',
+          'app.emit_event(text,uuid,text,jsonb)',
+          'app.reserve_budget(text,date,bigint,uuid,text,interval)',
+        ]),
+      );
+      const bad = rows.filter((r) => !(r.config ?? []).includes('search_path=public, pg_temp'));
+      expect(bad).toEqual([]);
+    }));
+
+  /**
    * A-WR-01 (review 03). The two refusals the revoke exists for, attempted rather than read
    * off the catalog, and each as a Clerk user WITH a valid org claim on its OWN rows: RLS
    * would let both through, so only the grant can refuse them — and the message pins that

@@ -317,3 +317,37 @@ end $$;
 -- if a grant is ever re-added.
 revoke insert, update, delete on businesses, source_records from authenticated;
 --> statement-breakpoint
+
+-- 4. A-WR-02. Every definer searches pg_temp LAST.
+--
+-- When pg_temp is not named in a function's search_path, PostgreSQL searches it FIRST for
+-- relations, so a session able to create a temp table called `businesses` or
+-- `merge_candidates` and then call one of these would have the definer read and write the
+-- temp table as the owner (the documented SECURITY DEFINER pitfall). Exploiting it needs
+-- arbitrary SQL as authenticated, which the app does not hand out — hygiene, applied in one
+-- sweep to every earlier definer and to the two invoker helpers only definers call.
+--
+-- Only a function whose config is EXACTLY `search_path=public` is rewritten: that is every
+-- definer this repo has written. Anything else is left alone and named, and
+-- tests/db/grants-audit.test.ts 'every SECURITY DEFINER function searches pg_temp last' fails
+-- on it by name rather than this migration guessing what a different path meant.
+do $$
+declare
+  f record;
+begin
+  for f in
+    select p.oid::regprocedure as fn, p.proconfig
+      from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+     where n.nspname in ('app', 'public')
+       and (p.prosecdef
+            or p.oid in ('app.survivorship_snapshot(uuid,uuid)'::regprocedure,
+                         'app.apply_survivorship(uuid,uuid,jsonb,text)'::regprocedure))
+  loop
+    if f.proconfig = array['search_path=public'] then
+      execute format('alter function %s set search_path = public, pg_temp', f.fn);
+    elsif f.proconfig is distinct from array['search_path=public, pg_temp'] then
+      raise notice 'A-WR-02: % has search_path config %, left unchanged', f.fn, f.proconfig;
+    end if;
+  end loop;
+end $$;
+--> statement-breakpoint
