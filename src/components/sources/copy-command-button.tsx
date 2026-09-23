@@ -25,11 +25,27 @@ function copiedLine(command: string): string {
   return `Copied: ${command}`;
 }
 
-export function CopyCommandButton({ command, testId }: { command: string; testId: string }) {
+/**
+ * `label` / `copiedMessage` (04-17): the transient card's purge alert names its own action
+ * ("Copy the purge command") and toast ("Purge command copied") per 04-UI-SPEC § Screen 4.
+ * Both are plain strings from the copy module, passed by the server caller; omitted, the
+ * ledger's labels stand unchanged.
+ */
+export function CopyCommandButton({
+  command,
+  testId,
+  label = ERROR_ACTION.copyCommand,
+  copiedMessage,
+}: {
+  command: string;
+  testId: string;
+  label?: string;
+  copiedMessage?: string;
+}) {
   async function copy() {
     try {
       await navigator.clipboard.writeText(command);
-      toast.success(copiedLine(command));
+      toast.success(copiedMessage ?? copiedLine(command));
     } catch {
       // A refused clipboard (insecure context, denied permission) is not an error worth an
       // alert: the command is printed verbatim in the sentence right above this button.
@@ -45,7 +61,7 @@ export function CopyCommandButton({ command, testId }: { command: string; testId
       className="h-11 gap-2 px-4 text-base font-normal"
     >
       <Copy aria-hidden="true" className="size-4" />
-      {ERROR_ACTION.copyCommand}
+      {label}
     </Button>
   );
 }

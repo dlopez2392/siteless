@@ -1747,6 +1747,19 @@ export function SOURCES_TRANSIENT_PURGE_OVERDUE(date: string, hours: number, cou
   );
 }
 
+/** 04-17 copy gap: the overdue alert when the org has NEVER been purged, so there is no
+ *  "last ran {date}" to name. `hours` = age of the oldest held coordinate. Same voice and
+ *  way out as SOURCES_TRANSIENT_PURGE_OVERDUE. */
+export function SOURCES_TRANSIENT_PURGE_NEVER_RAN(hours: number, count: number) {
+  return (
+    `The daily purge has never run, and the oldest coordinates Siteless holds are ` +
+    `${counted(hours, 'hour', 'hours')} old. ` +
+    `${counted(count, 'coordinate is', 'coordinates are')} past 30 days. The database already ` +
+    `refuses to read them, so nothing shows them, but they stay on disk until the purge runs. ` +
+    `Check the Vercel cron log for the purge job, or run it by hand at the desk.`
+  );
+}
+
 export const SOURCES_TRANSIENT_PURGE_COPY = 'Copy the purge command';
 
 export const SOURCES_TRANSIENT_EMPTY_HEADING = 'No Google Places call yet';

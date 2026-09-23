@@ -173,4 +173,35 @@ describe('sources page read', () => {
       });
       request.tx = null;
     }));
+
+  it('a failed transient read leaves the ledger standing', () =>
+    withTxRollback(async (tx) => {
+      const c = asPg(tx);
+      await seedTwoOrgs(c);
+      // The definer refuses this session (42501) — revoked as the owner, inside the rolled-back
+      // transaction, so nothing outlives the test. Without the savepoint the refusal would
+      // abort the whole transaction and the ledger read would go with it.
+      await c.query('revoke execute on function app.places_transient_stats() from authenticated');
+      const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+      request.tx = tx;
+      request.withOrgCalls = 0;
+      try {
+        const page = await listSourcesPage(USER_A);
+        expect(request.withOrgCalls).toBe(1);
+        expect(page.transient).toBeNull();
+        expect(page.rows.map((r) => r.sourceKey)).toEqual([
+          'tx_comptroller',
+          'tx_comptroller_closures',
+          'overture',
+          'census_geocoder',
+        ]);
+        // Logged by error NAME only.
+        expect(errors).toHaveBeenCalledTimes(1);
+        expect(JSON.stringify(errors.mock.calls[0])).not.toMatch(/permission denied/);
+      } finally {
+        errors.mockRestore();
+        request.tx = null;
+      }
+    }));
 });
