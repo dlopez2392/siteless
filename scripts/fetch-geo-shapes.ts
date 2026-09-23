@@ -43,6 +43,9 @@ const PRECISION = 4;
 
 type Rect = { south: number; west: number; north: number; east: number };
 
+/** [lng, lat] — ArcGIS `rings` point order with `outSR=4326`. */
+type Point = [number, number];
+
 type GeoUnit = {
   unitKind: 'city' | 'county';
   /** city: `countyFips + '\u0000' + name` (the expand-cells separator); county: the FIPS. */
@@ -51,12 +54,12 @@ type GeoUnit = {
   name: string;
   bbox: Rect;
   /** [ring][point][lng, lat] — outer rings only. */
-  rings: number[][][];
+  rings: Point[][];
 };
 
 type Feature = {
   attributes: { GEOID: string; NAME: string };
-  geometry?: { rings?: number[][][] };
+  geometry?: { rings?: Point[][] };
 };
 
 const maxOffsetArg = process.argv.find((a) => a.startsWith('--max-offset='));
@@ -99,20 +102,20 @@ async function query(layer: string, where: string): Promise<Feature[]> {
 const round = (x: number) => Math.round(x * 10 ** PRECISION) / 10 ** PRECISION;
 
 /** Shoelace sum in (lng, lat): positive = clockwise = an ArcGIS OUTER ring. */
-function isClockwise(ring: number[][]): boolean {
+function isClockwise(ring: Point[]): boolean {
   let sum = 0;
-  for (let i = 0; i < ring.length - 1; i += 1) {
-    const [x1, y1] = ring[i];
-    const [x2, y2] = ring[i + 1];
-    sum += (x2 - x1) * (y2 + y1);
+  let prev: Point | null = null;
+  for (const p of ring) {
+    if (prev) sum += (p[0] - prev[0]) * (p[1] + prev[1]);
+    prev = p;
   }
   return sum > 0;
 }
 
-function cleanRing(ring: number[][]): number[][] {
-  const out: number[][] = [];
+function cleanRing(ring: Point[]): Point[] {
+  const out: Point[] = [];
   for (const [lng, lat] of ring) {
-    const p = [round(lng), round(lat)];
+    const p: Point = [round(lng), round(lat)];
     const prev = out[out.length - 1];
     if (prev && prev[0] === p[0] && prev[1] === p[1]) continue;
     out.push(p);
@@ -120,7 +123,7 @@ function cleanRing(ring: number[][]): number[][] {
   return out;
 }
 
-function outerRings(feature: Feature, label: string): number[][][] {
+function outerRings(feature: Feature, label: string): Point[][] {
   const rings = feature.geometry?.rings ?? [];
   const kept = rings
     .filter(isClockwise)
@@ -130,7 +133,7 @@ function outerRings(feature: Feature, label: string): number[][][] {
   return kept;
 }
 
-function bboxOf(rings: number[][][]): Rect {
+function bboxOf(rings: Point[][]): Rect {
   let south = Infinity;
   let west = Infinity;
   let north = -Infinity;
@@ -160,10 +163,10 @@ async function main(): Promise<void> {
   const countyUnits: GeoUnit[] = [];
   for (const fips of RGV_COUNTY_FIPS) {
     const features = await query(COUNTIES_LAYER, `GEOID=${sqlString(fips)}`);
-    if (features.length !== 1) {
+    const [f] = features;
+    if (!f || features.length !== 1) {
       throw new Error(`fetch-geo-shapes: county ${fips} matched ${features.length} features`);
     }
-    const f = features[0];
     const rings = outerRings(f, `county ${fips}`);
     const bbox = bboxOf(rings);
     countyBbox.set(fips, bbox);
@@ -189,13 +192,14 @@ async function main(): Promise<void> {
       .map((f) => ({ f, rings: outerRings(f, `city ${city.name} (${f.attributes.GEOID})`) }))
       .map((c) => ({ ...c, bbox: bboxOf(c.rings) }))
       .filter((c) => features.length === 1 || intersects(c.bbox, county));
-    if (candidates.length !== 1) {
+    const [match] = candidates;
+    if (!match || candidates.length !== 1) {
       throw new Error(
         `fetch-geo-shapes: city ${city.name} (county ${city.countyFips}) is ambiguous or missing — ` +
           `${features.length} features, ${candidates.length} inside the county bbox`,
       );
     }
-    const [{ f, rings, bbox }] = candidates;
+    const { f, rings, bbox } = match;
     units.push({
       unitKind: 'city',
       unitId: `${city.countyFips}\u0000${city.name}`,
