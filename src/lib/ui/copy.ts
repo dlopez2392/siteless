@@ -48,6 +48,9 @@ export const NAV_GROUP = { leads: 'Leads', operations: 'Operations' } as const;
 /** 03-UI-SPEC § 0 → the phone More sheet's title. */
 export const MORE_SHEET_TITLE = 'More';
 
+/** The shared Sheet's close button: its accessible name (03-22 fix; the ✕ is the only glyph). */
+export const SHEET_CLOSE_LABEL = 'Close';
+
 export const SKIP_LINK = 'Skip to main content';
 
 /** UI-SPEC § Empty states → Preset list. The body explains what a preset IS, because the

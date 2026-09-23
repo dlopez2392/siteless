@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { SHEET_CLOSE_LABEL } from '../../src/lib/ui/copy';
 
 /**
  * MOB-01 and UI-SPEC Executor Rule 9: every primary control is at least 44x44 CSS px in
@@ -31,6 +32,8 @@ import { expect, test, type Page } from '@playwright/test';
 const PHONE = { width: 390, height: 844 };
 /** Above the 1024px `lg` breakpoint, where the desk sidebar is the only visible nav. */
 const DESK = { width: 1280, height: 800 };
+/** Between `sm` (640) and `lg` (1024): the top bar's off-canvas nav is the navigation. */
+const TABLET = { width: 800, height: 1024 };
 
 test.use({ viewport: PHONE });
 
@@ -106,6 +109,34 @@ test('touch targets: every primary control clears 44px at 390x844', async ({ pag
   for (const testId of ['nav-sources', 'nav-spend', 'nav-settings']) {
     await expectTargetAtLeast44(page, testId);
   }
+
+  // The shared Sheet's close button (03-22: it was a 28x28 icon-only ghost). One sheet is
+  // open, so exactly one close button is visible; it carries a real accessible name.
+  await expectTargetAtLeast44(page, 'sheet-close');
+  await expect(page.locator('[data-testid="sheet-close"]:visible')).toHaveAccessibleName(
+    SHEET_CLOSE_LABEL,
+  );
+});
+
+test.describe('tablet', () => {
+  test.use({ viewport: TABLET });
+
+  test('touch targets: the off-canvas nav sheet closes from a 44px button at 800x1024', async ({
+    page,
+  }) => {
+    await page.goto('/settings/organization');
+
+    expect(page.viewportSize()).toEqual(TABLET);
+    expect(await page.evaluate(() => window.innerHeight)).toBeGreaterThan(0);
+
+    // The same shared SheetContent as the phone More sheet, opened from the tablet top bar.
+    await expectTargetAtLeast44(page, 'nav-menu');
+    await page.locator('[data-testid="nav-menu"]:visible').click();
+    await expectTargetAtLeast44(page, 'sheet-close');
+    await expect(page.locator('[data-testid="sheet-close"]:visible')).toHaveAccessibleName(
+      SHEET_CLOSE_LABEL,
+    );
+  });
 });
 
 test.describe('desk', () => {
