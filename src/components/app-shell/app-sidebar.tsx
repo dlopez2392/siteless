@@ -55,6 +55,13 @@ export type NavItem = {
    */
   iconName: string;
   testId: string;
+  /**
+   * Further path prefixes that light this row — for a route that has no destination of its
+   * own and belongs under this one. `/runs/[id]` is a child of a preset (04-UI-SPEC § 0), so
+   * Presets carries `['/runs']`: the phone tab bar is full at four, and the inherited rule is
+   * that the user is never on a screen with no lit tab.
+   */
+  alsoActiveUnder?: readonly string[];
 };
 
 /**
@@ -79,6 +86,7 @@ export const LEADS_NAV: readonly NavItem[] = [
     Icon: ListChecks,
     iconName: 'list-checks',
     testId: 'nav-presets',
+    alsoActiveUnder: ['/runs'],
   },
   {
     href: '/review',
@@ -132,9 +140,12 @@ export const OPERATIONS_NAV: readonly NavItem[] = [
 /** Every destination, Leads first. Kept for anything that enumerates the whole set. */
 export const NAV_ITEMS: readonly NavItem[] = [...LEADS_NAV, ...OPERATIONS_NAV];
 
-/** `/presets` and `/presets/abc` both light Presets; `/presetsomething` does not. */
-export function isNavActive(pathname: string, base: string): boolean {
-  return pathname === base || pathname.startsWith(base + '/');
+/**
+ * `/presets` and `/presets/abc` both light Presets; `/presetsomething` does not. Each
+ * `also` prefix obeys the same rule, so `/runs/{id}` lights Presets and `/runsx` does not.
+ */
+export function isNavActive(pathname: string, base: string, also: readonly string[] = []): boolean {
+  return [base, ...also].some((p) => pathname === p || pathname.startsWith(p + '/'));
 }
 
 export type ShellIdentity = {
@@ -174,7 +185,7 @@ export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
           <SidebarNavRow
             key={item.testId}
             item={item}
-            active={isNavActive(pathname, item.base)}
+            active={isNavActive(pathname, item.base, item.alsoActiveUnder)}
             onNavigate={onNavigate}
           />
         ))}
@@ -192,7 +203,7 @@ export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
           <SidebarNavRow
             key={item.testId}
             item={item}
-            active={isNavActive(pathname, item.base)}
+            active={isNavActive(pathname, item.base, item.alsoActiveUnder)}
             onNavigate={onNavigate}
           />
         ))}

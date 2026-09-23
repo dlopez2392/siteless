@@ -52,7 +52,7 @@ export function MoreSheet({
             <SidebarNavRow
               key={item.testId}
               item={item}
-              active={isNavActive(pathname, item.base)}
+              active={isNavActive(pathname, item.base, item.alsoActiveUnder)}
               onNavigate={() => onOpenChange(false)}
             />
           ))}
