@@ -212,13 +212,14 @@ describe('unmerge confirmation', () => {
   });
 
   it.each([
-    ['later merge first', UNMERGE_LATER_MERGE_FIRST, 'conflict'],
-    ['already undone', UNMERGE_ALREADY_UNDONE, 'conflict'],
-    ['unexpected', UNMERGE_FAILED, 'unexpected'],
+    ['unexpected', UNMERGE_FAILED, 'unexpected', undefined],
+    ['a concurrent merge', UNMERGE_FAILED, 'conflict', { reason: 'concurrent_merge' }],
   ] as const)(
-    'a refused unmerge (%s) keeps the dialog open and shows the action message',
-    async (_label, message, code) => {
-      mocked.mockResolvedValue({ ok: false, code, message });
+    'a refused unmerge that can succeed on a retry (%s) keeps the dialog open and offers Try again',
+    async (_label, message, code, detail) => {
+      mocked.mockResolvedValue(
+        detail ? { ok: false, code, message, detail: { ...detail } } : { ok: false, code, message },
+      );
       renderHistory();
       openDialog();
       await act(async () => {
@@ -233,11 +234,84 @@ describe('unmerge confirmation', () => {
         'href',
         '/sources',
       );
+      expect(within(error).queryByTestId('business-unmerge-reload')).toBeNull();
       expect(screen.getByTestId('business-unmerge-dialog')).toBeInTheDocument();
       expect(refresh).not.toHaveBeenCalled();
       expect(toast).not.toHaveBeenCalled();
     },
   );
+
+  it.each([
+    ['later merge first', UNMERGE_LATER_MERGE_FIRST, 'conflict', 'later_merge_first'],
+    ['already undone', UNMERGE_ALREADY_UNDONE, 'conflict', 'already_undone'],
+  ] as const)(
+    'a refused unmerge that can never succeed (%s) offers no Try again, only a reload that closes and refreshes',
+    async (_label, message, code, reason) => {
+      // C-WR-05: a retry sends the same request and meets the same refusal, forever; the row's
+      // stale Unmerge button stays live until the page is re-read.
+      mocked.mockResolvedValue({ ok: false, code, message, detail: { reason } });
+      renderHistory();
+      openDialog();
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('business-unmerge-confirm'));
+      });
+
+      const error = await screen.findByTestId('business-unmerge-error');
+      expect(error).toHaveTextContent(message);
+      expect(within(error).queryByTestId('business-unmerge-retry')).toBeNull();
+      // The sentence is still on screen to be read — nothing refreshed yet.
+      expect(screen.getByTestId('business-unmerge-dialog')).toBeInTheDocument();
+      expect(refresh).not.toHaveBeenCalled();
+
+      const reload = within(error).getByTestId('business-unmerge-reload');
+      expect(reload).toHaveTextContent('Reload the merge history');
+      await act(async () => {
+        fireEvent.click(reload);
+      });
+      expect(refresh).toHaveBeenCalledTimes(1);
+      await waitFor(() => expect(screen.queryByTestId('business-unmerge-dialog')).toBeNull());
+      expect(mocked).toHaveBeenCalledTimes(1);
+      expect(toast).not.toHaveBeenCalled();
+    },
+  );
+
+  it('dismissing after a refusal that can never succeed still refreshes, so the stale button goes away', async () => {
+    mocked.mockResolvedValue({
+      ok: false,
+      code: 'conflict',
+      message: UNMERGE_ALREADY_UNDONE,
+      detail: { reason: 'already_undone' },
+    });
+    renderHistory();
+    openDialog();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('business-unmerge-confirm'));
+    });
+    await screen.findByTestId('business-unmerge-error');
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('business-unmerge-dismiss'));
+    });
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('an unmerge whose request never reaches the server keeps the dialog open with the unmerge-failed sentence', async () => {
+    // C-CR-01: the action PROMISE rejects (no signal, a 5xx, a retired action id). Uncaught
+    // inside the transition it reaches the error boundary and takes the whole page with it.
+    mocked.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    renderHistory();
+    openDialog();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('business-unmerge-confirm'));
+    });
+
+    const error = await screen.findByTestId('business-unmerge-error');
+    expect(error).toHaveTextContent(UNMERGE_FAILED);
+    expect(within(error).getByTestId('business-unmerge-retry')).toHaveTextContent('Try again');
+    expect(screen.getByTestId('business-unmerge-dialog')).toBeInTheDocument();
+    expect(screen.getByTestId(`business-merge-row-${NEWER.mergeId}`)).toBeInTheDocument();
+    expect(refresh).not.toHaveBeenCalled();
+    expect(toast).not.toHaveBeenCalled();
+  });
 
   it('a successful unmerge toasts, closes and refreshes', async () => {
     mocked.mockResolvedValue({ ok: true, data: { loserId: '00000000-0000-4000-8000-0000000000c9' } });

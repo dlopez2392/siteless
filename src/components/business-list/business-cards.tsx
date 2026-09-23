@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { ClosedBadge } from '@/components/flags/closed-badge';
-import { Badge } from '@/components/ui/badge';
+import { MergedAwayBadge } from '@/components/flags/flag-badge';
 import { Item, ItemContent, ItemGroup, ItemTitle } from '@/components/ui/item';
 import { formatLocal } from '@/lib/time';
 import {
@@ -73,14 +73,8 @@ export function BusinessStatusBadge({ row }: { row: BusinessListRow }) {
       <ClosedBadge label={closedLabel(row.closedAt)} />
     );
   }
-  return (
-    <Badge
-      variant="secondary"
-      className="h-auto text-sm font-semibold"
-    >
-      {BUSINESS_STATUS.merged_away}
-    </Badge>
-  );
+  // The same badge, at the same size, as the detail header's (C-WR-03).
+  return <MergedAwayBadge />;
 }
 
 /** "McAllen · Home services & trades"; a record with no city shows its cluster alone. */

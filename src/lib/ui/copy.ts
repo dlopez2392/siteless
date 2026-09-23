@@ -410,6 +410,23 @@ export function FLAG_CHAIN(n: number, shown: string = String(n)) {
   return `Chain · ${shown} in Texas`;
 }
 
+/** The chain flag when the count is this org's own RGV spine, not the Comptroller's statewide
+ *  frequency — "in Texas" beside a local figure would overstate it. `shown` is `n` pre-formatted. */
+export function FLAG_CHAIN_LOCAL(n: number, shown: string = String(n)) {
+  return `Chain · ${shown} in the RGV`;
+}
+
+/**
+ * THE one chain-flag sentence, for every screen (C-WR-02). It picks the wording from
+ * `statewide`; nothing downstream edits its output (a `.replace(' in Texas', '')` on
+ * `FLAG_CHAIN` silently brought the overclaim back whenever the wording changed).
+ * `shown` is REQUIRED: the count is grouped by the caller through the pinned locale
+ * (`formatCount` in `src/lib/time.ts`), never printed raw.
+ */
+export function FLAG_CHAIN_LABEL(chain: { members: number; statewide: boolean }, shown: string) {
+  return chain.statewide ? FLAG_CHAIN(chain.members, shown) : FLAG_CHAIN_LOCAL(chain.members, shown);
+}
+
 /* --- /sources (03-UI-SPEC § 2) ------------------------------------------------------ */
 
 export const SOURCES_TITLE = 'Sources';
@@ -728,6 +745,9 @@ export const ERROR_ACTION = {
   openBusinesses: 'Open businesses',
   clearFilters: 'Clear filters',
   copyCommand: 'Copy the command',
+  /** An unmerge refusal a retry can never fix (already undone, a later merge first): close
+   *  the dialog and re-read the page, so the stale Unmerge button goes away (C-WR-05). */
+  reloadHistory: 'Reload the merge history',
 } as const;
 
 export const REVIEW_DECISION_FAILED =
@@ -816,3 +836,10 @@ export function SPINE_UNEXPECTED_ERROR(thing: string) {
     `whether the last ingest finished.`
   );
 }
+
+/** The `{thing}` the route error boundaries name in `UNEXPECTED_ERROR` /
+ *  `SPINE_UNEXPECTED_ERROR` (C-CR-01). One spelling each, here rather than in the boundary. */
+export const ERROR_THING = {
+  page: 'this page',
+  business: 'this business',
+} as const;

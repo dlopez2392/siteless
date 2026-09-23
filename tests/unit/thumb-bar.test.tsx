@@ -52,6 +52,7 @@ afterEach(() => {
 });
 
 import { ThumbBar } from '@/components/review/thumb-bar';
+import { PHONE_TOAST_OFFSET, THUMB_BAR_HEIGHT_VAR } from '@/lib/ui/chrome';
 
 describe('review thumb bar clearance', () => {
   it('thumb bar spacer mirrors the measured bar height', () => {
@@ -89,6 +90,35 @@ describe('review thumb bar clearance', () => {
     barHeight = 137; // the refusal is gone
     act(() => notify!());
     expect(spacer.style.height).toBe('137px');
+  });
+
+  it('thumb bar publishes its measured height for the phone toast offset, and withdraws it on unmount', () => {
+    // C-WR-07: sonner's phone toasts sat 16px off the bottom — over the tab bar and the thumb
+    // bar's lower row (measured on the built app: toast 774.5–828px vs bar top 643px at
+    // 390×844). The Toaster's phone offset reads this variable.
+    const root = document.documentElement;
+    barHeight = 137;
+    const { unmount } = render(
+      <ThumbBar>
+        <button type="button">Same business</button>
+      </ThumbBar>,
+    );
+    act(() => notify!());
+    expect(root.style.getPropertyValue(THUMB_BAR_HEIGHT_VAR)).toBe('137px');
+
+    barHeight = 337; // a refusal made the bar taller: toasts move up with it
+    act(() => notify!());
+    expect(root.style.getPropertyValue(THUMB_BAR_HEIGHT_VAR)).toBe('337px');
+
+    unmount();
+    // Off `/review` there is no bar, so toasts clear the tab bar alone.
+    expect(root.style.getPropertyValue(THUMB_BAR_HEIGHT_VAR)).toBe('');
+  });
+
+  it('the phone toast offset clears the tab bar, the safe area and the measured thumb bar', () => {
+    expect(PHONE_TOAST_OFFSET.bottom).toBe(
+      `calc(4rem + env(safe-area-inset-bottom) + var(${THUMB_BAR_HEIGHT_VAR}, 0px) + 0.5rem)`,
+    );
   });
 
   it('thumb bar stops observing when it unmounts', () => {

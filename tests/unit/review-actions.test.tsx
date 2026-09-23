@@ -20,10 +20,12 @@ vi.mock('sonner', () => ({ toast: vi.fn() }));
 
 import { toast } from 'sonner';
 import { recordReviewDecision } from '@/server/actions/record-review-decision';
-import { ReviewActions } from '@/components/review/review-actions';
+import { ReviewActions, ReviewHelpers } from '@/components/review/review-actions';
 import {
   REVIEW_ALREADY_DECIDED,
   REVIEW_DECISION_FAILED,
+  REVIEW_DIFFERENT_HELPER,
+  REVIEW_SKIP_HELPER,
   TOAST_DISTINCT,
   TOAST_MERGED,
 } from '@/lib/ui/copy';
@@ -95,6 +97,39 @@ describe('review actions', () => {
     expect(screen.getByTestId('review-action-same')).not.toHaveAttribute('aria-disabled');
   });
 
+  it('a decision whose request never reaches the server keeps the pair and shows the refusal', async () => {
+    // C-CR-01: the action PROMISE rejects (signal lost mid-tap, a 5xx, a deploy that retired
+    // the action id). Uncaught inside the transition, React hands it to the nearest error
+    // boundary and the whole screen goes. It must land in the same Alert a refusal does.
+    action.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    render(
+      <div>
+        <div data-testid="review-pair">the pair</div>
+        <ReviewActions candidateId={CANDIDATE} />
+      </div>,
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('review-action-different'));
+    });
+
+    expect(screen.getByTestId('review-pair')).toBeInTheDocument();
+    expect(screen.getByTestId('review-error')).toHaveTextContent(REVIEW_DECISION_FAILED);
+    expect(screen.getByTestId('review-error-retry')).toBeInTheDocument();
+    expect(screen.getByTestId('review-error-reload')).toBeInTheDocument();
+    expect(refresh).not.toHaveBeenCalled();
+    expect(toastFn).not.toHaveBeenCalled();
+    expect(screen.getByTestId('review-action-different')).not.toHaveAttribute('aria-disabled');
+
+    // "Try again" re-sends the SAME decision.
+    action.mockResolvedValueOnce({ ok: true, data: { remaining: 2, merged: null } });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('review-error-retry'));
+    });
+    expect(action).toHaveBeenLastCalledWith({ candidateId: CANDIDATE, decision: 'distinct' });
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
   it('a recorded merge toasts the true names and only then advances', async () => {
     const answer = deferAnswer();
     render(<ReviewActions candidateId={CANDIDATE} />);
@@ -154,6 +189,30 @@ describe('review actions', () => {
     fireEvent.click(screen.getByTestId('review-action-same'));
     expect(action).toHaveBeenCalledTimes(1);
     await answer({ ok: true, data: { remaining: 0, merged: null } });
+  });
+
+  it('the Different and Skip helper sentences are shown and describe their buttons', () => {
+    // C-WR-06: "Different" is permanent and deliberately unconfirmed (Rule 23); its helper is
+    // the only disclosure the spec gives, and it was rendered by nothing.
+    render(
+      <div>
+        <ReviewHelpers />
+        <ReviewActions candidateId={CANDIDATE} />
+      </div>,
+    );
+    const helpers = screen.getByTestId('review-helpers');
+    expect(helpers).toHaveTextContent(REVIEW_DIFFERENT_HELPER);
+    expect(helpers).toHaveTextContent(REVIEW_SKIP_HELPER);
+    // Visible text, not screen-reader-only: Label 14/400 muted.
+    expect(helpers.closest('.sr-only')).toBeNull();
+    expect(helpers).toHaveClass('text-sm', 'font-normal', 'text-muted-foreground');
+
+    expect(screen.getByTestId('review-action-different')).toHaveAccessibleDescription(
+      REVIEW_DIFFERENT_HELPER,
+    );
+    expect(screen.getByTestId('review-action-skip')).toHaveAccessibleDescription(REVIEW_SKIP_HELPER);
+    // "Same business" is reversible by Unmerge and carries no helper.
+    expect(screen.getByTestId('review-action-same')).toHaveAccessibleDescription('');
   });
 
   it('the loading bar is real and disabled', () => {

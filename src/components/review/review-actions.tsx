@@ -23,6 +23,9 @@ import {
   REVIEW_ACTION_SAME,
   REVIEW_ACTION_SKIP,
   REVIEW_BUSY,
+  REVIEW_DECISION_FAILED,
+  REVIEW_DIFFERENT_HELPER,
+  REVIEW_SKIP_HELPER,
   TOAST_DISTINCT,
   TOAST_MERGED,
 } from '@/lib/ui/copy';
@@ -68,6 +71,36 @@ function isRetryable(code: string, reason: string | number | undefined): boolean
 
 const BUTTON_TEXT = 'text-base font-normal';
 
+/** The helper sentences' ids, private to this module (a client module exports components
+ *  only — Rule 5). `ReviewHelpers` owns the elements; the buttons point at them. */
+const HELPER_ID = {
+  distinct: 'review-helper-different',
+  skip: 'review-helper-skip',
+} as const;
+
+/**
+ * The Skip and Different helper sentences (03-UI-SPEC § Copy Table; C-WR-06), Label 14/400
+ * muted. "Different" is PERMANENT and deliberately unconfirmed (Rule 23) — this sentence is the
+ * only disclosure the spec gives the reviewer, so it is visible text, and each button names its
+ * sentence through `aria-describedby`.
+ *
+ * 🔴 NOT INSIDE THE THUMB BAR. On a phone the bar is `position: fixed`; three more lines there
+ * would take ~70px of a 390×844 screen for good. The page renders this in the scrolling flow
+ * just above the bar's spacer (so it sits directly above the buttons at the end of the pair),
+ * and from 640px up `sm:order-last` moves it beneath the action row.
+ */
+export function ReviewHelpers({ className }: { className?: string }) {
+  return (
+    <div
+      data-testid="review-helpers"
+      className={cn('flex flex-col gap-1 text-sm font-normal text-muted-foreground', className)}
+    >
+      <p id={HELPER_ID.distinct}>{REVIEW_DIFFERENT_HELPER}</p>
+      <p id={HELPER_ID.skip}>{REVIEW_SKIP_HELPER}</p>
+    </div>
+  );
+}
+
 export function ReviewActions({ candidateId }: { candidateId: string | null }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -87,7 +120,18 @@ export function ReviewActions({ candidateId }: { candidateId: string | null }) {
       setRefusal(null);
       setPressed(decision);
       startTransition(async () => {
-        const result = await recordReviewDecision({ candidateId, decision });
+        let result: Awaited<ReturnType<typeof recordReviewDecision>>;
+        try {
+          result = await recordReviewDecision({ candidateId, decision });
+        } catch {
+          // 🔴 C-CR-01: the REQUEST failed (no signal mid-tap, a 5xx, a deploy that retired the
+          // action id), so the promise rejected rather than answering `ok: false`. Uncaught
+          // inside a transition, React hands it to the nearest error boundary and the queue,
+          // the pair and the tab bar all go. Nothing was recorded — the server never answered —
+          // so it is the same refusal, retryable, with the pair still on screen (Rule 20).
+          setRefusal({ message: REVIEW_DECISION_FAILED, retryable: true, decision });
+          return;
+        }
         if (!result.ok) {
           // 🔴 Do NOT advance. The pair stays on screen with the reason beside it.
           setRefusal({
@@ -173,6 +217,7 @@ export function ReviewActions({ candidateId }: { candidateId: string | null }) {
             decision="distinct"
             label={REVIEW_ACTION_DIFFERENT}
             variant="outline"
+            describedBy={HELPER_ID.distinct}
             data-testid="review-action-different"
           />
           <DecisionButton
@@ -180,6 +225,7 @@ export function ReviewActions({ candidateId }: { candidateId: string | null }) {
             decision="skip"
             label={REVIEW_ACTION_SKIP}
             variant="ghost"
+            describedBy={HELPER_ID.skip}
             data-testid="review-action-skip"
           />
         </div>
@@ -197,10 +243,13 @@ function DecisionButton({
   isPending,
   pressed,
   onDecide,
+  describedBy,
 }: {
   decision: ReviewDecision;
   label: string;
   variant: 'default' | 'outline' | 'ghost';
+  /** The id of the helper sentence this action is described by (C-WR-06). */
+  describedBy?: string;
   'data-testid': string;
   busy: boolean;
   isPending: boolean;
@@ -217,6 +266,7 @@ function DecisionButton({
       // button mid-decision and a screen reader still reaches all three.
       aria-disabled={busy || undefined}
       aria-busy={recording || undefined}
+      aria-describedby={describedBy}
       onClick={() => {
         if (!busy) onDecide(decision);
       }}

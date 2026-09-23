@@ -69,8 +69,10 @@ export function SourcesSkeleton() {
 
       <ItemGroup className="gap-4 sm:hidden">
         {LEDGER_SOURCES.map((source) => (
+          // `ItemGroup` is `role="list"`; each Item must be its listitem (C-WR-04).
           <Item
             key={source.key}
+            role="listitem"
             variant="outline"
             className="flex-col items-stretch gap-4 bg-card p-4"
           >

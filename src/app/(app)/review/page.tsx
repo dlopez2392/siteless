@@ -1,6 +1,6 @@
 import { Suspense } from 'react';
 import { CandidatePair } from '@/components/review/candidate-pair';
-import { ReviewActions, ReviewAdvance } from '@/components/review/review-actions';
+import { ReviewActions, ReviewAdvance, ReviewHelpers } from '@/components/review/review-actions';
 import { ReviewNothingYet, ReviewQueueClear } from '@/components/review/review-empty';
 import { ReviewSkeleton } from '@/components/review/review-skeleton';
 import { ThumbBar } from '@/components/review/thumb-bar';
@@ -96,6 +96,10 @@ async function ReviewRegion() {
       ) : (
         <ReviewNothingYet />
       )}
+
+      {/* C-WR-06: in the scrolling flow, before the bar's spacer, so on a phone it sits just
+          above the fixed buttons; from 640px up `sm:order-last` puts it beneath them. */}
+      {top ? <ReviewHelpers className="sm:order-last" /> : null}
 
       {top ? (
         <ThumbBar>

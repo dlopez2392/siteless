@@ -1,9 +1,9 @@
 import Link from 'next/link';
 import { ClosedBadge } from '@/components/flags/closed-badge';
-import { Badge } from '@/components/ui/badge';
+import { ChainBadge, MergedAwayBadge } from '@/components/flags/flag-badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { formatLocal } from '@/lib/time';
-import { BUSINESS_STATUS, FLAG_CLOSED, LEAD_KEY_LABEL, MERGE_ROW } from '@/lib/ui/copy';
+import { FLAG_CLOSED, LEAD_KEY_LABEL, MERGE_ROW } from '@/lib/ui/copy';
 import type { BusinessStatusView } from '@/server/queries/businesses';
 import { CopyLeadKeyButton } from './copy-lead-key';
 
@@ -21,9 +21,10 @@ import { CopyLeadKeyButton } from './copy-lead-key';
  *
  * Status badges — each only when set — sit to the right on desk and wrap beneath on phone:
  * `Closed {date}` on the destructive surface (a closed business is a hard stop; calling one
- * is this product's most embarrassing failure), `Chain · {n} in Texas` outline (a chain is a
- * fact, not a fault — D-11), `Merged away` secondary. Colour is never the only signal: every
- * badge carries its word.
+ * is this product's most embarrassing failure), `Chain · {n} in Texas` / `… in the RGV`
+ * outline (a chain is a fact, not a fault — D-11), `Merged away` secondary. Colour is never the
+ * only signal: every badge carries its word. All three share `FLAG_BADGE_SIZING` (14/600) —
+ * the Badge default 12/500 is below the type scale (C-WR-03).
  *
  * A server component; the copy button is the one client island.
  */
@@ -32,20 +33,20 @@ export function DetailHeader({
   leadKey,
   status,
   closedAt,
-  chainLabel,
+  chain,
   mergedInto,
 }: {
   displayName: string;
   leadKey: string;
   status: BusinessStatusView;
   closedAt: Date | null;
-  /** Pre-formatted by the route (the count goes through the pinned locale there). */
-  chainLabel: string | null;
+  /** The chain flag's facts; `ChainBadge` words it through the one formatter (C-WR-02). */
+  chain: { members: number; statewide: boolean } | null;
   mergedInto: { id: string; displayName: string } | null;
 }) {
   const closed = closedAt !== null;
   const mergedAway = status === 'merged_away';
-  const hasBadges = closed || chainLabel !== null || mergedAway;
+  const hasBadges = closed || chain !== null || mergedAway;
 
   return (
     <Card data-testid="business-header">
@@ -93,16 +94,8 @@ export function DetailHeader({
                 label={FLAG_CLOSED(formatLocal(closedAt, { month: 'short', day: 'numeric', year: 'numeric' }))}
               />
             ) : null}
-            {chainLabel !== null ? (
-              <Badge data-testid="business-badge-chain" variant="outline">
-                {chainLabel}
-              </Badge>
-            ) : null}
-            {mergedAway ? (
-              <Badge data-testid="business-badge-merged-away" variant="secondary">
-                {BUSINESS_STATUS.merged_away}
-              </Badge>
-            ) : null}
+            {chain !== null ? <ChainBadge data-testid="business-badge-chain" chain={chain} /> : null}
+            {mergedAway ? <MergedAwayBadge data-testid="business-badge-merged-away" /> : null}
           </div>
         ) : null}
       </CardContent>
