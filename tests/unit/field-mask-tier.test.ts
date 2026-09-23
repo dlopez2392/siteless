@@ -60,7 +60,9 @@ const FIELD_TIERS: ReadonlyArray<readonly [PlacesField, TextSearchSku, TextSearc
 
 const SRC_DIR = 'src';
 const FIELD_MASK_HEADER = 'X-Goog-FieldMask';
-const HEADER_MAY_BE_NAMED_IN = new Set(['src/lib/budget/field-mask-tier.ts']);
+/** 04-12: the rule moved to the module that SENDS the header. field-mask-tier.ts prices the
+ *  mask and deliberately no longer spells the header name. */
+const HEADER_MAY_BE_NAMED_IN = new Set(['src/lib/places/client.ts']);
 
 /** Posix-relative paths so the assertion reads the same on Windows and in CI. Every file,
  *  whatever its extension (no `exts`), through the shared walker that skips the generated
@@ -142,13 +144,14 @@ describe('field mask tiering (BUDG-01)', () => {
     expect(fieldMaskTier(PLACES_TEXT_SEARCH_FIELD_MASK)).not.toBe('ts_essentials');
   });
 
-  it('X-Goog-FieldMask is named in at most one module under src', () => {
+  it('X-Goog-FieldMask is named in exactly one module under src', () => {
     const files = walkPosix(SRC_DIR);
 
-    // A wrong cwd throws; a right-but-empty walk would pass vacuously. Pin a file that
-    // is known to be there so only a real absence can make this green.
+    // A wrong cwd throws; a right-but-empty walk would pass vacuously. Pin files that
+    // are known to be there so only a real absence can make this green.
     expect(files.length).toBeGreaterThan(0);
     expect(files).toContain('src/lib/budget/field-mask-tier.ts');
+    expect(files).toContain('src/lib/places/client.ts');
     // The exclusion is real, not merely declared (posix paths, so a posix probe).
     expect(files.some((f) => f.includes('.well-known/workflow'))).toBe(false);
 
@@ -161,8 +164,10 @@ describe('field mask tiering (BUDG-01)', () => {
       .filter(({ text }) => text.includes(FIELD_MASK_HEADER))
       .map(({ file }) => file);
 
-    // Forward-compatible: Phase 2 makes no Places call, so the count is 0 or 1 today and
-    // Phase 4's client must import the mask from here rather than spell the header again.
-    expect(namesTheHeader.filter((file) => !HEADER_MAY_BE_NAMED_IN.has(file))).toEqual([]);
+    // Exactly the client (04-12): it sends the header, with the mask built by
+    // src/lib/places/request.ts from the constants above. A second module spelling the
+    // header is a second call site that could send a mask nobody priced; zero modules would
+    // mean the client stopped sending it (and the msw harness would answer 501).
+    expect(namesTheHeader).toEqual([...HEADER_MAY_BE_NAMED_IN]);
   });
 });

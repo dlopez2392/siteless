@@ -3,15 +3,16 @@
  * built to do it. CI replays recorded payloads through msw. A test that names a live host is
  * one missing handler away from calling it, and on a Places-shaped API that would spend budget.
  *
- * Hosts: the Texas Comptroller Socrata host, Overture's bucket, any S3 endpoint, and the
- * Census geocoder. They are written below as constructed strings so this file is not its own
+ * Hosts: the Texas Comptroller Socrata host, Overture's bucket, any S3 endpoint, the Census
+ * geocoder, and (since 04-12) Google Places — where a live call would spend budget. They are written below as constructed strings so this file is not its own
  * violation, and it also excludes itself by path.
  *
  * Allow-list, exactly (D-01, T-3-05):
  *   - scripts/**: the desk scripts are the only network callers. This walk does not cover
  *     scripts/ at all.
- *   - src/lib/socrata/client.ts, src/lib/geocode/census.ts, src/lib/geocode/census-batch.ts:
- *     each carries its host as ONE module-level constant.
+ *   - src/lib/socrata/client.ts, src/lib/geocode/census.ts, src/lib/geocode/census-batch.ts,
+ *     src/lib/places/client.ts (04-12, D-03): each carries its host as ONE module-level
+ *     constant.
  *   - tests/unit/msw/**: the replay handlers and their recorded fixtures.
  *   - src/seed/data/*.json, but ONLY on a `"source":` line. Those three committed seed files
  *     cite the dataset they were measured from. That is provenance text, not a request. Any
@@ -32,6 +33,9 @@ const HOSTS: readonly string[] = [
   'overture' + 'maps',
   's3' + '.',
   'geocoding.geo.' + 'census.gov',
+  // Google Places (API New), plan 04-12. Spelled only in src/lib/places/client.ts and the msw
+  // harness; every test builds its URL from tests/unit/msw/places.ts.
+  'places.' + 'googleapis.com',
 ];
 
 const EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.mjs', '.cjs', '.json']);
@@ -42,6 +46,7 @@ const ALLOWED_FILES = new Set([
   'src/lib/socrata/client.ts',
   'src/lib/geocode/census.ts',
   'src/lib/geocode/census-batch.ts',
+  'src/lib/places/client.ts',
 ]);
 
 const ALLOWED_PREFIXES = ['tests/unit/msw/'];
@@ -81,6 +86,10 @@ describe('CI hygiene', () => {
     // ...and the matcher works. The allow-listed Census client DOES name its host, so a
     // broken HOSTS list or a matcher that never fires goes red here instead of green.
     expect(offencesIn('src/lib/geocode/census.ts').length).toBeGreaterThan(0);
+    // ...and the Places entry fires too: the one sanctioned Places client names the host, so
+    // its allow-list entry excuses something real rather than nothing.
+    expect(scanned).toContain('src/lib/places/client.ts');
+    expect(offencesIn('src/lib/places/client.ts').length).toBeGreaterThan(0);
 
     const offences: string[] = [];
     for (const file of scanned) {
