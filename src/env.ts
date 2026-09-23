@@ -18,6 +18,14 @@ import { z } from 'zod';
 const serverSchema = z.object({
   CLERK_SECRET_KEY: z.string().min(1),
   SUPABASE_DB_POOL_URL: z.string().url(),
+  /**
+   * OPTIONAL, server-only. A Socrata app token buys the app its own request pool on the
+   * Comptroller's open-data host; unauthenticated requests are throttled per IP but were never throttled
+   * in measurement, so the project runs without one. `src/lib/socrata/client.ts` reads it
+   * directly (it is imported by tsx scripts that cannot load this module) and sends it as
+   * `X-App-Token` only when present.
+   */
+  SOCRATA_APP_TOKEN: z.string().min(1).optional(),
 });
 
 /**
@@ -38,6 +46,9 @@ const serverSchema = z.object({
 const parsed = serverSchema.safeParse({
   ...process.env,
   SUPABASE_DB_POOL_URL: process.env.SUPABASE_DB_POOL_URL || process.env.RUNTIME_DB_URL,
+  // Same `||` reasoning: an absent GitHub Actions secret arrives as '', which `.optional()`
+  // would treat as present and `.min(1)` would then refuse at boot.
+  SOCRATA_APP_TOKEN: process.env.SOCRATA_APP_TOKEN || undefined,
 });
 
 if (!parsed.success) {
