@@ -18,9 +18,19 @@ import { expect, test, type Page } from '@playwright/test';
  * `display: none` once. `toHaveCount(1)` on the `:visible` locator turns that into a
  * checked invariant: if a breakpoint change ever leaves both showing, this fails instead
  * of quietly measuring whichever one came first.
+ *
+ * 🔴 SOME HOOKS ONLY EXIST ONCE A SURFACE IS OPEN (03-UI-SPEC Executor Rule 21). On a phone
+ * the Operations destinations — `nav-sources`, `nav-spend`, `nav-settings` — live inside
+ * the More sheet, and Radix mounts sheet content only while it is open, so their visible
+ * count is 0 until `nav-more` is tapped. The invariant above is NOT relaxed for them: the
+ * spec opens the sheet first and then demands exactly one visible match, the same way it
+ * has always opened the user menu before measuring `theme-switch`. Changing the
+ * PRECONDITION is honest; loosening `toHaveCount(1)` would not be.
  */
 
 const PHONE = { width: 390, height: 844 };
+/** Above the 1024px `lg` breakpoint, where the desk sidebar is the only visible nav. */
+const DESK = { width: 1280, height: 800 };
 
 test.use({ viewport: PHONE });
 
@@ -65,9 +75,18 @@ test('touch targets: every primary control clears 44px at 390x844', async ({ pag
   await expect(page.getByTestId('mobile-tab-bar')).toBeVisible();
   await expect(page.getByTestId('app-sidebar')).toBeHidden();
 
-  for (const testId of ['nav-presets', 'nav-spend', 'nav-settings', 'user-menu']) {
+  // The four always-visible phone tabs — the three Leads destinations and More — plus the
+  // avatar. `nav-spend` and `nav-settings` are NOT here: they moved into the More sheet.
+  for (const testId of ['nav-presets', 'nav-review', 'nav-businesses', 'nav-more', 'user-menu']) {
     await expectTargetAtLeast44(page, testId);
   }
+
+  // /settings/organization is an Operations route, and Operations has no tab of its own on
+  // a phone — so the More tab itself must carry the lit state, or no tab is lit at all.
+  await expect(page.locator('[data-testid="nav-more"]:visible')).toHaveAttribute(
+    'data-active',
+    'true',
+  );
 
   // The theme switch lives inside the user menu, so it has to be open to be measured.
   await page.locator('[data-testid="user-menu"]:visible').click();
@@ -75,4 +94,43 @@ test('touch targets: every primary control clears 44px at 390x844', async ({ pag
   for (const testId of ['theme-light', 'theme-dark', 'theme-system']) {
     await expectTargetAtLeast44(page, testId);
   }
+
+  // Close the menu so its overlay cannot swallow the next tap.
+  await page.keyboard.press('Escape');
+  await expect(page.locator('[data-testid="theme-switch"]:visible')).toHaveCount(0);
+
+  // The Operations rows live inside the More sheet, so it has to be open to be measured —
+  // the same open-then-measure precondition as the user menu above.
+  await page.locator('[data-testid="nav-more"]:visible').click();
+  await expect(page.getByTestId('more-sheet')).toBeVisible();
+  for (const testId of ['nav-sources', 'nav-spend', 'nav-settings']) {
+    await expectTargetAtLeast44(page, testId);
+  }
+});
+
+test.describe('desk', () => {
+  test.use({ viewport: DESK });
+
+  test('touch targets: all six sidebar rows clear 44px at 1280x800', async ({ page }) => {
+    await page.goto('/settings/organization');
+
+    expect(page.viewportSize()).toEqual(DESK);
+    expect(await page.evaluate(() => window.innerHeight)).toBeGreaterThan(0);
+
+    // The sidebar is the desk's navigation; the tab bar (and so the More sheet) is not.
+    await expect(page.getByTestId('app-sidebar')).toBeVisible();
+    await expect(page.getByTestId('mobile-tab-bar')).toBeHidden();
+
+    // All six rows, with no sheet interaction — the desk shows both groups at once.
+    for (const testId of [
+      'nav-presets',
+      'nav-review',
+      'nav-businesses',
+      'nav-sources',
+      'nav-spend',
+      'nav-settings',
+    ]) {
+      await expectTargetAtLeast44(page, testId);
+    }
+  });
 });
