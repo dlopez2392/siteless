@@ -11,8 +11,9 @@ import { ATTRIBUTION_BODY, ATTRIBUTION_FOOTNOTE, ATTRIBUTION_HEADING } from '@/l
  * retyped, so the licence wording lives in exactly one place. The CSV half is Phase 8's
  * (COMP-03) and is deliberately not written here.
  *
- * The `--muted` surface with muted foreground, and no accent anywhere: this is a notice,
- * not an action.
+ * The `--muted` surface with muted foreground for the body, and no accent anywhere: this is a
+ * notice, not an action. The HEADING is foreground (03-22 screen review): muted-on-muted made
+ * the whole block read washed out, and the heading is what tells a reader the block is there.
  */
 export function AttributionBlock() {
   return (
@@ -21,7 +22,7 @@ export function AttributionBlock() {
       className="gap-4 bg-muted py-4 text-muted-foreground shadow-none ring-0 sm:py-6"
     >
       <CardHeader className="px-4 sm:px-6">
-        <CardTitle className="text-xl font-semibold leading-tight">
+        <CardTitle className="text-xl font-semibold leading-tight text-foreground">
           {ATTRIBUTION_HEADING}
         </CardTitle>
       </CardHeader>

@@ -202,4 +202,14 @@ describe('sources skeleton and attribution', () => {
     expect(block).toHaveTextContent('CDLA-Permissive 2.0');
     expect(block).toHaveTextContent('None of this is Google data');
   });
+
+  it('the attribution heading is foreground, not muted, on the muted card', () => {
+    // 03-22 screen review: the heading inherited the card's muted foreground and read washed
+    // out (4.80:1 in light). The painted value is measured on the built app; this pins the
+    // class that paints it, and that the heading does not fall back to the card's muted text.
+    render(<AttributionBlock />);
+    const heading = within(screen.getByTestId('sources-attribution')).getByText('Where this data comes from');
+    expect(heading.classList.contains('text-foreground')).toBe(true);
+    expect(heading.classList.contains('text-muted-foreground')).toBe(false);
+  });
 });

@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { ClosedBadge } from '@/components/flags/closed-badge';
 import { Badge } from '@/components/ui/badge';
 import { Item, ItemContent, ItemGroup, ItemTitle } from '@/components/ui/item';
 import { formatLocal } from '@/lib/time';
@@ -69,12 +70,7 @@ export function BusinessStatusBadge({ row }: { row: BusinessListRow }) {
   }
   if (row.status === 'closed') {
     return (
-      <Badge
-        variant="secondary"
-        className="h-auto bg-destructive-surface text-sm font-semibold text-destructive-surface-foreground tabular-nums"
-      >
-        {closedLabel(row.closedAt)}
-      </Badge>
+      <ClosedBadge label={closedLabel(row.closedAt)} />
     );
   }
   return (

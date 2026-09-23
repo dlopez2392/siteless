@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { ClosedBadge } from '@/components/flags/closed-badge';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { formatLocal } from '@/lib/time';
@@ -87,13 +88,10 @@ export function DetailHeader({
         {hasBadges ? (
           <div data-testid="business-status-badges" className="flex flex-wrap items-center gap-2">
             {closed ? (
-              <Badge
+              <ClosedBadge
                 data-testid="business-badge-closed"
-                variant="secondary"
-                className="bg-destructive-surface text-destructive-surface-foreground"
-              >
-                {FLAG_CLOSED(formatLocal(closedAt, { month: 'short', day: 'numeric', year: 'numeric' }))}
-              </Badge>
+                label={FLAG_CLOSED(formatLocal(closedAt, { month: 'short', day: 'numeric', year: 'numeric' }))}
+              />
             ) : null}
             {chainLabel !== null ? (
               <Badge data-testid="business-badge-chain" variant="outline">

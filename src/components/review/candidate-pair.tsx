@@ -1,5 +1,6 @@
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
+import { ClosedBadge } from '@/components/flags/closed-badge';
 import { cn } from '@/lib/utils';
 import {
   FLAG_CHAIN,
@@ -96,14 +97,12 @@ function Side({
         {side.closedAt || side.chain ? (
           <div className="flex flex-wrap gap-2 pt-1">
             {side.closedAt ? (
-              <Badge
+              <ClosedBadge
                 data-testid={`${testId}-closed`}
-                className="h-auto bg-destructive-surface px-2 py-1 text-sm font-semibold text-destructive-surface-foreground tabular-nums"
-              >
-                {FLAG_CLOSED(
+                label={FLAG_CLOSED(
                   formatLocal(side.closedAt, { month: 'short', day: 'numeric', year: 'numeric' }),
                 )}
-              </Badge>
+              />
             ) : null}
             {side.chain ? (
               <Badge
