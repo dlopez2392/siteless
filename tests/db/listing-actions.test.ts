@@ -14,6 +14,7 @@
  * so a hoisted mock of `@/db/with-org` could reach another file's real import of it.
  */
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { OrgClaims } from '@/db/with-org';
@@ -23,9 +24,15 @@ import {
   REVIEW_GOOGLE_ALREADY_DECIDED,
 } from '@/lib/ui/copy';
 import type { Tx } from '@/server/queries/budget';
-import { actAsOwner, seedTwoOrgs } from './_fixtures';
+import { actAs, actAsOwner, seedTwoOrgs } from './_fixtures';
 import { asPg, closeDrizzleTx, withTxRollback } from './_drizzle-tx';
-import { seedAttachmentWithObservation, seedPlacesRun, seedPlacesSpine } from './_places-fixtures';
+import {
+  CLAIMS_A,
+  CLAIMS_B,
+  seedAttachmentWithObservation,
+  seedPlacesRun,
+  seedPlacesSpine,
+} from './_places-fixtures';
 
 vi.mock('server-only', () => ({}));
 
@@ -54,6 +61,12 @@ type Actions = {
   detachListing: typeof import('@/server/actions/detach-listing').detachListing;
 };
 let actions: Actions;
+
+type Queries = {
+  readGoogleCheck: typeof import('@/server/queries/businesses').readGoogleCheck;
+  readBusinessDetail: typeof import('@/server/queries/businesses').readBusinessDetail;
+};
+let queries: Queries;
 
 const MOCKED = ['@/lib/auth/require-org', 'next/cache', '@/db/with-org'] as const;
 
@@ -87,6 +100,13 @@ beforeAll(async () => {
   actions = {
     recordListingDecision: decision.recordListingDecision,
     detachListing: detach.detachListing,
+  };
+  // The reads take an open transaction and never call withOrg, so the mock is irrelevant to
+  // them; imported dynamically anyway so this file's module graph is loaded in one place.
+  const businesses = await import('@/server/queries/businesses');
+  queries = {
+    readGoogleCheck: businesses.readGoogleCheck,
+    readBusinessDetail: businesses.readBusinessDetail,
   };
 });
 
@@ -364,5 +384,194 @@ describe('detachListing', () => {
         code: 'validation',
       });
       expect(request.withOrgCalls).toBe(0);
+    }));
+});
+
+/**
+ * The business detail's "Google Maps check" read (04-UI-SPEC § Screen 5, D-08 / D-10): the
+ * business-level signal (attached listings only), every listing with its status and latest
+ * observation, and the append-only observation history — read as a Clerk user through RLS.
+ *
+ * 🔴 Instants are chosen off the hour and on different days so a swapped `observed_at` / `decided_at`
+ * or a wrong sort cannot pass by coincidence.
+ */
+describe('the google check', () => {
+  const T_OLD = Date.UTC(2026, 8, 18, 14, 5);
+  const T_MID = Date.UTC(2026, 8, 20, 16, 40);
+  const T_NEW = Date.UTC(2026, 8, 22, 3, 30);
+  const T_DECIDED = Date.UTC(2026, 8, 21, 9, 15);
+
+  it('the google check reads the business signal and every listing', () =>
+    withTxRollback(async (tx) => {
+      const { c, orgs, spine, run } = await seedOrgA(tx);
+      const seed = (placeId: string, status: 'attached' | 'tentative' | 'rejected', at: number) =>
+        seedAttachmentWithObservation(c, {
+          orgId: orgs.a,
+          businessId: spine.ortiz,
+          placeId,
+          runId: run.runId,
+          status,
+          hadWebsiteUri: false,
+          hostClass: 'none',
+          observedAt: new Date(at),
+          withCoordinates: true,
+        });
+      // Seeded out of display order on purpose.
+      const rejected = await seed('ChIJ_rejected', 'rejected', T_NEW);
+      const tentative = await seed('ChIJ_tentative', 'tentative', T_NEW);
+      const olderAttached = await seed('ChIJ_attached_old', 'attached', T_OLD);
+      const newerAttached = await seed('ChIJ_attached_new', 'attached', T_MID);
+      await c.query(
+        `update place_attachments set reason = 'detached', decided_by = 'user_reviewer_A',
+                decided_at = $2::timestamptz where id = $1`,
+        [rejected.attachmentId, new Date(T_DECIDED).toISOString()],
+      );
+      await actAs(c, CLAIMS_A);
+
+      const view = await queries.readGoogleCheck(tx, spine.ortiz);
+      // D-08: the business-level value — the newest attached observation; tentative and
+      // rejected listings (observed LATER, at T_NEW) are never a verdict input.
+      expect(view.signal).toEqual({ hadWebsiteUri: false, hostClass: 'none', observedMs: T_MID });
+      expect(view.listings.map((l) => l.attachmentId)).toEqual([
+        newerAttached.attachmentId,
+        olderAttached.attachmentId,
+        tentative.attachmentId,
+        rejected.attachmentId,
+      ]);
+      expect(view.listings[0]).toEqual({
+        attachmentId: newerAttached.attachmentId,
+        placeId: 'ChIJ_attached_new',
+        status: 'attached',
+        reason: 'score',
+        score: 95,
+        tieBusinessId: null,
+        decidedBy: null,
+        decidedMs: null,
+        latest: { hadWebsiteUri: false, hostClass: 'none', observedMs: T_MID, runId: run.runId },
+      });
+      expect(view.listings[2]).toMatchObject({ status: 'tentative', score: 80 });
+      expect(view.listings[3]).toEqual({
+        attachmentId: rejected.attachmentId,
+        placeId: 'ChIJ_rejected',
+        status: 'rejected',
+        reason: 'detached',
+        score: 95,
+        tieBusinessId: null,
+        decidedBy: 'user_reviewer_A',
+        decidedMs: T_DECIDED,
+        latest: { hadWebsiteUri: false, hostClass: 'none', observedMs: T_NEW, runId: run.runId },
+      });
+
+      // The detail page reads it inside its ONE transaction.
+      const detail = await queries.readBusinessDetail(tx, spine.ortiz);
+      expect(detail?.google).toEqual(view);
+    }));
+
+  it('the google check history is newest first and names its run', () =>
+    withTxRollback(async (tx) => {
+      const { c, orgs, spine, run } = await seedOrgA(tx);
+      // A second run in one org must not be active (runs_one_active_per_org).
+      const earlier = await seedPlacesRun(c, orgs.a, { status: 'complete' });
+      const first = await seedAttachmentWithObservation(c, {
+        orgId: orgs.a,
+        businessId: spine.garza,
+        placeId: 'ChIJ_garza_history',
+        runId: earlier.runId,
+        status: 'attached',
+        hadWebsiteUri: true,
+        hostClass: 'social',
+        observedAt: new Date(T_OLD),
+      });
+      const second = await seedAttachmentWithObservation(c, {
+        orgId: orgs.a,
+        businessId: spine.garza,
+        placeId: 'ChIJ_garza_history',
+        runId: run.runId,
+        status: 'attached',
+        hadWebsiteUri: false,
+        hostClass: 'none',
+        observedAt: new Date(T_NEW),
+      });
+      expect(second.attachmentId).toBe(first.attachmentId);
+      await actAs(c, CLAIMS_A);
+
+      const view = await queries.readGoogleCheck(tx, spine.garza);
+      expect(view.history).toEqual([
+        {
+          observationId: second.observationId,
+          placeId: 'ChIJ_garza_history',
+          observedMs: T_NEW,
+          hadWebsiteUri: false,
+          hostClass: 'none',
+          runId: run.runId,
+        },
+        {
+          observationId: first.observationId,
+          placeId: 'ChIJ_garza_history',
+          observedMs: T_OLD,
+          hadWebsiteUri: true,
+          hostClass: 'social',
+          runId: earlier.runId,
+        },
+      ]);
+      // The listing's latest is the newer run; the signal follows the view (0027).
+      expect(view.listings[0]?.latest).toEqual({
+        hadWebsiteUri: false,
+        hostClass: 'none',
+        observedMs: T_NEW,
+        runId: run.runId,
+      });
+      expect(view.signal).toEqual({ hadWebsiteUri: false, hostClass: 'none', observedMs: T_NEW });
+    }));
+
+  it('the google check never selects coordinates', () =>
+    withTxRollback(async (tx) => {
+      const { c, orgs, spine, run } = await seedOrgA(tx);
+      await seedAttachmentWithObservation(c, {
+        orgId: orgs.a,
+        businessId: spine.valley,
+        placeId: 'ChIJ_valley_coords',
+        runId: run.runId,
+        status: 'attached',
+        hadWebsiteUri: true,
+        hostClass: 'directory',
+        withCoordinates: { lat: 26.1901234, lng: -98.2201234 },
+      });
+      await actAs(c, CLAIMS_A);
+
+      const view = await queries.readGoogleCheck(tx, spine.valley);
+      expect(view.listings).toHaveLength(1);
+      expect(view.history).toHaveLength(1);
+      const json = JSON.stringify(view);
+      expect(json).not.toMatch(/"lat"|"lng"|"latitude"|"longitude"|"location"/);
+      expect(json).not.toContain('26.1901234');
+      expect(json).not.toContain('-98.2201234');
+      // Rule 32 at the source: the query module never names the coordinate table. (The role
+      // holds no grant on it either — 0027 — so a select would be 42501, not a quiet leak.)
+      const source = readFileSync('src/server/queries/businesses.ts', 'utf8');
+      expect(source).not.toContain('place_coordinates');
+    }));
+
+  it('a business with no listing has an empty google check', () =>
+    withTxRollback(async (tx) => {
+      const { c, orgs, spine, run } = await seedOrgA(tx);
+      await seedAttachmentWithObservation(c, {
+        orgId: orgs.a,
+        businessId: spine.rio,
+        placeId: 'ChIJ_rio_only',
+        runId: run.runId,
+        status: 'attached',
+        hadWebsiteUri: false,
+        hostClass: 'none',
+      });
+      await actAs(c, CLAIMS_A);
+
+      const empty = { signal: null, listings: [], history: [] };
+      expect(await queries.readGoogleCheck(tx, spine.rioCo)).toEqual(empty);
+      expect((await queries.readBusinessDetail(tx, spine.rioCo))?.google).toEqual(empty);
+
+      // Through RLS another org sees nothing of org A's listings — the same empty answer.
+      await actAs(c, CLAIMS_B);
+      expect(await queries.readGoogleCheck(tx, spine.rio)).toEqual(empty);
     }));
 });
