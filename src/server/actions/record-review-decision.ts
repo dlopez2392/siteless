@@ -11,7 +11,12 @@ import {
   REVIEW_MARKED_DISTINCT,
 } from '@/lib/ui/copy';
 
-import { decideCandidate, isSerializationFailure, MAX_ATTEMPTS } from './_merge-decisions';
+import {
+  decideCandidate,
+  isSerializationFailure,
+  MAX_ATTEMPTS,
+  type MergedNames,
+} from './_merge-decisions';
 import { pgFailure } from './_pg';
 import { fail, ok, type ActionResult } from './_result';
 
@@ -66,7 +71,7 @@ const decisionInputSchema = z.strictObject({
 
 export async function recordReviewDecision(
   input: unknown,
-): Promise<ActionResult<{ remaining: number }>> {
+): Promise<ActionResult<{ remaining: number; merged: MergedNames | null }>> {
   // 🔴 T-3-10. First statement.
   await requireOrg();
   const claims = await orgClaims();
@@ -86,7 +91,7 @@ export async function recordReviewDecision(
       }
       revalidatePath('/review');
       revalidatePath('/businesses');
-      return ok({ remaining: outcome.remaining });
+      return ok({ remaining: outcome.remaining, merged: outcome.merged });
     } catch (error) {
       // 40001: a concurrent merge moved the pair between the read and the lock. The whole
       // transaction rolled back, so re-running it from the top is safe.
