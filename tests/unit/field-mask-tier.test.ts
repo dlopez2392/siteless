@@ -19,6 +19,7 @@ import { describe, expect, it } from 'vitest';
 import {
   ALL_PLACES_FIELDS,
   fieldMaskTier,
+  PLACES_IDS_ONLY_FIELD_MASK,
   PLACES_TEXT_SEARCH_FIELD_MASK,
   type PlacesField,
 } from '@/lib/budget/field-mask-tier';
@@ -48,6 +49,8 @@ const FIELD_TIERS: ReadonlyArray<readonly [PlacesField, TextSearchSku, TextSearc
   ['places.location', 'ts_pro', 'ts_essentials'],
   ['places.types', 'ts_pro', 'ts_essentials'],
   ['places.businessStatus', 'ts_pro', 'ts_essentials'],
+  // D-13 / M27: Pro, so free at the margin under the Enterprise mask it rides in.
+  ['places.pureServiceAreaBusiness', 'ts_pro', 'ts_essentials'],
   ['places.websiteUri', 'ts_enterprise', 'ts_pro'],
   ['places.nationalPhoneNumber', 'ts_enterprise', 'ts_pro'],
   ['places.rating', 'ts_enterprise', 'ts_pro'],
@@ -114,6 +117,29 @@ describe('field mask tiering (BUDG-01)', () => {
     expect(fieldMaskTier([...PLACES_TEXT_SEARCH_FIELD_MASK, 'places.reviews'])).toBe(
       'ts_enterprise_atmosphere',
     );
+  });
+
+  it('the Places mask stays enterprise with the service-area flag', () => {
+    // D-13: the SAB flag rides in the mask Phase 4 sends. D-21: rating and review count stay
+    // requested (memory-only) — dropping them would not lower the tier, and Phase 6 wants them.
+    expect(PLACES_TEXT_SEARCH_FIELD_MASK).toContain('places.pureServiceAreaBusiness');
+    expect(PLACES_TEXT_SEARCH_FIELD_MASK).toContain('places.rating');
+    expect(PLACES_TEXT_SEARCH_FIELD_MASK).toContain('places.userRatingCount');
+    // The whole point of the mask: it carries websiteUri.
+    expect(PLACES_TEXT_SEARCH_FIELD_MASK).toContain('places.websiteUri');
+    // A Pro field under an Enterprise mask does not move the price.
+    expect(fieldMaskTier(PLACES_TEXT_SEARCH_FIELD_MASK)).toBe('ts_enterprise');
+    // No field is requested twice (a duplicate would be a merge accident, not a choice).
+    expect(new Set(PLACES_TEXT_SEARCH_FIELD_MASK).size).toBe(PLACES_TEXT_SEARCH_FIELD_MASK.length);
+  });
+
+  it('the ids-only mask is free', () => {
+    // D-16: the change check enumerates ids only, and that is the free, unlimited SKU.
+    expect(PLACES_IDS_ONLY_FIELD_MASK).toEqual(['places.id', 'nextPageToken']);
+    expect(fieldMaskTier(PLACES_IDS_ONLY_FIELD_MASK)).toBe('ts_essentials');
+    // Positive control: the same function prices the full mask above Essentials, so the
+    // assertion above is a property of the mask and not of a function stuck on 'free'.
+    expect(fieldMaskTier(PLACES_TEXT_SEARCH_FIELD_MASK)).not.toBe('ts_essentials');
   });
 
   it('X-Goog-FieldMask is named in at most one module under src', () => {
