@@ -463,6 +463,34 @@ describe('3kx8-uryv: the closure feed', () => {
     expect(summer.closedAt.toISOString()).toBe('2024-03-30T05:00:00.000Z');
   });
 
+  it('closure row B-WR-09: a blank, missing or long loc_name still marks the outlet closed', () => {
+    // D-03 matches on tp_number + loc_number and reads out_of_business_date; the name is not
+    // part of the match. Socrata omits a null column entirely, and a name over 200 characters
+    // used to reject the row — leaving a closed business `active` and served as a live lead.
+    const raw = closureRow('32006197027', '1');
+    const missing: Record<string, unknown> = { ...raw };
+    delete missing.loc_name;
+    expect(missing).not.toHaveProperty('loc_name');
+    const variants: Array<[string, Record<string, unknown>]> = [
+      ['missing', missing],
+      ['blank', { ...raw, loc_name: '' }],
+      ['long', { ...raw, loc_name: 'X'.repeat(300) }],
+    ];
+    for (const [label, row] of variants) {
+      const parsed = closureRowSchema.safeParse(row);
+      expect(parsed.success, label).toBe(true);
+      if (!parsed.success) continue;
+      const record = closureRowToSourceRecord(parsed.data, SOURCE_VERSION);
+      expect(record.externalId, label).toBe('32006197027-1');
+      expect(record.closedAt.toISOString(), label).toBe('2022-12-31T06:00:00.000Z');
+    }
+    expect(
+      closureRowToSourceRecord(closureRowSchema.parse(missing), SOURCE_VERSION).legalName,
+    ).toBeNull();
+    // The fields the match DOES read are still validated.
+    expect(closureRowSchema.safeParse({ ...raw, loc_number: '' }).success).toBe(false);
+  });
+
   it('closure row: a date carrying a zone suffix is refused rather than reinterpreted', () => {
     const raw = closureRow('32006197027', '1');
     expect(

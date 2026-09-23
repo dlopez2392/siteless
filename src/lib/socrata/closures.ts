@@ -63,7 +63,10 @@ const FLOATING_TIMESTAMP = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})\.(\
 export const closureRowSchema = z.object({
   tp_number: z.string().regex(/^\d{1,20}$/),
   loc_number: z.string().regex(/^\d{1,10}$/),
-  loc_name: z.string().min(1).max(200),
+  // 🔴 B-WR-09: OPTIONAL, and not held to 200. The D-03 match reads only the key and the
+  // date; the ingest never uses the name. Socrata omits a null column, and a required or
+  // capped name rejected the row, leaving a closed business `active` and served as a lead.
+  loc_name: z.string().max(500).optional(),
   // 🔴 UNPADDED: '31', never a zero-led form. A leading zero means a padded code was
   // written into this dataset's filter somewhere upstream.
   loc_county: z.string().regex(/^[1-9]\d{0,2}$/),
@@ -80,7 +83,8 @@ export type ClosureSourceRecord = {
   retentionClass: 'durable';
   payload: ClosureRow;
   payloadHash: string;
-  legalName: string;
+  /** `null` when the feed sent no name, or a blank one (B-WR-09). */
+  legalName: string | null;
   /** The Comptroller's integer county code (31), NOT the Census FIPS (48061). */
   countyCode: number;
   closedAt: Date;
@@ -121,7 +125,7 @@ export function closureRowToSourceRecord(
     retentionClass: 'durable',
     payload: row,
     payloadHash: payloadHash(row),
-    legalName: row.loc_name,
+    legalName: row.loc_name !== undefined && row.loc_name.trim() !== '' ? row.loc_name : null,
     countyCode: Number(row.loc_county),
     closedAt: texasBusinessDate(row.out_of_business_date),
   };
