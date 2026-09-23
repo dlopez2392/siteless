@@ -114,6 +114,12 @@ Out of scope here:
 
   The tone matches `/sources`. Layout is the UI pass's.
 
+### Decisions from the research round (danlo, 2026-09-23, after 04-RESEARCH.md)
+- **D-18:** **The estimate becomes type-aware.** `requestsLo = Σ types × PAGES_LO`, `requestsHi = Σ types × PAGES_HI × FAN_OUT` (FAN_OUT now means tiles-per-type). Phase 2's displayed numbers change: the RGV baseline moves from 612 to ~3,978 requests high (~$104 gross), so a **full RGV sweep is refused at admission** and a partition (~¼) or a one-city × one-cluster run fits. The committed cost-model test is updated with the new exact numbers. The D-15 ceiling is enforced on **requests** (`runs.ceiling_requests = ceil(RUN_CEILING_MULTIPLIER × requestsHi)`), not dollars, since estimate-high is $0 inside the free allowance.
+- **D-19:** **Daily quota → stop as `partial` now.** A Google daily-quota 429 ends the run `partial` with stopped reason `google_daily_quota`. The 100/day quota stays for the D-04 run. Raising the quota vs multi-day (sleeping) runs is decided later on D-04's real numbers — not built this phase.
+- **D-20:** **Fixtures are anonymized, never raw.** D-04's recording script anonymizes in memory before writing: it keeps structure, pagination, counts, `place_id`s, SAB flags and host classes, and synthesizes names, addresses, phones and URL hosts. No Google text is ever committed to git. Fixture files carry a `synthetic`/`anonymized` sidecar marker. Added to D-01's legal enumeration.
+- **D-21:** **Rating and review count: in the mask, memory-only.** They stay requested (free at the margin under Enterprise), nothing uses or persists them in this phase, and D-01's legal checkpoint enumeration adds "a derived review-volume bucket (future, Phase 6)" so Phase 6 is not blocked by a later surprise.
+
 ### Claude's Discretion
 - **Tiling geometry.** Quadtree over `locationRestriction` rectangles; the starting tile per geography unit; minimum tile size and maximum depth; the saturation test (a full 20 + 20 + 20 with a `nextPageToken` exhausted at 60, or the Pitfall 7 heuristic). Tile overlap and double-billing avoidance follow PITFALLS Pitfall 7. The constants are committed and tuned on the D-04 run.
 - **Query shape.** `includedType` + `strictTypeFiltering` per Places type versus a `textQuery` per type. One request builder module owns the field mask, `includePureServiceAreaBusinesses: true`, and the type/region/language parameters, so none can be omitted per call site (Pitfall 1 / Pitfall 8).
