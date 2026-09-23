@@ -7,9 +7,10 @@
  * the row out and the statement succeeds having changed nothing. Executed on PostgreSQL
  * 18.6: `update ... where org_id is null` returns `rowCount 0` and raises nothing, `delete`
  * likewise, and ONLY an INSERT carrying `org_id = null` raises `42501` with the
- * row-level-security wording that the forged-INSERT test below pins verbatim — the literal
- * appears exactly once in this file, in that assertion, so that grepping for it finds the
- * guard rather than the commentary. A refusal-shaped test would therefore
+ * row-level-security wording that the forged-INSERT tests below pin verbatim — the literal
+ * appears only in those assertions (one per table: industry_clusters, and since 03-08
+ * overture_category_map), never in commentary, so that grepping for it finds the guards
+ * rather than the prose. A refusal-shaped test would therefore
  * have passed against a policy that had been widened to permit the update, because the
  * update would still have been refused — by a different guard, for a different reason.
  * So the zero-row cases are asserted with `rowCount` and 42501 is pinned for the forged
@@ -43,13 +44,21 @@
  */
 import { describe, expect, it } from 'vitest';
 import { actAs, actAsOwner, seedTwoOrgs, withRollback } from './_fixtures';
-import { clustersFile, upsertIndustryClusters } from '../../scripts/seed';
+import {
+  clustersFile,
+  overtureCategoriesFile,
+  upsertIndustryClusters,
+  upsertOvertureCategories,
+} from '../../scripts/seed';
+import { overtureCategorySeeds } from '../../src/seed/types';
 
 const ORG_A_CLAIMS = { o: { id: 'org_A' }, sub: 'user_danlo', role: 'authenticated' } as const;
 
 /** The seeded built-ins, as committed. The counts are the seed loader's contract. */
 const BUILT_IN_CLUSTERS = 4;
 const BUILT_IN_COUNTIES = 254;
+/** 03-08: the mapped entries in src/seed/data/overture-categories.json. */
+const BUILT_IN_OVERTURE_CATEGORIES = 70;
 
 async function countBuiltIn(
   c: Parameters<Parameters<typeof withRollback>[0]>[0],
@@ -206,5 +215,133 @@ describe('built-in reference rows', () => {
       // ...while the built-ins stay visible in the same breath, so "org A sees nothing" is
       // excluded as the explanation.
       expect(await countBuiltIn(c, 'industry_clusters')).toBe(BUILT_IN_CLUSTERS);
+    }));
+});
+
+/**
+ * 03-08 / T-3-07. The same four invariants over `overture_category_map`, whose built-ins
+ * are loaded by `upsertOvertureCategories` in scripts/seed.ts. Copied in shape from the
+ * block above, deliberately: the reasoning in this file's header applies verbatim, and the
+ * one addition is that the UPDATE and DELETE tests re-assert the built-ins are PRESENT
+ * before asserting a zero-row write. Without it, both would pass vacuously against an
+ * unseeded table — a zero-row UPDATE of a table holding no built-ins proves nothing.
+ *
+ * Executed during 03-08. Before seeding: visible / update / delete red on `expected 0 to be
+ * 70`, duplicate red on "promise resolved instead of rejecting". After seeding, each DDL
+ * mutation ran INSIDE the test's own transaction (rolled back with it — the shared test
+ * database was never altered; pg_policy / pg_constraint re-read afterwards):
+ *   update policy `using (true) with check (true)`  -> update test red ALONE (70, not 0)
+ *   delete policy `using (true)`                    -> delete test red ALONE (70, not 0)
+ *   insert policy `with check (true)`               -> forged-insert test red ALONE
+ *   unique re-added WITHOUT nulls not distinct      -> duplicate red + idempotent red (140
+ *                                                      rows: the loader doubled the table)
+ *   select policy without `org_id is null`          -> visible, update, delete red (0 seen)
+ */
+describe('built-in overture category map', () => {
+  it('built-in overture categories are visible to a tenant', () =>
+    withRollback(async (c) => {
+      await seedTwoOrgs(c);
+      await actAs(c, ORG_A_CLAIMS);
+      // POSITIVE CONTROL, first, for the reason the first test in this file gives.
+      expect(await countBuiltIn(c, 'overture_category_map')).toBe(BUILT_IN_OVERTURE_CATEGORIES);
+      const { rows } = await c.query<{ cluster_key: string }>(
+        "select cluster_key from overture_category_map where org_id is null and basic_category = 'restaurant'",
+      );
+      expect(rows).toEqual([{ cluster_key: 'food_hospitality' }]);
+    }));
+
+  it('built-in overture category update is filtered to zero rows', () =>
+    withRollback(async (c) => {
+      const { a } = await seedTwoOrgs(c);
+      await actAs(c, ORG_A_CLAIMS);
+      expect(await countBuiltIn(c, 'overture_category_map')).toBe(BUILT_IN_OVERTURE_CATEGORIES);
+
+      // Positive control first: the tenant's OWN mapping is an ordinary tenant row.
+      await c.query(
+        "insert into overture_category_map (org_id, basic_category, cluster_key) values ($1, 'tenant_own', 'home_services')",
+        [a],
+      );
+      const own = await c.query(
+        "update overture_category_map set cluster_key = 'auto_retail' where org_id = $1 and basic_category = 'tenant_own'",
+        [a],
+      );
+      expect(own.rowCount).toBe(1);
+
+      // No .rejects: this SUCCEEDS and changes nothing.
+      const builtIn = await c.query(
+        "update overture_category_map set cluster_key = 'auto_retail' where org_id is null",
+      );
+      expect(builtIn.rowCount).toBe(0);
+    }));
+
+  it('built-in overture category delete is filtered to zero rows', () =>
+    withRollback(async (c) => {
+      const { a } = await seedTwoOrgs(c);
+      await actAs(c, ORG_A_CLAIMS);
+      expect(await countBuiltIn(c, 'overture_category_map')).toBe(BUILT_IN_OVERTURE_CATEGORIES);
+
+      await c.query(
+        "insert into overture_category_map (org_id, basic_category, cluster_key) values ($1, 'tenant_own', 'home_services')",
+        [a],
+      );
+      const own = await c.query(
+        "delete from overture_category_map where org_id = $1 and basic_category = 'tenant_own'",
+        [a],
+      );
+      expect(own.rowCount).toBe(1);
+
+      const builtIn = await c.query('delete from overture_category_map where org_id is null');
+      expect(builtIn.rowCount).toBe(0);
+    }));
+
+  it('a forged built-in overture category insert is refused', () =>
+    withRollback(async (c) => {
+      await seedTwoOrgs(c);
+      await actAs(c, ORG_A_CLAIMS);
+      const attempt = c.query(
+        "insert into overture_category_map (org_id, basic_category, cluster_key) values (null, 'forged', 'home_services')",
+      );
+      await expect(attempt).rejects.toMatchObject({ code: '42501' });
+      // The policy's wording, not a grant refusal's: overture_category_map DOES grant
+      // INSERT to authenticated (grants-audit), so only the WITH CHECK can refuse this.
+      await expect(attempt).rejects.toThrow(/new row violates row-level security policy/);
+    }));
+
+  it('a duplicate built-in overture category is refused', () =>
+    withRollback(async (c) => {
+      await seedTwoOrgs(c);
+      // As the OWNER — the loader's identity, and the only one that can reach this row.
+      await actAsOwner(c);
+      const attempt = c.query(
+        "insert into overture_category_map (org_id, basic_category, cluster_key) values (null, 'restaurant', 'food_hospitality')",
+      );
+      await expect(attempt).rejects.toMatchObject({ code: '23505' });
+      // The .nullsNotDistinct() proof: a plain UNIQUE (org_id, basic_category) accepts this.
+      await expect(attempt).rejects.toThrow(/overture_category_map_org_category_uniq/);
+    }));
+
+  it('built-in overture category seed is idempotent', () =>
+    withRollback(async (c) => {
+      await seedTwoOrgs(c);
+      await actAsOwner(c);
+      // scripts/seed.ts's own loader, twice.
+      const first = await upsertOvertureCategories(c);
+      const afterFirst = await c.query<{ id: string; basic_category: string }>(
+        'select id, basic_category from overture_category_map where org_id is null order by basic_category',
+      );
+      const second = await upsertOvertureCategories(c);
+      const afterSecond = await c.query<{ id: string; basic_category: string }>(
+        'select id, basic_category from overture_category_map where org_id is null order by basic_category',
+      );
+      expect(afterFirst.rows).toHaveLength(BUILT_IN_OVERTURE_CATEGORIES);
+      // Identities, not just the count: a delete-and-reinsert would hold the count.
+      expect(afterSecond.rows).toEqual(afterFirst.rows);
+      expect(first.inserted + first.updated).toBe(BUILT_IN_OVERTURE_CATEGORIES);
+      expect(second.inserted).toBe(0);
+      expect(second.updated).toBe(BUILT_IN_OVERTURE_CATEGORIES);
+      // The committed file is the source of the count.
+      expect(overtureCategorySeeds(overtureCategoriesFile())).toHaveLength(
+        BUILT_IN_OVERTURE_CATEGORIES,
+      );
     }));
 });
