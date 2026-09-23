@@ -7,12 +7,14 @@ import type { EstimateRange } from '@/lib/estimate/estimate';
 import type { GeoSpec, PresetSpec, SeedTables } from '@/lib/estimate/expand-cells';
 import type { GeocodeResult } from '@/lib/geocode/census';
 import citiesJson from '@/seed/data/cities.json';
+import clustersJson from '@/seed/data/clusters.json';
 import countiesJson from '@/seed/data/counties.json';
 import geoPresetsJson from '@/seed/data/geo-presets.json';
 import outletCountsJson from '@/seed/data/outlet-counts.json';
 import { CLUSTER_KEYS, type ClusterKey } from '@/seed/types';
 import type {
   CitiesFile,
+  ClustersFile,
   CountiesFile,
   GeoPresetsFile,
   OutletCountsFile,
@@ -43,6 +45,7 @@ import { requireInstant, rowsOf, type Tx } from './budget';
  * ==================================================================================== */
 
 const cities: CitiesFile = citiesJson;
+const clusters: ClustersFile = clustersJson;
 const counties: CountiesFile = countiesJson;
 const outletCounts: OutletCountsFile = outletCountsJson;
 const geoPresets: GeoPresetsFile = geoPresetsJson;
@@ -71,7 +74,7 @@ const geoPresets: GeoPresetsFile = geoPresetsJson;
  * Module scope rather than a per-request cache: the parse happens once per process, which is
  * strictly better than once per request on a path that recomputes on every keystroke.
  */
-const SEED: SeedTables = { cities, counties, outletCounts, geoPresets };
+const SEED: SeedTables = { cities, clusters, counties, outletCounts, geoPresets };
 
 export function getSeedTables(): SeedTables {
   return SEED;
@@ -201,6 +204,10 @@ const assumptionsSchema = z.strictObject({
 /** What an action receives from a screen: a real `EstimateRange`, bigint and all. */
 export const estimateRangeSchema = z.strictObject({
   cells: z.number(),
+  // D-18. Required, so a snapshot written by the per-cell model (no `typeSearches`) fails
+  // this strict parse and reads as absent: its request figures under-count ~6.5x and must
+  // not be shown as this build's quote.
+  typeSearches: z.number(),
   requestsLo: z.number(),
   requestsHi: z.number(),
   costMicroUsdLo: z.number(),

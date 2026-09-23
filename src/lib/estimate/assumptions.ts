@@ -17,14 +17,30 @@
  */
 
 /**
- * Query fan-out / tile overlap. One logical (cluster × geography) cell does not become one
- * Places request: the cluster's Places types are queried separately and the tiles that
- * cover a geography overlap, so the same cell is swept more than once.
+ * Tiles per (cell × Places type). One (cluster × geography) cell searches each of the
+ * cluster's Places types separately (clusters.json `placesTypes`, 6-7 per cluster), and one
+ * type search can split into overlapping tiles when a geography saturates the 60-result cap.
+ * D-18 made the estimate type-aware — the per-type count is multiplied in by `estimatePreset`
+ * — so this is now the tile fan-out of ONE type search, no longer a stand-in for the types.
  *
  * 🔴 UNMEASURED BY DESIGN (D-07). Every dollar figure in the product scales linearly with
- * this number. Trued up with real invoice data at the Phase 6 gate.
+ * this number. Trued up on the D-04 run and the Phase 6 invoice.
  */
 export const FAN_OUT = 3.0;
+
+/**
+ * D-15 / D-18. A run may issue at most this many times its estimate-high REQUESTS before it stops
+ * as `partial` with stopped_reason `exceeded_estimate`. Requests, never dollars: inside the free
+ * allowance estimate-high is $0.00, and 2 × $0 would stop a run on its first paid page.
+ * Stored per run as runs.ceiling_requests = ceil(RUN_CEILING_MULTIPLIER × requestsHi).
+ */
+export const RUN_CEILING_MULTIPLIER = 2;
+
+/** A `queued` run the workflow never picked up is failed as `never_started` after this long. */
+export const RUN_NEVER_STARTED_AFTER_MINUTES = 15;
+
+/** A `running` run whose heartbeat is this stale is failed as `abandoned`. */
+export const RUN_ABANDONED_AFTER_MINUTES = 30;
 
 /** Result pages per query leg, low end of the range. One page, nothing paginated. */
 export const PAGES_LO = 1;
