@@ -178,7 +178,7 @@ Plans:
 - [x] 03-21-PLAN.md — Production migration and seed, deploy, the two chrome-only e2e specs, the owed teardown
 
 **Wave 8** *(blocked on Wave 7, checkpoint)*
-- [ ] 03-22-PLAN.md — Gate mutations M13–M25, both-theme screenshot review, close 03-VALIDATION
+- [x] 03-22-PLAN.md — Gate mutations M13–M25, both-theme screenshot review, close 03-VALIDATION
 **UI hint**: yes
 **Security**: /gsd-secure-phase applies — bulk ingestion, new org-scoped tables and their RLS policies.
 **Research flag**: yes — Overture's real RGV duplicate rate, junk rate and correct `confidence` cutoff are asserted, not measured; measure during ingest. Build on `basic_category`, not the `categories` field removed in the 2026-09-23.0 release.
