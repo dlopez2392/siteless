@@ -151,7 +151,7 @@ Plans:
 **Wave 2** *(blocked on Wave 1)*
 - [x] 03-05-PLAN.md — Spine schema: five new tables, three new provenance FKs, grants, triggers, the widened audit lists
 - [x] 03-06-PLAN.md — Normalization (TypeScript is authoritative — `unaccent` is STABLE) and the two grep gates
-- [ ] 03-07-PLAN.md — Census batch geocoder: ragged lines, ID rejoin, longitude first, bounded retry
+- [x] 03-07-PLAN.md — Census batch geocoder: ragged lines, ID rejoin, longitude first, bounded retry
 
 **Wave 3** *(blocked on Wave 2)*
 - [ ] 03-08-PLAN.md — Overture `basic_category` → cluster mapping seed and its reference-row proofs
