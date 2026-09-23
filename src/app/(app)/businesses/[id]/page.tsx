@@ -1,7 +1,13 @@
+import { clerkClient } from '@clerk/nextjs/server';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { DetailHeader } from '@/components/business-detail/detail-header';
 import { FieldsAndSources } from '@/components/business-detail/fields-and-sources';
+import {
+  MergeHistory,
+  type MergeContext,
+  type MergeRow,
+} from '@/components/business-detail/merge-history';
 import { SourceRecords } from '@/components/business-detail/source-records';
 import {
   Breadcrumb,
@@ -15,7 +21,7 @@ import { orgClaims } from '@/lib/auth/require-org';
 import { isUuid } from '@/lib/ids';
 import { APP_LOCALE } from '@/lib/time';
 import { BUSINESSES_TITLE, FLAG_CHAIN } from '@/lib/ui/copy';
-import { getBusinessDetail } from '@/server/queries/businesses';
+import { getBusinessDetail, type MergeHistoryRow } from '@/server/queries/businesses';
 
 export const dynamic = 'force-dynamic';
 
@@ -43,6 +49,45 @@ export const dynamic = 'force-dynamic';
  * fail — nothing on this page opens another.
  */
 
+/** Merge actors that are a Clerk user. `etl:resolve` (the desk resolve pass) is never shown:
+ *  an auto merge reads "Auto-merged at {score}", which names no actor. */
+function clerkUserIds(merges: MergeHistoryRow[]): string[] {
+  const ids = new Set<string>();
+  for (const m of merges) {
+    if (m.reason === 'review' && m.mergedBy.startsWith('user_')) ids.add(m.mergedBy);
+    if (m.undoneBy !== null && m.undoneBy.startsWith('user_')) ids.add(m.undoneBy);
+  }
+  return [...ids];
+}
+
+/**
+ * Clerk user ids → the names "Reviewed by {actor}" and "Unmerged by {actor}" print.
+ *
+ * The stored actor is the Clerk subject (T-3-08: stamped by the definer, never sent by the
+ * client). A raw `user_2x…` on screen would be honest and unreadable, so the names are looked
+ * up — one call, only when a row needs one. A lookup that fails falls back to the id itself:
+ * the record of who acted is never dropped to make the row prettier.
+ */
+async function actorNames(ids: string[]): Promise<Map<string, string>> {
+  const names = new Map<string, string>();
+  if (ids.length === 0) return names;
+  try {
+    const client = await clerkClient();
+    const { data } = await client.users.getUserList({ userId: ids, limit: ids.length });
+    for (const user of data) {
+      const name =
+        user.fullName ??
+        user.username ??
+        user.primaryEmailAddress?.emailAddress ??
+        null;
+      if (name) names.set(user.id, name);
+    }
+  } catch {
+    // Fall through to the raw ids below.
+  }
+  return names;
+}
+
 export default async function BusinessDetailPage({
   params,
 }: {
@@ -54,6 +99,28 @@ export default async function BusinessDetailPage({
   const claims = await orgClaims();
   const detail = await getBusinessDetail(claims, id);
   if (!detail) notFound();
+
+  const names = await actorNames(clerkUserIds(detail.merges));
+  const nameOf = (actor: string) => names.get(actor) ?? actor;
+
+  const merges: MergeRow[] = detail.merges.map((m) => ({
+    mergeId: m.id,
+    loserName: m.loserName,
+    winnerName: m.winnerName,
+    loserKey: m.loserKey,
+    winnerKey: m.winnerKey,
+    reason: m.reason,
+    score: m.score,
+    actor: nameOf(m.mergedBy),
+    mergedAt: m.mergedAt,
+    undoneAt: m.undoneAt,
+    undoneBy: m.undoneBy === null ? null : nameOf(m.undoneBy),
+  }));
+
+  const mergeContext: MergeContext = {
+    businessId: detail.id,
+    businessName: detail.fields.displayName.value ?? '',
+  };
 
   // Counts through the PINNED locale, here in the route rather than in a component: no file
   // under src/components/ calls a locale formatter directly (Executor Rule 26).
@@ -103,6 +170,8 @@ export default async function BusinessDetailPage({
       <FieldsAndSources fields={detail.fields} />
 
       <SourceRecords records={detail.sourceRecords} />
+
+      <MergeHistory merges={merges} context={mergeContext} />
     </div>
   );
 }
