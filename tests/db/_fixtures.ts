@@ -112,3 +112,15 @@ export async function seedTwoOrgs(c: Client): Promise<{ a: string; b: string }> 
   if (!aid || !bid) throw new Error('seedTwoOrgs: insert returned no row');
   return { a: aid, b: bid };
 }
+
+/**
+ * Phase 3 plan 05: `businesses.external_key` is NOT NULL with no default (D-19 — the insert
+ * path draws a key and retries on conflict), so every test that inserts a business must
+ * supply one. This SQL expression draws a fresh key per row, inline in the INSERT, so a test
+ * inserting several rows into one org cannot collide on businesses_external_key_uniq.
+ *
+ * It always satisfies businesses_external_key_shape: md5() emits [0-9a-f], upper() makes that
+ * [0-9A-F], and every one of those is in the Crockford class [0-9A-HJKMNP-TV-Z] — none is
+ * I, L, O or U. A test ABOUT the key (uniqueness, shape) must use a literal instead.
+ */
+export const SQL_FRESH_EXTERNAL_KEY = "'SL-' || upper(substr(md5(random()::text), 1, 6))";

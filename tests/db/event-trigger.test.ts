@@ -15,7 +15,7 @@
  * domain column still moves updated_at and stamps updated_by' goes red, and only that one.
  */
 import { describe, expect, it } from 'vitest';
-import { actAs, seedTwoOrgs, withRollback } from './_fixtures';
+import { actAs, seedTwoOrgs, SQL_FRESH_EXTERNAL_KEY, withRollback } from './_fixtures';
 
 const ORG_A_CLAIMS = { o: { id: 'org_A' }, sub: 'user_danlo', role: 'authenticated' } as const;
 
@@ -126,7 +126,7 @@ describe('attribution is a property of the database', () => {
       // entire claim: a write nothing in src/ made still lands in the audit trail, with
       // the Clerk actor the trigger read out of the transaction-local claims.
       const ins = await c.query<{ id: string }>(
-        "insert into businesses (org_id, display_name) values ($1, 'direct-write') returning id",
+        `insert into businesses (org_id, display_name, external_key) values ($1, 'direct-write', ${SQL_FRESH_EXTERNAL_KEY}) returning id`,
         [a],
       );
       const businessId = ins.rows[0]?.id;
@@ -168,8 +168,8 @@ describe('attribution is a property of the database', () => {
       // "strictly greater" would be unfalsifiable. Backdating the insert restores the
       // discrimination that two separate transactions would give in production.
       const ins = await c.query<{ id: string; epoch: string }>(
-        'insert into businesses (org_id, display_name, updated_at) ' +
-          "values ($1, 'Alpha Roofing', now() - interval '1 hour') " +
+        'insert into businesses (org_id, display_name, external_key, updated_at) ' +
+          `values ($1, 'Alpha Roofing', ${SQL_FRESH_EXTERNAL_KEY}, now() - interval '1 hour') ` +
           'returning id, extract(epoch from updated_at)::text as epoch',
         [a],
       );

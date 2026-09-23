@@ -20,7 +20,7 @@
  * statement reports 25P02 instead of its own reason.
  */
 import { describe, expect, it } from 'vitest';
-import { actAs, seedTwoOrgs, withRollback } from './_fixtures';
+import { actAs, seedTwoOrgs, SQL_FRESH_EXTERNAL_KEY, withRollback } from './_fixtures';
 
 const INSERT_SOURCE_NO_TTL =
   'insert into source_records (org_id, source_key, retention_class, expires_at) ' +
@@ -31,8 +31,7 @@ const INSERT_SOURCE_TTL =
   'insert into source_records (org_id, source_key, retention_class, expires_at) ' +
   "values ($1,$2,$3, now() + interval '21 days') returning id";
 
-const INSERT_BUSINESS_CITING =
-  'insert into businesses (org_id, display_name, phone_source_id) values ($1,$2,$3)';
+const INSERT_BUSINESS_CITING = `insert into businesses (org_id, display_name, phone_source_id, external_key) values ($1,$2,$3,${SQL_FRESH_EXTERNAL_KEY})`;
 
 const ORG_A_CLAIMS = { o: { id: 'org_A' }, sub: 'user_danlo', role: 'authenticated' } as const;
 
