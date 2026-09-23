@@ -220,10 +220,10 @@ Plans:
 - [x] 04-17-PLAN.md — Daily cron purge route, desk purge, /sources transient card, Places runbook
 
 **Wave 4** *(blocked on Wave 3)*
-- [ ] 04-18-PLAN.md — The Enterprise tile search body, proven against msw and the real writer
-- [ ] 04-19-PLAN.md — The IDs-only change-check body and the D-20 anonymizing fixture recorder
-- [ ] 04-20-PLAN.md — Run report query, tested against the writer's real rows
-- [ ] 04-21-PLAN.md — Listing decision / detach actions, the review queue's Google kind, the business Google check read
+- [x] 04-18-PLAN.md — The Enterprise tile search body, proven against msw and the real writer
+- [x] 04-19-PLAN.md — The IDs-only change-check body and the D-20 anonymizing fixture recorder
+- [x] 04-20-PLAN.md — Run report query, tested against the writer's real rows
+- [x] 04-21-PLAN.md — Listing decision / detach actions, the review queue's Google kind, the business Google check read
 
 **Wave 5** *(blocked on Wave 4)*
 - [ ] 04-22-PLAN.md — placesSweep workflow and its steps, with the workflow-lane proofs
