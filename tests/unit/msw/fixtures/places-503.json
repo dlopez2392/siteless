@@ -1,0 +1,11 @@
+{
+  "_comment": "HAND-WRITTEN, not recorded (D-20: no Google-authored text is committed). An ENVELOPE, not a response body: tests/unit/msw/places.ts replays it as HttpResponse.json(body, { status }).",
+  "status": 503,
+  "body": {
+    "error": {
+      "code": 503,
+      "message": "Synthetic: the service is unavailable.",
+      "status": "UNAVAILABLE"
+    }
+  }
+}
