@@ -221,7 +221,8 @@ describe('google maps check', () => {
     expect(empty).toHaveTextContent('Not checked on Google yet');
     expect(empty).toHaveTextContent('no cluster mapped');
     expect(empty).not.toHaveTextContent('null');
-    expect(empty).not.toHaveTextContent('covers');
+    expect(empty).toHaveTextContent('so no run covers it yet');
+    expect(empty).not.toHaveTextContent(/covers \S+ for/);
   });
 
   it('only tentative listings read as no confirmed listing yet', () => {

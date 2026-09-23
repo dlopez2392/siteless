@@ -1,3 +1,4 @@
+import type { GoogleCheckBusiness } from '@/components/business-detail/google-check';
 import type { GoogleCheckView } from '@/server/queries/businesses';
 
 /**
@@ -48,12 +49,12 @@ export const PLACE = {
 } as const;
 
 /** The spine side the card is rendered for. Our own fields only — never Google text. */
-export const GOOGLE_BUSINESS = {
+export const GOOGLE_BUSINESS: GoogleCheckBusiness = {
   id: '00000000-0000-4000-8000-0000000000a1',
   displayName: 'Taquería El Ñandú',
   city: 'McAllen',
   cluster: 'Food & hospitality',
-} as const;
+};
 
 /** Clerk user id → display name, as the route resolves them through `actorNames`. */
 export const GOOGLE_ACTORS: Record<string, string> = { user_danlo: 'danlo' };
