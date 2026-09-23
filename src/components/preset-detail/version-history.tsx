@@ -143,6 +143,7 @@ function RowActions({
           the reader arrived from a specific row and may want to change their mind — from
           the primary CTA there is nothing to pick. */}
       <RunDrawer
+        kind="full"
         presetName={context.presetName}
         versions={options}
         initialVersionId={version.id}

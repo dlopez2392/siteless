@@ -23,7 +23,14 @@
  * the zone and the locale actually reached the formatter.
  */
 import { describe, expect, it, vi } from 'vitest';
-import { APP_LOCALE, APP_TZ, formatCount, formatLocal, localDate } from '@/lib/time';
+import {
+  APP_LOCALE,
+  APP_TZ,
+  formatCount,
+  formatLocal,
+  formatWeekRange,
+  localDate,
+} from '@/lib/time';
 
 /** 2026-09-20 20:00 America/Chicago. [VERIFIED: executed against PostgreSQL 18] */
 const INSTANT = new Date('2026-09-21T01:00:00.000Z');
@@ -104,5 +111,13 @@ describe('timezone discipline', () => {
     // whole.
     expect(rendered).toBe('35,270');
     expect(formatCount(0)).toBe('0');
+  });
+
+  it('formatWeekRange renders the calendar week it was given', () => {
+    // The suite runs in UTC; the helper renders in America/Chicago. A midnight-UTC anchor
+    // would render "Sep 20–26" here — the previous day, in the app's zone — so these
+    // strings discriminate.
+    expect(formatWeekRange('2026-09-21', '2026-09-27')).toBe('Sep 21–27');
+    expect(formatWeekRange('2026-09-28', '2026-10-04')).toBe('Sep 28–Oct 4');
   });
 });

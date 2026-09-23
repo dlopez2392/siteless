@@ -108,12 +108,6 @@ export function RUN_REFUSED(capMicroUsd: bigint | number) {
   );
 }
 
-/** Phase 2 saves presets, versions and estimates; it does not run anything. Saying so on
- *  the screen is the difference between "not built yet" and "broken". */
-export const PHASE4_RUN_NOTICE =
-  'Runs start when the Places verifier ships in Phase 4. Your preset, its versions and ' +
-  'its estimate are saved and ready.';
-
 /**
  * 🔴 `address` is the string the USER typed, not `matchedAddress` — there is no match to
  * quote back. Everywhere else in the geocode flow the address shown is the one the service

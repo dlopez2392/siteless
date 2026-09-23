@@ -1,10 +1,9 @@
 'use client';
 
-import { OctagonX } from 'lucide-react';
+import { OctagonX, TriangleAlert } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCallback, useState, useSyncExternalStore, useTransition, type ReactNode } from 'react';
-import { toast } from 'sonner';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import {
@@ -28,34 +27,46 @@ import {
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Spinner } from '@/components/ui/spinner';
-import { PHASE4_RUN_NOTICE } from '@/lib/ui/copy';
+import { formatWeekRange } from '@/lib/time';
+import {
+  PLACES_ACTION,
+  RUN_DRAWER_CELLS,
+  RUN_DRAWER_CELLS_LABEL,
+  RUN_DRAWER_CHECK_COST,
+  RUN_DRAWER_CHECK_NOTE,
+  RUN_DRAWER_CONFIRM_CHECK,
+  RUN_DRAWER_CONFIRM_FULL,
+  RUN_DRAWER_CONFIRM_PARTITION,
+  RUN_DRAWER_COST_LABEL,
+  RUN_DRAWER_DISMISS,
+  RUN_DRAWER_STARTING,
+  RUN_DRAWER_TITLE_CHECK,
+  RUN_DRAWER_TITLE_FULL,
+  RUN_DRAWER_TITLE_PARTITION,
+  RUN_OPEN_RUNNING,
+} from '@/lib/ui/copy';
 import { queueRun } from '@/server/actions/queue-run';
 
 /**
- * BUDG-02 / success criterion 5, as a screen.
+ * BUDG-02 + D-14 / D-16, as a screen — the one drawer every run kind confirms through.
  *
- * 🔴 THIS BUTTON SPENDS. `queueRun` inserts a `runs` row in status `queued` and takes a
- * REAL reservation against `app.reserve_budget` — nothing here is a preview. That is the
- * settled decision (UI-SPEC § Screen Inventory 3 → Run, Open Question 7): Phase 2 owns the
- * preset, the version, the estimate and the RESERVATION; Phase 4 owns actually calling
- * Places and consumes `queued` runs. Queuing a row and reserving nothing would have left
- * criterion 5's refusal existing only in a test, so the first person to meet it would meet
- * it in production with real money already spent.
+ * 🔴 THIS BUTTON STARTS A RUN. `queueRun` checks the Places mode, admits the run against the
+ * meter, and starts the places-sweep workflow on it. Nothing here is a preview. The server
+ * action is the boundary (D-02); what this drawer shows is only ever an explanation.
  *
- * 🔴 A REFUSAL IS A PERSISTENT `Alert` INSIDE THIS DRAWER, NEVER A TOAST (D-12, UI-SPEC §
- * States → "Refused reservation"). A toast that has been dismissed is indistinguishable
- * from one that never fired, and this particular sentence has to carry a solution. The one
- * `toast(` call in this file is on the SUCCESS branch, where the thing being announced is
- * reversible and already visible on /spend.
+ * 🔴 ON SUCCESS IT NAVIGATES TO `/runs/{runId}`, AND THERE IS NO TOAST (UI-SPEC § Screen 2).
+ * The run report is the feedback: it shows the run queued, then running, live. The drawer
+ * closes with the navigation.
  *
- * 🔴 NO `<form action>`. React resets a form's fields even when the action FAILED, and a
- * Radix control driven by that reset walks its own state backwards — a recorded BIS defect.
- * Confirmation is an `onClick` inside `useTransition`, so a refusal leaves the chosen
- * version exactly where the user left it and the Alert can sit beside it.
+ * 🔴 A REFUSAL IS A PERSISTENT `Alert` INSIDE THIS DRAWER, NEVER A TOAST (D-12). A dismissed
+ * toast is indistinguishable from one that never fired, and every refusal here carries a way
+ * out: raise the cap, reload the preset, open the running run, or try again.
  *
- * 🔴 NO `motion` WRAPPER. vaul and Radix own these animations. Two animation systems on
- * one element is how a drawer ends up fighting itself, and the drawer's spring is the part
- * that makes a bottom sheet feel like a sheet.
+ * 🔴 NO `<form action>`. React resets a form's fields even when the action FAILED, and a Radix
+ * control driven by that reset walks its own state backwards — a recorded BIS defect.
+ * Confirmation is an `onClick` inside `useTransition`.
+ *
+ * 🔴 NO `motion` WRAPPER. vaul and Radix own these animations.
  */
 
 /** One version the drawer can run, priced on the server. */
@@ -67,6 +78,26 @@ export type RunVersionOption = {
    *  meter, not the estimate, is what refuses. */
   costRange: string | null;
   requests: string | null;
+};
+
+/** The three ways to run (UI-SPEC § Screen 2), as the drawer names them. */
+export type RunDrawerKind = 'full' | 'partition' | 'check';
+
+/** The action's run kinds (src/lib/places/plan-run.ts `RunKind`). */
+const ACTION_KIND = {
+  full: 'full_sweep',
+  partition: 'partition',
+  check: 'change_check',
+} as const satisfies Record<RunDrawerKind, string>;
+
+/** This ISO week's partition, computed on the server (partition.ts `isoWeekOf`). */
+export type RunPartition = {
+  index: number;
+  isoWeek: number;
+  mondayIso: string;
+  sundayIso: string;
+  cells: number;
+  totalCells: number;
 };
 
 const DESK_QUERY = '(min-width: 640px)';
@@ -86,8 +117,6 @@ function subscribeToDesk(onChange: () => void) {
  * measures the wrong one.
  *
  * The server snapshot is `false` — phone first, matching the product's stated priority.
- * Only the trigger renders before hydration, and the trigger is identical either way, so
- * there is nothing for the client to correct visibly.
  *
  * Exported because `duplicate-dialog.tsx` makes the same phone/desk choice for the same
  * reason, and a second copy of this hook is a second place the breakpoint can drift from
@@ -103,18 +132,15 @@ export function useIsDesk(): boolean {
 
 type Outcome =
   | { kind: 'refused'; message: string }
+  | { kind: 'mode_refused'; message: string }
+  | { kind: 'busy'; message: string; runningRunId: string | null }
   | { kind: 'error'; message: string }
   | null;
 
-export function RunDrawer({
-  presetName,
-  versions,
-  initialVersionId,
-  pickable,
-  remainingLabel,
-  isAdmin,
-  children,
-}: {
+/** The kind-specific half of the props: a partition drawer needs this week's partition. */
+type KindProps = { kind: 'partition'; partition: RunPartition } | { kind: 'full' | 'check' };
+
+type RunDrawerProps = KindProps & {
   presetName: string;
   /** Newest first. */
   versions: RunVersionOption[];
@@ -125,8 +151,21 @@ export function RunDrawer({
   pickable: boolean;
   remainingLabel: string;
   isAdmin: boolean;
+  /** The trigger — rendered by the caller, so each of the three actions keeps its own
+   *  testid and variant (UI-SPEC Rules 34, 40). */
   children: ReactNode;
-}) {
+};
+
+const DESTRUCTIVE_ALERT =
+  'border-destructive/40 bg-destructive-surface text-destructive-surface-foreground';
+const WARNING_ALERT = 'border-warning/40 bg-warning-surface text-warning-surface-foreground';
+
+export function RunDrawer(props: RunDrawerProps) {
+  const { presetName, versions, initialVersionId, pickable, remainingLabel, isAdmin, children } =
+    props;
+  const kind = props.kind;
+  const partition = props.kind === 'partition' ? props.partition : null;
+
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [selectedId, setSelectedId] = useState(initialVersionId);
@@ -152,50 +191,104 @@ export function RunDrawer({
   const confirm = useCallback(() => {
     setOutcome(null);
     startTransition(async () => {
-      const result = await queueRun({ searchVersionId: selectedId });
+      const result = await queueRun({ searchVersionId: selectedId, kind: ACTION_KIND[kind] });
 
       if (result.ok) {
-        // Reversible success, already visible on /spend — UI-SPEC reserves the transient
-        // notification for exactly this case.
-        toast(`Run queued for ${presetName}`);
-        setOpen(false);
-        // The meter moved: the shell's banner, the summary card's last-run line and the
-        // version counts are all server-rendered from it.
-        router.refresh();
+        // The report is the feedback. The push stays inside the transition, so the confirm
+        // button keeps saying "Starting…" until the report replaces this page.
+        router.push(`/runs/${result.data.runId}`);
         return;
       }
 
       if (result.code === 'budget_refused') {
         // `result.message` IS `RUN_REFUSED(cap)`, built by the action from the cap the
-        // database actually refused against. Re-deriving the sentence here would mean the
-        // drawer quoting a cap it only believes it knows.
+        // database actually refused against.
         setOutcome({ kind: 'refused', message: result.message });
+        return;
+      }
+
+      if (result.code === 'mode_refused') {
+        setOutcome({ kind: 'mode_refused', message: result.message });
+        return;
+      }
+
+      if (result.code === 'conflict' && result.detail?.reason === 'busy') {
+        const running = result.detail.runningRunId;
+        setOutcome({
+          kind: 'busy',
+          message: result.message,
+          runningRunId: typeof running === 'string' ? running : null,
+        });
         return;
       }
 
       setOutcome({ kind: 'error', message: result.message });
     });
-  }, [presetName, router, selectedId]);
+  }, [kind, router, selectedId]);
 
-  const title = selected
-    ? `Run ${presetName} · version ${selected.version}`
-    : `Run ${presetName}`;
+  const version = selected?.version ?? 0;
+  const title =
+    kind === 'check'
+      ? RUN_DRAWER_TITLE_CHECK(presetName)
+      : kind === 'partition' && partition
+        ? RUN_DRAWER_TITLE_PARTITION(presetName, version, partition.isoWeek)
+        : RUN_DRAWER_TITLE_FULL(presetName, version);
 
-  const refused = outcome?.kind === 'refused';
+  const description =
+    kind === 'check'
+      ? RUN_DRAWER_CHECK_NOTE
+      : 'Siteless reserves the top of the estimate before anything runs, and settles the ' +
+        'difference afterwards.';
+
+  const confirmLabel = isPending
+    ? RUN_DRAWER_STARTING
+    : kind === 'check'
+      ? RUN_DRAWER_CONFIRM_CHECK
+      : kind === 'partition' && partition
+        ? RUN_DRAWER_CONFIRM_PARTITION(partition.isoWeek)
+        : RUN_DRAWER_CONFIRM_FULL;
+
+  // 🔴 A refusal the reader cannot fix by clicking again REPLACES the confirm button rather
+  // than disabling it beside the Alert: a greyed control under a red sentence invites a
+  // second click at a cap, a mode or a running run that has not moved.
+  const blocking =
+    outcome?.kind === 'refused' || outcome?.kind === 'mode_refused' || outcome?.kind === 'busy';
 
   const body = (
     <div className="flex flex-col gap-4 px-4 sm:px-0">
       <dl className="flex flex-col gap-1 text-sm font-normal">
-        <div className="flex items-baseline justify-between gap-4">
-          <dt className="text-muted-foreground">Estimated cost</dt>
-          <dd data-testid="run-estimate" className="font-semibold tabular-nums">
-            {selected?.costRange ?? 'Not priced'}
-          </dd>
-        </div>
+        {kind === 'check' ? (
+          <div className="flex items-baseline justify-between gap-4">
+            <dt className="text-muted-foreground">{RUN_DRAWER_COST_LABEL}</dt>
+            <dd data-testid="run-estimate" className="font-semibold tabular-nums">
+              {RUN_DRAWER_CHECK_COST}
+            </dd>
+          </div>
+        ) : (
+          <div className="flex items-baseline justify-between gap-4">
+            <dt className="text-muted-foreground">Estimated cost</dt>
+            <dd data-testid="run-estimate" className="font-semibold tabular-nums">
+              {selected?.costRange ?? 'Not priced'}
+            </dd>
+          </div>
+        )}
         {selected?.requests ? (
           <div className="flex items-baseline justify-between gap-4">
             <dt className="text-muted-foreground">Requests</dt>
             <dd className="tabular-nums">{selected.requests}</dd>
+          </div>
+        ) : null}
+        {partition ? (
+          <div className="flex items-baseline justify-between gap-4">
+            <dt className="text-muted-foreground">{RUN_DRAWER_CELLS_LABEL}</dt>
+            <dd data-testid="run-partition-cells" className="tabular-nums">
+              {RUN_DRAWER_CELLS(
+                partition.cells,
+                partition.totalCells,
+                partition.isoWeek,
+                formatWeekRange(partition.mondayIso, partition.sundayIso),
+              )}
+            </dd>
           </div>
         ) : null}
         <div className="flex items-baseline justify-between gap-4">
@@ -208,16 +301,14 @@ export function RunDrawer({
 
       {pickable && versions.length > 1 ? (
         <fieldset className="flex flex-col gap-2">
-          <legend className="pb-2 text-sm font-semibold">
-            Which version do you want to run?
-          </legend>
+          <legend className="pb-2 text-sm font-semibold">Which version do you want to run?</legend>
           <RadioGroup
             value={selectedId}
             onValueChange={setSelectedId}
             data-testid="run-version-picker"
           >
             {versions.map((v) => (
-              <div key={v.id} className="flex min-h-11 items-center gap-3">
+              <div key={v.id} className="flex min-h-11 items-center gap-2">
                 <RadioGroupItem
                   value={v.id}
                   id={`run-version-${v.version}`}
@@ -234,12 +325,8 @@ export function RunDrawer({
         </fieldset>
       ) : null}
 
-      {refused ? (
-        <Alert
-          role="alert"
-          data-testid="run-refused"
-          className="border-destructive/40 bg-destructive-surface text-destructive-surface-foreground"
-        >
+      {outcome?.kind === 'refused' ? (
+        <Alert role="alert" data-testid="run-refused" className={DESTRUCTIVE_ALERT}>
           <OctagonX data-icon="octagon-x" aria-hidden="true" className="size-5" />
           <AlertTitle className="text-base font-semibold text-balance">
             {outcome.message}
@@ -263,12 +350,48 @@ export function RunDrawer({
         </Alert>
       ) : null}
 
+      {outcome?.kind === 'mode_refused' ? (
+        <Alert role="alert" data-testid="run-mode-refused" className={DESTRUCTIVE_ALERT}>
+          <OctagonX data-icon="octagon-x" aria-hidden="true" className="size-5" />
+          <AlertTitle className="text-base font-semibold text-balance">
+            {outcome.message}
+          </AlertTitle>
+          <AlertDescription className="text-inherit">
+            <Button
+              variant="outline"
+              className="h-11"
+              onClick={() => {
+                setOpen(false);
+                router.refresh();
+              }}
+              data-testid="run-mode-refused-reload"
+            >
+              {PLACES_ACTION.reloadPreset}
+            </Button>
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
+      {outcome?.kind === 'busy' ? (
+        <Alert role="alert" data-testid="run-already-running" className={WARNING_ALERT}>
+          <TriangleAlert data-icon="triangle-alert" aria-hidden="true" className="size-5" />
+          <AlertTitle className="text-base font-semibold text-balance">
+            {outcome.message}
+          </AlertTitle>
+          {outcome.runningRunId ? (
+            <AlertDescription className="text-inherit">
+              <Button asChild variant="outline" className="h-11">
+                <Link href={`/runs/${outcome.runningRunId}`} data-testid="run-already-running-link">
+                  {RUN_OPEN_RUNNING}
+                </Link>
+              </Button>
+            </AlertDescription>
+          ) : null}
+        </Alert>
+      ) : null}
+
       {outcome?.kind === 'error' ? (
-        <Alert
-          role="alert"
-          data-testid="run-error"
-          className="border-destructive/40 bg-destructive-surface text-destructive-surface-foreground"
-        >
+        <Alert role="alert" data-testid="run-error" className={DESTRUCTIVE_ALERT}>
           <OctagonX data-icon="octagon-x" aria-hidden="true" className="size-5" />
           <AlertTitle className="text-base font-semibold text-balance">
             {outcome.message}
@@ -282,11 +405,11 @@ export function RunDrawer({
                 disabled={isPending}
                 data-testid="run-error-retry"
               >
-                Try again
+                {PLACES_ACTION.tryAgain}
               </Button>
               <Button asChild variant="ghost" className="h-11">
                 <Link href="/spend" data-testid="run-error-spend">
-                  Open spend view
+                  {PLACES_ACTION.openSpend}
                 </Link>
               </Button>
             </div>
@@ -297,11 +420,8 @@ export function RunDrawer({
   );
 
   const footer = (
-    <div className="flex w-full flex-col gap-3">
-      {/* 🔴 THE CONFIRM BUTTON IS REPLACED BY THE REFUSAL, not disabled beside it. A
-          greyed control with a red message above it invites a second click at a cap that
-          has not moved. */}
-      {refused ? null : (
+    <div className="flex w-full flex-col gap-4">
+      {blocking ? null : (
         <Button
           variant="default"
           className="h-12 w-full sm:h-10"
@@ -310,16 +430,9 @@ export function RunDrawer({
           data-testid="run-confirm"
         >
           {isPending ? <Spinner /> : null}
-          Reserve budget &amp; queue this run
+          {confirmLabel}
         </Button>
       )}
-
-      {/* 🔴 ALWAYS VISIBLE, DIRECTLY BENEATH THE CONFIRM BUTTON — never a tooltip and
-          never a mystery-disabled control. Phase 2 saves and reserves; it does not run.
-          Saying so on the screen is the difference between "not built yet" and "broken". */}
-      <p data-testid="run-phase4-notice" className="text-sm font-normal text-muted-foreground">
-        {PHASE4_RUN_NOTICE}
-      </p>
 
       <Button
         variant="ghost"
@@ -327,7 +440,7 @@ export function RunDrawer({
         onClick={() => setOpen(false)}
         data-testid="run-dismiss"
       >
-        Not now
+        {RUN_DRAWER_DISMISS}
       </Button>
     </div>
   );
@@ -336,13 +449,10 @@ export function RunDrawer({
     return (
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogTrigger asChild>{children}</DialogTrigger>
-        <DialogContent data-testid="run-drawer" className="sm:max-w-lg">
+        <DialogContent data-testid="run-drawer" data-run-kind={kind} className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle className="text-xl font-semibold">{title}</DialogTitle>
-            <DialogDescription className="text-sm font-normal">
-              Siteless reserves the top of the estimate before anything runs, and settles
-              the difference afterwards.
-            </DialogDescription>
+            <DialogDescription className="text-sm font-normal">{description}</DialogDescription>
           </DialogHeader>
           {body}
           <DialogFooter>{footer}</DialogFooter>
@@ -354,13 +464,10 @@ export function RunDrawer({
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
       <DrawerTrigger asChild>{children}</DrawerTrigger>
-      <DrawerContent data-testid="run-drawer">
+      <DrawerContent data-testid="run-drawer" data-run-kind={kind}>
         <DrawerHeader>
           <DrawerTitle className="text-xl font-semibold">{title}</DrawerTitle>
-          <DrawerDescription className="text-sm font-normal">
-            Siteless reserves the top of the estimate before anything runs, and settles the
-            difference afterwards.
-          </DrawerDescription>
+          <DrawerDescription className="text-sm font-normal">{description}</DrawerDescription>
         </DrawerHeader>
         {body}
         <DrawerFooter>{footer}</DrawerFooter>

@@ -62,6 +62,30 @@ export function formatLocal(instant: Date, options: Intl.DateTimeFormatOptions =
 }
 
 /**
+ * A calendar week as a human reads it — "Sep 21–27", or "Sep 28–Oct 4" across a month — from
+ * two `YYYY-MM-DD` CALENDAR dates (partition.ts' `isoWeekOf`).
+ *
+ * 🔴 A calendar date is not an instant. `Date.UTC(y, m, d)` is UTC MIDNIGHT, which renders as
+ * the PREVIOUS day anywhere in the Americas; the date is anchored at 12:00 UTC instead, which
+ * is the same calendar day in every zone from UTC−11 to UTC+11 — America/Chicago included.
+ */
+export function formatWeekRange(mondayIso: string, sundayIso: string): string {
+  const at = (iso: string) => {
+    const [y, m, d] = iso.split('-').map(Number);
+    return new Date(Date.UTC(y ?? 1970, (m ?? 1) - 1, d ?? 1, 12));
+  };
+  const monday = at(mondayIso);
+  const sunday = at(sundayIso);
+  const start = formatLocal(monday, { month: 'short', day: 'numeric' });
+  const sameMonth =
+    formatLocal(monday, { month: 'numeric' }) === formatLocal(sunday, { month: 'numeric' });
+  const end = sameMonth
+    ? formatLocal(sunday, { day: 'numeric' })
+    : formatLocal(sunday, { month: 'short', day: 'numeric' });
+  return `${start}–${end}`;
+}
+
+/**
  * A whole-number count for a human — "35,270" — with the locale pinned.
  *
  * Added for `/sources` (03-17), whose components may not call `Intl` directly (03-UI-SPEC
