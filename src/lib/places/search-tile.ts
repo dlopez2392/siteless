@@ -250,8 +250,16 @@ async function overlapWithParent(
   return shared / Math.max(1, ids.size);
 }
 
-/** Plans the children as run_searches rows and returns them with their search ids. */
-async function planChildren(tx: Tx, runId: string, children: TileSpec[]): Promise<PlannedSearch[]> {
+/**
+ * Plans tile specs as run_searches rows (via app.plan_run_searches, idempotent per run × tile)
+ * and returns them with their search ids. Used for a saturated tile's children here, and for a
+ * run's roots by 04-22's `beginRun` step — one payload mapping, so the two cannot drift.
+ */
+export async function planRunSearches(
+  tx: Tx,
+  runId: string,
+  children: TileSpec[],
+): Promise<PlannedSearch[]> {
   // Every key DB-safe: jsonb cannot hold U+0000, so unitId goes through dbSafe here and ONLY
   // here — the in-memory child keeps its raw unitId (the partition-hash input, tiling.ts).
   const payload = children.map((c) => ({
@@ -410,7 +418,10 @@ export async function runSearchTile(
     );
     const planned: SearchedNext =
       decided.action === 'subdivide'
-        ? { action: 'subdivide', children: await planChildren(tx, input.runId, decided.children) }
+        ? {
+            action: 'subdivide',
+            children: await planRunSearches(tx, input.runId, decided.children),
+          }
         : decided;
     const state = {
       status: 'done',

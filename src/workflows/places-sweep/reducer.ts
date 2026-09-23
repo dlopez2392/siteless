@@ -110,9 +110,20 @@ export function applyResult(s: QueueState, search: PlannedSearch, r: SearchResul
 }
 
 /** An `Error` whose message is exactly an allow-listed key → that key. Anything else — any other
- *  message, a non-Error, a stop reason — → `places_unavailable`. The message is never echoed. */
+ *  message, a non-Error, a stop reason — → `places_unavailable`. The message is never echoed.
+ *
+ *  🔴 CROSS-REALM (04-22, measured). The workflow body runs inside the runtime's VM sandbox, and
+ *  a failed step reaches its `catch` as a `FatalError` constructed OUTSIDE it (@workflow/core
+ *  step.js), so `e instanceof Error` — the sandbox's `Error` — is false for every step failure,
+ *  and a 400 reported `places_unavailable`. The brand check (`[object Error]`, which reads the
+ *  internal error slot and holds across realms) accepts it; a plain `{ message }` object still
+ *  does not. */
+function isError(e: unknown): e is Error {
+  return e instanceof Error || Object.prototype.toString.call(e) === '[object Error]';
+}
+
 export function failReasonOf(e: unknown): FailReason {
-  if (e instanceof Error) {
+  if (isError(e)) {
     const match = FAIL_REASONS.find((k) => k === e.message);
     if (match) return match;
   }

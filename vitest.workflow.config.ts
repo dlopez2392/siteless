@@ -50,6 +50,8 @@ export default defineConfig({
   },
   test: {
     include: ['tests/workflow/**/*.test.ts'],
+    // Merged with the workflow() plugin's own setup file. See the file for why (04-22).
+    setupFiles: ['tests/workflow/_json-imports.ts'],
     pool: 'forks',
     fileParallelism: false, // one file at a time: the lane shares the local test database
     environment: 'node',

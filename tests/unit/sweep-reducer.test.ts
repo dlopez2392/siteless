@@ -6,6 +6,7 @@
  * is counted, and failures that collapse to allow-listed machine keys only (T-4-05 — an error
  * message can carry Places content into the event log; `failReasonOf` never echoes one).
  */
+import { runInNewContext } from 'node:vm';
 import { describe, expect, it } from 'vitest';
 import { rootSpec, tileKeyOf, type TileSpec } from '@/lib/places/tiling';
 import {
@@ -174,6 +175,24 @@ describe('failures and verdicts', () => {
     expect(failReasonOf({ message: 'places_key_missing' })).toBe('places_unavailable');
     expect(failReasonOf(undefined)).toBe('places_unavailable');
     expect(failReasonOf(new Error(' places_key_missing'))).toBe('places_unavailable');
+  });
+
+  it('failReasonOf reads an Error from another realm', () => {
+    // 04-22: the workflow body runs in a VM sandbox and a failed step arrives as an Error built
+    // outside it, so `instanceof Error` is false there. Simulated with a second realm.
+    const foreign: unknown = runInNewContext('new Error("places_request_rejected")');
+    expect(foreign instanceof Error).toBe(false);
+    expect(failReasonOf(foreign)).toBe('places_request_rejected');
+    expect(failReasonOf(runInNewContext('new TypeError("places_key_missing")'))).toBe(
+      'places_key_missing',
+    );
+    // Still allow-listed and never echoed, and still not a plain object.
+    expect(failReasonOf(runInNewContext('new Error("SENTINEL displayName")'))).toBe(
+      'places_unavailable',
+    );
+    expect(failReasonOf(runInNewContext('({ message: "places_key_missing" })'))).toBe(
+      'places_unavailable',
+    );
   });
 
   it('finishVerdict: failure beats stop beats complete', () => {

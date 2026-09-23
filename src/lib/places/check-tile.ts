@@ -11,8 +11,9 @@ import {
   type RunCtx,
 } from '@/lib/places/meter';
 import { buildFirstPage, buildNextPage, type PlacesRequest } from '@/lib/places/request';
+import type { SweepInput, TileStepResult } from '@/lib/places/search-tile';
 import { rowsOf } from '@/server/queries/budget';
-import type { FailReason, PlannedSearch, SearchResult } from '@/workflows/places-sweep/reducer';
+import type { FailReason, PlannedSearch } from '@/workflows/places-sweep/reducer';
 
 /**
  * D-16 / PLACE-04 step body: the FREE change check. Called by the `checkTile` step (04-22) and
@@ -38,19 +39,9 @@ import type { FailReason, PlannedSearch, SearchResult } from '@/workflows/places
  * workflow event log. Place ids exist here only in memory and in the definer's arguments.
  */
 
-/** 04-18's step input. Declared identically here; 04-22 may dedupe the two declarations. */
-export type SweepInput = { runId: string; clerkOrgId: string };
-
-/** 04-18's step result. Declared identically here; 04-22 may dedupe the two declarations. */
-export type TileStepResult =
-  | SearchResult
-  | {
-      kind: 'fail';
-      tileKey: string;
-      reason: FailReason;
-      retryable: boolean;
-      retryAfterMs?: number;
-    };
+/** The step input and result are 04-18's, declared once in search-tile.ts (deduped by 04-22)
+ *  and re-exported so an importer of this module keeps its names. */
+export type { SweepInput, TileStepResult };
 
 /** The verdicts that make a tile a candidate for the next paid sweep. */
 const CHANGED = new Set(['new', 'gone', 'both', 'saturated']);
