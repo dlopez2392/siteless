@@ -639,7 +639,14 @@ export async function mergeCandidate(t: ResolveTx, candidateId: string): Promise
   return r.mergeId === null ? 'already_one' : 'merged';
 }
 
-export async function stageMerge(db: ResolveDb): Promise<MergeStageResult> {
+/** One candidate's merge, as stage 5 calls it. A test seam: production is `mergeCandidate`. */
+export type MergeOne = (t: ResolveTx, candidateId: string) => Promise<MergeOutcome>;
+
+export async function stageMerge(
+  db: ResolveDb,
+  opts: { mergeOne?: MergeOne } = {},
+): Promise<MergeStageResult> {
+  const mergeOne = opts.mergeOne ?? mergeCandidate;
   const queue = await db.run(({ tx, orgId }) => autoMergeQueue(tx, orgId));
   const out: MergeStageResult = {
     considered: queue.length,
@@ -654,13 +661,25 @@ export async function stageMerge(db: ResolveDb): Promise<MergeStageResult> {
     for (let attempt = 0; ; attempt += 1) {
       try {
         // One transaction per candidate, each re-installing the actor and the org claim.
-        const outcome = await db.run((t) => mergeCandidate(t, candidateId));
+        const outcome = await db.run((t) => mergeOne(t, candidateId));
         out[outcome] += 1;
         break;
       } catch (e) {
-        if (pgFailure(e)?.code === '40001' && attempt < MERGE_RETRIES) {
+        const code = pgFailure(e)?.code;
+        // 🔴 A-WR-10 (review 03). 40001 (a concurrent merge moved the pair) AND 40P01 (a
+        // deadlock with a concurrent undo_merge) are transient: the transaction rolled back
+        // whole, so re-running it from the top is safe.
+        if ((code === '40001' || code === '40P01') && attempt < MERGE_RETRIES) {
           out.retries += 1;
           continue;
+        }
+        // 55000: the definer refused a candidate that is no longer pending — a reviewer
+        // decided it (or an unmerge ruled it distinct) after the queue was read. That is the
+        // same outcome as the pending check at the top of mergeCandidate, reached a moment
+        // later; it must never kill the rest of a pass that took minutes to block and score.
+        if (code === '55000') {
+          out.not_pending += 1;
+          break;
         }
         throw e;
       }
@@ -701,6 +720,8 @@ export interface ResolvePassOptions {
   log?: (line: string) => void;
   /** Test lever only; the desk run always uses TRIGRAM_GUARD_MIN_ROWS. */
   trigramGuardMinRows?: number;
+  /** Test lever only (stage 5's per-candidate merge); the desk run uses `mergeCandidate`. */
+  mergeOne?: MergeOne;
 }
 
 export async function runResolvePass(
@@ -720,66 +741,104 @@ export async function runResolvePass(
   const orgId = await timed('preflight', () => preflight(db));
   log(`resolve: stage 0 preflight ok — org ${db.clerkOrgId} → ${orgId}`);
 
-  const chains = await timed('chains', () => stageChains(db));
-  log(`resolve: stage 1 chains — ${chains.names} names / ${chains.rows} rows flagged (statewide ${chains.statewide})`);
+  // The report is built as the stages finish, so a failure part-way still has something true to
+  // say. A-WR-10 (review 03): a pass that died in stage 5 used to leave NO report at all, after
+  // minutes of blocking and scoring had been committed.
+  const partial: Record<string, unknown> = { dry_run: opts.dryRun === true, ms };
+  const emitReport = (stats: Record<string, unknown>) =>
+    db.run(async ({ tx }) => {
+      const { rows } = await tx.query<{ id: string }>(
+        "select app.emit_event('businesses', null, 'resolve', $1::jsonb)::text as id",
+        [JSON.stringify(stats)],
+      );
+      const id = rows[0]?.id;
+      if (!id) throw new Error('resolve: emit_event returned no id');
+      return id;
+    });
 
-  const blocks = await timed('block', () =>
-    stageBlock(db, { trigramGuardMinRows: opts.trigramGuardMinRows }),
-  );
-  log(
-    `resolve: stage 2 block — phone ${blocks.inserted.phone}, address ${blocks.inserted.address}, ` +
-      `trigram ${blocks.inserted.trigram} (plan ${blocks.trigramPlan}); ` +
-      `${blocks.skippedBlocks.length} block(s) over the cap skipped`,
-  );
+  let stage = 'chains';
+  try {
+    const chains = await timed('chains', () => stageChains(db));
+    partial.chains = chains;
+    log(`resolve: stage 1 chains — ${chains.names} names / ${chains.rows} rows flagged (statewide ${chains.statewide})`);
 
-  const gated = await timed('gate', () => stageDistanceGate(db));
-  log(`resolve: stage 3 gate — ${gated} pair(s) over 25 km marked distinct`);
-
-  const scored = await timed('score', () => stageScore(db));
-  log(
-    `resolve: stage 4 score — ${scored.scored} pending scored (${scored.written} rewritten): ` +
-      `>=${AUTO_MERGE_SCORE} ${scored.bands.merge}, ${REVIEW_SCORE}–${AUTO_MERGE_SCORE - 1} ` +
-      `${scored.bands.review}, <${REVIEW_SCORE} ${scored.bands.ignore}`,
-  );
-
-  let merges: MergeStageResult | null = null;
-  if (!opts.dryRun) {
-    merges = await timed('merge', () => stageMerge(db));
+    stage = 'block';
+    const blocks = await timed('block', () =>
+      stageBlock(db, { trigramGuardMinRows: opts.trigramGuardMinRows }),
+    );
+    Object.assign(partial, {
+      blocks: blocks.inserted,
+      trigram_plan: blocks.trigramPlan,
+      skipped_blocks: blocks.skippedBlocks,
+    });
     log(
-      `resolve: stage 5 merge — ${merges.merged} merged, ${merges.already_one} already one, ` +
-        `${merges.skipped_chain} chain-skipped, ${merges.skipped_distinct} distinct-skipped, ` +
-        `${merges.not_pending} no longer pending, ${merges.retries} retries`,
+      `resolve: stage 2 block — phone ${blocks.inserted.phone}, address ${blocks.inserted.address}, ` +
+        `trigram ${blocks.inserted.trigram} (plan ${blocks.trigramPlan}); ` +
+        `${blocks.skippedBlocks.length} block(s) over the cap skipped`,
     );
-  } else {
-    log('resolve: --dry-run — stage 5 not run, nothing merged');
+
+    stage = 'gate';
+    const gated = await timed('gate', () => stageDistanceGate(db));
+    partial.distance_gated = gated;
+    log(`resolve: stage 3 gate — ${gated} pair(s) over 25 km marked distinct`);
+
+    stage = 'score';
+    const scored = await timed('score', () => stageScore(db));
+    Object.assign(partial, {
+      scored: scored.scored,
+      score_rows_written: scored.written,
+      bands: scored.bands,
+    });
+    log(
+      `resolve: stage 4 score — ${scored.scored} pending scored (${scored.written} rewritten): ` +
+        `>=${AUTO_MERGE_SCORE} ${scored.bands.merge}, ${REVIEW_SCORE}–${AUTO_MERGE_SCORE - 1} ` +
+        `${scored.bands.review}, <${REVIEW_SCORE} ${scored.bands.ignore}`,
+    );
+
+    let merges: MergeStageResult | null = null;
+    if (!opts.dryRun) {
+      stage = 'merge';
+      merges = await timed('merge', () => stageMerge(db, { mergeOne: opts.mergeOne }));
+      log(
+        `resolve: stage 5 merge — ${merges.merged} merged, ${merges.already_one} already one, ` +
+          `${merges.skipped_chain} chain-skipped, ${merges.skipped_distinct} distinct-skipped, ` +
+          `${merges.not_pending} no longer pending, ${merges.retries} retries`,
+      );
+    } else {
+      log('resolve: --dry-run — stage 5 not run, nothing merged');
+    }
+    ms.total = Date.now() - t0;
+
+    const stats: ResolveStats = {
+      dry_run: opts.dryRun === true,
+      chains,
+      blocks: blocks.inserted,
+      trigram_plan: blocks.trigramPlan,
+      skipped_blocks: blocks.skippedBlocks,
+      distance_gated: gated,
+      scored: scored.scored,
+      score_rows_written: scored.written,
+      bands: scored.bands,
+      merges,
+      ms,
+    };
+
+    // The run report: one event, attributed etl:resolve, in its own transaction.
+    stage = 'report';
+    const eventId = await emitReport(stats);
+    return { orgId, eventId, stats };
+  } catch (e) {
+    if (stage === 'report') throw e;
+    ms.total = Date.now() - t0;
+    partial.failed = {
+      stage,
+      error: (e instanceof Error ? `${e.name}: ${e.message}` : String(e)).slice(0, 2000),
+    };
+    // Best effort: the stage's own error is the one the operator must see, so a failure to
+    // write the partial report never replaces it.
+    await emitReport(partial).catch(() => undefined);
+    throw e;
   }
-  ms.total = Date.now() - t0;
-
-  const stats: ResolveStats = {
-    dry_run: opts.dryRun === true,
-    chains,
-    blocks: blocks.inserted,
-    trigram_plan: blocks.trigramPlan,
-    skipped_blocks: blocks.skippedBlocks,
-    distance_gated: gated,
-    scored: scored.scored,
-    score_rows_written: scored.written,
-    bands: scored.bands,
-    merges,
-    ms,
-  };
-
-  // The run report: one event, attributed etl:resolve, in its own transaction.
-  const eventId = await db.run(async ({ tx }) => {
-    const { rows } = await tx.query<{ id: string }>(
-      "select app.emit_event('businesses', null, 'resolve', $1::jsonb)::text as id",
-      [JSON.stringify(stats)],
-    );
-    const id = rows[0]?.id;
-    if (!id) throw new Error('resolve: emit_event returned no id');
-    return id;
-  });
-  return { orgId, eventId, stats };
 }
 
 // ---------------------------------------------------------------------------------------

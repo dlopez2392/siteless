@@ -42,6 +42,7 @@ import {
   stageBlock,
   stageChains,
   stageDistanceGate,
+  mergeCandidate,
   stageMerge,
   stageScore,
   TrigramPlanError,
@@ -539,5 +540,80 @@ describe('the resolve pass (DEDUP-01, DEDUP-02)', () => {
       await c.query('set local enable_bitmapscan = off');
       const check = (tx: EtlExecutor, orgId: string) => assertTrigramPlan(tx, orgId, 0);
       await expect(db.run(({ tx, orgId }) => check(tx, orgId))).rejects.toBeInstanceOf(TrigramPlanError);
+    }));
+});
+
+/**
+ * A-WR-10 (review 03). Stage 5 retried 40001 only. A 55000 from a reviewer deciding the same
+ * pair mid-pass (now also the refusals A-CR-01 added), or a 40P01 deadlock between
+ * record_merge and undo_merge, killed the rest of the merge loop after minutes of blocking and
+ * scoring — and the run report, emitted after stage 5, was never written. The refusals are
+ * injected through stage 5's `mergeOne` seam: a real race cannot be staged on one connection.
+ */
+const pgError = (code: string, message: string) => Object.assign(new Error(message), { code });
+
+describe('stage 5 survives the refusals a live queue produces (A-WR-10)', () => {
+  it('a 55000 mid-pass is counted not_pending and the loop merges the rest', () =>
+    withRollback(async (c) => {
+      const { a } = await seedTwoOrgs(c);
+      await seedPair95(c, a, 'riverside stone');
+      await seedPair95(c, a, 'harlingen granite');
+      const db = deskDb(c);
+      await stageBlock(db);
+      await stageScore(db);
+      let first = true;
+      const out = await stageMerge(db, {
+        mergeOne: async (t, candidateId) => {
+          if (first) {
+            first = false;
+            throw pgError('55000', 'record_merge: candidate already decided');
+          }
+          return mergeCandidate(t, candidateId);
+        },
+      });
+      expect(out).toMatchObject({ considered: 2, not_pending: 1, merged: 1 });
+    }));
+
+  it('a 40P01 deadlock is retried like a serialization failure', () =>
+    withRollback(async (c) => {
+      const { a } = await seedTwoOrgs(c);
+      await seedPair95(c, a);
+      const db = deskDb(c);
+      await stageBlock(db);
+      await stageScore(db);
+      let deadlocks = 1;
+      const out = await stageMerge(db, {
+        mergeOne: async (t, candidateId) => {
+          if (deadlocks > 0) {
+            deadlocks -= 1;
+            throw pgError('40P01', 'deadlock detected');
+          }
+          return mergeCandidate(t, candidateId);
+        },
+      });
+      expect(out).toMatchObject({ considered: 1, merged: 1, retries: 1 });
+    }));
+
+  it('a pass that fails in stage 5 still writes its partial run report, then rethrows', () =>
+    withRollback(async (c) => {
+      const { a } = await seedTwoOrgs(c);
+      await seedPair95(c, a);
+      await expect(
+        runResolvePass(deskDb(c), {
+          mergeOne: async () => {
+            throw new Error('boom: something no stage expects');
+          },
+        }),
+      ).rejects.toThrow('boom: something no stage expects');
+      const ev = await c.query<{ after: Record<string, unknown> }>(
+        `select after from events
+          where org_id = $1 and entity_type = 'businesses' and action = 'resolve'`,
+        [a],
+      );
+      expect(ev.rows).toHaveLength(1);
+      expect(ev.rows[0]!.after).toMatchObject({
+        failed: { stage: 'merge', error: 'Error: boom: something no stage expects' },
+        scored: 1,
+      });
     }));
 });
