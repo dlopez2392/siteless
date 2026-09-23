@@ -1,0 +1,258 @@
+[
+  {
+    "id": "P01",
+    "label": "legal suffix only: ZORBA, INC. vs Zorba. name 45 + phone 0 + address 30 + distance 15 + cluster 5 = 95",
+    "synthetic": false,
+    "provenance": "Comptroller jrea-zgmq outlet read 2026-09-22: ZORBA, INC., 516 S MAIN ST, MCALLEN 78501, county 108, NAICS 452319. Overture name per 03-RESEARCH. nameSim 1.000 (both normalize to 'zorba').",
+    "assumptions": [
+      "Overture-side clusterKey auto_retail is an ASSUMPTION: 03-08's basic_category map must confirm it and 03-20 must measure it. If the Overture side is unmapped, this pair scores 90 (review), not 95.",
+      "Coordinates are fixture positions within the <=100 m tier; the real Census and Overture points arrive with 03-20."
+    ],
+    "nameSim": 1.0,
+    "a": {
+      "id": "side-P01-a", "source": "tx_comptroller", "sourceName": "ZORBA, INC.", "nameNorm": "zorba",
+      "phoneE164": null, "phoneBlockable": false,
+      "streetNum": "516", "streetNorm": "s main st", "postal": "78501",
+      "lat": 26.2001, "lng": -98.2337, "locationMatchType": "census_exact",
+      "clusterKey": "auto_retail", "chainKey": null
+    },
+    "b": {
+      "id": "side-P01-b", "source": "overture", "sourceName": "Zorba", "nameNorm": "zorba",
+      "phoneE164": null, "phoneBlockable": false,
+      "streetNum": "516", "streetNorm": "s main st", "postal": "78501",
+      "lat": 26.2003, "lng": -98.23355, "locationMatchType": "overture",
+      "clusterKey": "auto_retail", "chainKey": null
+    },
+    "expect": { "score": 95, "band": "merge", "signals": ["name", "address", "distance"], "geoGate": true }
+  },
+  {
+    "id": "P02",
+    "label": "Comptroller typo EQUIPTMENT vs Equipment: name 34 + phone 0 + address 30 + distance 15 + cluster 0 = 79",
+    "synthetic": false,
+    "known_miss": true,
+    "intended_band": "review",
+    "why": "Comptroller NAICS 811411 is outside all four clusters, so the cluster feature scores 0 instead of +5 and the pair falls one point short of review.",
+    "provenance": "Comptroller jrea-zgmq outlet read 2026-09-22: TEXAS OUTDOOR POWER EQUIPTMENT, 3611 W FREDDY GONZALEZ DR, EDINBURG 78539, county 108, NAICS 811411. nameSim 0.8485 (pg_trgm over 'texas outdoor power equiptment' / 'texas outdoor power equipment').",
+    "assumptions": [
+      "Coordinates are fixture positions within the <=100 m tier; the real Census and Overture points arrive with 03-20."
+    ],
+    "nameSim": 0.8485,
+    "a": {
+      "id": "side-P02-a", "source": "tx_comptroller", "sourceName": "TEXAS OUTDOOR POWER EQUIPTMENT", "nameNorm": "texas outdoor power equiptment",
+      "phoneE164": null, "phoneBlockable": false,
+      "streetNum": "3611", "streetNorm": "w freddy gonzalez dr", "postal": "78539",
+      "lat": 26.2835, "lng": -98.1985, "locationMatchType": "census_exact",
+      "clusterKey": null, "chainKey": null
+    },
+    "b": {
+      "id": "side-P02-b", "source": "overture", "sourceName": "Texas Outdoor Power Equipment", "nameNorm": "texas outdoor power equipment",
+      "phoneE164": null, "phoneBlockable": false,
+      "streetNum": "3611", "streetNorm": "w freddy gonzalez dr", "postal": "78539",
+      "lat": 26.2837, "lng": -98.1985, "locationMatchType": "overture",
+      "clusterKey": null, "chainKey": null
+    },
+    "expect": { "score": 79, "band": "ignore", "signals": ["address", "distance"], "geoGate": true }
+  },
+  {
+    "id": "P03",
+    "label": "misspelled Martket vs Market at one address: name 28 + phone 0 + address 30 + distance 15 + cluster 5 = 78",
+    "synthetic": false,
+    "known_miss": true,
+    "intended_band": "review",
+    "why": "name sim 0.7727 gives name 28, and no combination of address, distance and cluster reaches 80. A real same-address typo duplicate lands in ignore: this is the fixture's real recall gap.",
+    "provenance": "Names per 03-RESEARCH (first twelve probe pairs). Address from the Comptroller jrea-zgmq outlet read 2026-09-22: LA COLMENA MEAT MARKET AND FOOD STORE, L.L.C., 15701 MONTE BELLO LN, EDINBURG 78541, NAICS 445210. nameSim 0.7727 (pg_trgm over 'colmena meat martket' / 'colmena meat market', after D-12 drops 'la').",
+    "assumptions": [
+      "Modelled as Overture vs Overture: neither name matches the Comptroller outlet_name, and the research probe did not record which side was which.",
+      "Phones were not recorded by the probe. If both rows carry the same blockable phone, R3 lifts this pair to 95; 03-20 must capture them.",
+      "clusterKey auto_retail on both sides assumes 03-08 maps both rows' shared category to the cluster NAICS 445210 lands in. It is the best case; unmapped gives 73.",
+      "Both rows placed at the Comptroller outlet address, within the <=100 m tier."
+    ],
+    "nameSim": 0.7727,
+    "a": {
+      "id": "side-P03-a", "source": "overture", "sourceName": "La Colmena Meat Martket", "nameNorm": "colmena meat martket",
+      "phoneE164": null, "phoneBlockable": false,
+      "streetNum": "15701", "streetNorm": "monte bello ln", "postal": "78541",
+      "lat": 26.35, "lng": -98.12, "locationMatchType": "overture",
+      "clusterKey": "auto_retail", "chainKey": null
+    },
+    "b": {
+      "id": "side-P03-b", "source": "overture", "sourceName": "La Colmena Meat Market", "nameNorm": "colmena meat market",
+      "phoneE164": null, "phoneBlockable": false,
+      "streetNum": "15701", "streetNorm": "monte bello ln", "postal": "78541",
+      "lat": 26.3502, "lng": -98.12, "locationMatchType": "overture",
+      "clusterKey": "auto_retail", "chainKey": null
+    },
+    "expect": { "score": 78, "band": "ignore", "signals": ["address", "distance"], "geoGate": true }
+  },
+  {
+    "id": "P04",
+    "label": "store-number suffix + chain flag #44HG: name 34 + phone 0 + address 30 + distance 15 + cluster 5 = 84 (R2 does not bind below 94)",
+    "synthetic": false,
+    "provenance": "Comptroller jrea-zgmq outlet read 2026-09-22: FIRESTONE COMPLETE AUTO CARE #44HG, 118 N 12TH AVE, EDINBURG 78541, county 108, NAICS 441310. nameSim 0.8485 (pg_trgm over 'firestone complete auto care 44hg' / 'firestone complete auto care').",
+    "assumptions": [
+      "Overture-side clusterKey auto_retail is an ASSUMPTION: 03-08's category map must confirm it and 03-20 must measure it. If the Overture side is unmapped, this pair scores 79 (ignore).",
+      "chainKey on both sides assumes D-11's >=3-member chain detection (03-11) flags Firestone.",
+      "Coordinates are fixture positions within the <=100 m tier."
+    ],
+    "nameSim": 0.8485,
+    "a": {
+      "id": "side-P04-a", "source": "tx_comptroller", "sourceName": "FIRESTONE COMPLETE AUTO CARE #44HG", "nameNorm": "firestone complete auto care 44hg",
+      "phoneE164": null, "phoneBlockable": false,
+      "streetNum": "118", "streetNorm": "n 12th ave", "postal": "78541",
+      "lat": 26.303, "lng": -98.165, "locationMatchType": "census_exact",
+      "clusterKey": "auto_retail", "chainKey": "firestone complete auto care"
+    },
+    "b": {
+      "id": "side-P04-b", "source": "overture", "sourceName": "Firestone Complete Auto Care", "nameNorm": "firestone complete auto care",
+      "phoneE164": null, "phoneBlockable": false,
+      "streetNum": "118", "streetNorm": "n 12th ave", "postal": "78541",
+      "lat": 26.3032, "lng": -98.165, "locationMatchType": "overture",
+      "clusterKey": "auto_retail", "chainKey": "firestone complete auto care"
+    },
+    "expect": { "score": 84, "band": "review", "signals": ["address", "distance"], "geoGate": true }
+  },
+  {
+    "id": "P05",
+    "label": "shared address, unrelated EIS vs Central Park Car Wash: name 0 + phone 0 + address 30 + distance 15 + cluster 0 = 45",
+    "synthetic": false,
+    "why": "Band matches the intent (ignore), but the score is 45, not the research's 35: Comptroller NAICS 423610 is outside all four clusters, so the cluster feature is 0 rather than -10. 03-20 confronts the delta.",
+    "provenance": "Comptroller jrea-zgmq outlet read 2026-09-22: EIS, 1805 N LOOP 499 STE 150, HARLINGEN 78550, county 031, NAICS 423610 (suite stripped from the match key per D-12). Overture name per 03-RESEARCH. nameSim 0.000.",
+    "assumptions": [
+      "Overture-side clusterKey auto_retail (a car wash) is an assumption; with the Comptroller side unmapped it does not change the score.",
+      "Coordinates are fixture positions within the <=100 m tier."
+    ],
+    "nameSim": 0.0,
+    "a": {
+      "id": "side-P05-a", "source": "tx_comptroller", "sourceName": "EIS", "nameNorm": "eis",
+      "phoneE164": null, "phoneBlockable": false,
+      "streetNum": "1805", "streetNorm": "n loop 499", "postal": "78550",
+      "lat": 26.208, "lng": -97.696, "locationMatchType": "census_exact",
+      "clusterKey": null, "chainKey": null
+    },
+    "b": {
+      "id": "side-P05-b", "source": "overture", "sourceName": "Central Park Car Wash", "nameNorm": "central park car wash",
+      "phoneE164": null, "phoneBlockable": false,
+      "streetNum": "1805", "streetNorm": "n loop 499", "postal": "78550",
+      "lat": 26.20815, "lng": -97.696, "locationMatchType": "overture",
+      "clusterKey": "auto_retail", "chainKey": null
+    },
+    "expect": { "score": 45, "band": "ignore", "signals": ["address", "distance"], "geoGate": true }
+  },
+  {
+    "id": "P06",
+    "label": "SYNTHETIC. D-10 hard rule: Brownsville vs Rio Grande City, ~142,330 m, distinct regardless of an identical name",
+    "synthetic": true,
+    "provenance": "Synthetic record. Town-centre coordinates are 03-01's app.distance_m test coordinates (142,343 m +/- 100 there).",
+    "nameSim": 1.0,
+    "a": {
+      "id": "side-P06-a", "source": "tx_comptroller", "sourceName": "SYNTHETIC RIO GRANDE TIRE", "nameNorm": "synthetic rio grande tire",
+      "phoneE164": null, "phoneBlockable": false,
+      "streetNum": "100", "streetNorm": "synthetic st", "postal": "78520",
+      "lat": 25.9017, "lng": -97.4975, "locationMatchType": "census_exact",
+      "clusterKey": "auto_retail", "chainKey": null
+    },
+    "b": {
+      "id": "side-P06-b", "source": "overture", "sourceName": "Synthetic Rio Grande Tire", "nameNorm": "synthetic rio grande tire",
+      "phoneE164": null, "phoneBlockable": false,
+      "streetNum": "200", "streetNorm": "synthetic ave", "postal": "78582",
+      "lat": 26.3795, "lng": -98.8203, "locationMatchType": "overture",
+      "clusterKey": "auto_retail", "chainKey": null
+    },
+    "expect": { "score": 0, "band": "distinct", "signals": ["name"], "rule": "over_25km" }
+  },
+  {
+    "id": "P07",
+    "label": "SYNTHETIC. D-07 review path, exact phone + same ZIP + dissimilar name: name 0 + phone 30 + address 5 + distance 4 + cluster -10 = 29, R4 clamps to 80",
+    "synthetic": true,
+    "provenance": "Synthetic records: RGV phone reuse (PITFALLS Pitfall 6). The shared number is in the fictional 555-01xx range; the D-12 normalizer would refuse it, so phoneBlockable is set by hand.",
+    "nameSim": 0.05,
+    "a": {
+      "id": "side-P07-a", "source": "overture", "sourceName": "Synthetic Garza Roofing", "nameNorm": "synthetic garza roofing",
+      "phoneE164": "+19565550101", "phoneBlockable": true,
+      "streetNum": "1200", "streetNorm": "synthetic n 10th st", "postal": "78501",
+      "lat": 26.2, "lng": -98.23, "locationMatchType": "overture",
+      "clusterKey": "home_services", "chainKey": null
+    },
+    "b": {
+      "id": "side-P07-b", "source": "overture", "sourceName": "Synthetic Salon Bella", "nameNorm": "synthetic salon bella",
+      "phoneE164": "+19565550101", "phoneBlockable": true,
+      "streetNum": "1410", "streetNorm": "synthetic e nolana ave", "postal": "78501",
+      "lat": 26.2, "lng": -98.218, "locationMatchType": "overture",
+      "clusterKey": "personal_care_health", "chainKey": null
+    },
+    "expect": { "score": 80, "band": "review", "signals": ["phone"], "geoGate": false, "rule": "phone_locality_review" }
+  },
+  {
+    "id": "P08",
+    "label": "SYNTHETIC. D-09, one signal at its ceiling: name 45 + phone 0 + address 15 + distance 10 + cluster 5 = 75",
+    "synthetic": true,
+    "provenance": "Synthetic records: the Overture address drops the S directional (address 15, not 30) and its point sits ~200 m off (distance 10, not a signal). Name is the only signal.",
+    "nameSim": 1.0,
+    "a": {
+      "id": "side-P08-a", "source": "tx_comptroller", "sourceName": "SYNTHETIC ALAMO BAKERY, LLC", "nameNorm": "synthetic alamo bakery",
+      "phoneE164": null, "phoneBlockable": false,
+      "streetNum": "300", "streetNorm": "s synthetic blvd", "postal": "78577",
+      "lat": 26.1, "lng": -98.27, "locationMatchType": "census_exact",
+      "clusterKey": "food_hospitality", "chainKey": null
+    },
+    "b": {
+      "id": "side-P08-b", "source": "overture", "sourceName": "Synthetic Alamo Bakery", "nameNorm": "synthetic alamo bakery",
+      "phoneE164": null, "phoneBlockable": false,
+      "streetNum": "300", "streetNorm": "synthetic blvd", "postal": "78577",
+      "lat": 26.1018, "lng": -98.27, "locationMatchType": "overture",
+      "clusterKey": "food_hospitality", "chainKey": null
+    },
+    "expect": { "score": 75, "band": "ignore", "signals": ["name"], "geoGate": true }
+  },
+  {
+    "id": "P09",
+    "label": "SYNTHETIC. D-10, two signals with the Comptroller side never geocoded: name 45 + phone 30 + address 15 + distance 0 + cluster 5 = 95, R3 holds 95, R6 caps at 94",
+    "synthetic": true,
+    "provenance": "Synthetic records. The Comptroller side carries a PHONE, which jrea-zgmq does not supply: this is the Phase 4 shape (a Places-derived phone). Without a phone, a pair lacking the geo gate tops out at 45 + 30 + 5 = 80. Fictional 555-01xx number, phoneBlockable set by hand.",
+    "nameSim": 1.0,
+    "a": {
+      "id": "side-P09-a", "source": "tx_comptroller", "sourceName": "SYNTHETIC PALM VALLEY FEED STORE", "nameNorm": "synthetic palm valley feed store",
+      "phoneE164": "+19565550142", "phoneBlockable": true,
+      "streetNum": "400", "streetNorm": "w synthetic expressway 83", "postal": "78596",
+      "lat": null, "lng": null, "locationMatchType": null,
+      "clusterKey": "home_services", "chainKey": null
+    },
+    "b": {
+      "id": "side-P09-b", "source": "overture", "sourceName": "Synthetic Palm Valley Feed Store", "nameNorm": "synthetic palm valley feed store",
+      "phoneE164": "+19565550142", "phoneBlockable": true,
+      "streetNum": "400", "streetNorm": "w synthetic expy 83", "postal": "78596",
+      "lat": 26.14, "lng": -97.95, "locationMatchType": "overture",
+      "clusterKey": "home_services", "chainKey": null
+    },
+    "expect": { "score": 94, "band": "review", "signals": ["name", "phone"], "geoGate": false, "rule": "phone_locality_name" }
+  },
+  {
+    "id": "P10",
+    "label": "RIO STONE PRODUCTS, INC. vs Rio Stone Products Inc: name 45 + phone 0 + address 30 + distance 15 + cluster 0 = 90",
+    "synthetic": false,
+    "known_miss": true,
+    "intended_band": "merge",
+    "why": "Comptroller NAICS 327991 is outside all four clusters, so cluster scores 0 and a true duplicate tops out at 90. It lands in review, and the research's real three-way merge example never auto-merges (03-11/03-14 use merge-triple.json instead).",
+    "provenance": "Comptroller jrea-zgmq outlet read 2026-09-22: RIO STONE PRODUCTS, INC., 2520 BEECH AVE, MCALLEN 78501, county 108, NAICS 327991. Overture name per 03-RESEARCH. nameSim 1.000 (both normalize to 'rio stone products').",
+    "assumptions": [
+      "Overture-side clusterKey left null; with the Comptroller side unmapped the Overture side cannot change the score.",
+      "Coordinates are fixture positions within the <=100 m tier."
+    ],
+    "nameSim": 1.0,
+    "a": {
+      "id": "side-P10-a", "source": "tx_comptroller", "sourceName": "RIO STONE PRODUCTS, INC.", "nameNorm": "rio stone products",
+      "phoneE164": null, "phoneBlockable": false,
+      "streetNum": "2520", "streetNorm": "beech ave", "postal": "78501",
+      "lat": 26.19, "lng": -98.24, "locationMatchType": "census_exact",
+      "clusterKey": null, "chainKey": null
+    },
+    "b": {
+      "id": "side-P10-b", "source": "overture", "sourceName": "Rio Stone Products Inc", "nameNorm": "rio stone products",
+      "phoneE164": null, "phoneBlockable": false,
+      "streetNum": "2520", "streetNorm": "beech ave", "postal": "78501",
+      "lat": 26.1902, "lng": -98.24, "locationMatchType": "overture",
+      "clusterKey": null, "chainKey": null
+    },
+    "expect": { "score": 90, "band": "review", "signals": ["name", "address", "distance"], "geoGate": true }
+  }
+]

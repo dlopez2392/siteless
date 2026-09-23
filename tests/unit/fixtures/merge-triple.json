@@ -1,0 +1,34 @@
+{
+  "id": "T01",
+  "label": "SYNTHETIC. Three-way cluster: one Comptroller row matching TWO Overture rows at 95 on every edge (the shape M25's cluster-aware merge needs). Each edge: name 45 + phone 0 + address 30 + distance 15 + cluster 5 = 95.",
+  "synthetic": true,
+  "provenance": "Stands in for RIO STONE PRODUCTS (P10). Under the committed weights the real triple never reaches 95 because NAICS 327991 is outside every cluster. 03-11/03-14 must drive the three-way merge from this synthetic triple, not from P10.",
+  "records": [
+    {
+      "id": "T01-a", "source": "tx_comptroller", "sourceName": "SYNTHETIC RIVERSIDE STONE, INC.", "nameNorm": "synthetic riverside stone",
+      "phoneE164": null, "phoneBlockable": false,
+      "streetNum": "900", "streetNorm": "e synthetic business 83", "postal": "78501",
+      "lat": 26.18, "lng": -98.21, "locationMatchType": "census_exact",
+      "clusterKey": "home_services", "chainKey": null
+    },
+    {
+      "id": "T01-b", "source": "overture", "sourceName": "Synthetic Riverside Stone", "nameNorm": "synthetic riverside stone",
+      "phoneE164": null, "phoneBlockable": false,
+      "streetNum": "900", "streetNorm": "e synthetic business 83", "postal": "78501",
+      "lat": 26.1802, "lng": -98.21, "locationMatchType": "overture",
+      "clusterKey": "home_services", "chainKey": null
+    },
+    {
+      "id": "T01-c", "source": "overture", "sourceName": "Synthetic Riverside Stone Inc", "nameNorm": "synthetic riverside stone",
+      "phoneE164": null, "phoneBlockable": false,
+      "streetNum": "900", "streetNorm": "e synthetic business 83", "postal": "78501",
+      "lat": 26.1801, "lng": -98.2102, "locationMatchType": "overture",
+      "clusterKey": "home_services", "chainKey": null
+    }
+  ],
+  "edges": [
+    { "a": "T01-a", "b": "T01-b", "nameSim": 1.0, "expect": { "score": 95, "band": "merge", "signals": ["name", "address", "distance"] } },
+    { "a": "T01-a", "b": "T01-c", "nameSim": 1.0, "expect": { "score": 95, "band": "merge", "signals": ["name", "address", "distance"] } },
+    { "a": "T01-b", "b": "T01-c", "nameSim": 1.0, "expect": { "score": 95, "band": "merge", "signals": ["name", "address", "distance"] } }
+  ]
+}
