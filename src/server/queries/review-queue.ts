@@ -72,7 +72,17 @@ export type CandidatePairView = {
   b: CandidateSideView;
 };
 
-export type ReviewQueue = { top: CandidatePairView | null; remaining: number };
+/**
+ * `ingested` tells the two empty states apart (03-UI-SPEC § States → Empty): "Nothing to review
+ * yet" says NO INGEST HAS RUN, so it may only render when no run for this org ever finished
+ * (`complete` or `stopped` — a stopped run still wrote rows). Every other empty queue is
+ * "Queue clear". A `running` or `failed` run alone has scored nothing, so it does not count.
+ */
+export type ReviewQueue = {
+  top: CandidatePairView | null;
+  remaining: number;
+  ingested: boolean;
+};
 
 /** The review band's floor. Pairs under it never reach a person (D-15). */
 export const REVIEW_BAND_FLOOR = 80;
@@ -154,7 +164,7 @@ export async function readReviewQueue(tx: Tx): Promise<ReviewQueue> {
   )[0];
 
   const remaining = await readReviewRemaining(tx);
-  if (!top) return { top: null, remaining };
+  if (!top) return { top: null, remaining, ingested: await readIngested(tx) };
 
   // Two ids, two scalar parameters — never a JS array in a drizzle template (it expands into N
   // placeholders; see src/db/drizzle-executor.ts).
@@ -218,7 +228,23 @@ export async function readReviewQueue(tx: Tx): Promise<ReviewQueue> {
       b: toSide(right),
     },
     remaining,
+    // A pending pair exists, so something was scored — no need to ask.
+    ingested: true,
   };
+}
+
+/** Has any ingest for this org finished writing rows? Read only when the queue is empty. */
+async function readIngested(tx: Tx): Promise<boolean> {
+  const row = rowsOf<{ ingested: boolean }>(
+    await tx.execute(sql`
+      select exists (
+        select 1
+          from ingest_runs r
+         where r.org_id = (select app.current_org_id())
+           and r.status in ('complete', 'stopped')
+      ) as ingested`),
+  )[0];
+  return row?.ingested === true;
 }
 
 export async function listReviewQueue(claims: OrgClaims): Promise<ReviewQueue> {

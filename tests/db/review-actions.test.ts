@@ -204,6 +204,72 @@ describe('review decision core, as a Clerk user', () => {
       expect(w.rows[0]?.display_name).toBe('Riverside Stone');
     }));
 
+  it('a recorded merge names the true winner and loser for the toast', () =>
+    withTxRollback(async (tx) => {
+      const c = asPg(tx);
+      const { a } = await seedTwoOrgs(c);
+      const pair = await seedMergePair(c, a);
+      const other = await seedMergePair(c, a, 'OTHERPAIR');
+      // The Overture side is made the OLDER record, so it wins (mergePair: older created_at)
+      // and the two names differ after survivorship — a swapped winner/loser cannot pass.
+      await c.query(
+        `update businesses set created_at = now() - interval '1 day' where id = $1`,
+        [pair.overture.businessId],
+      );
+      await actAs(c, CLAIMS_A);
+
+      const outcome = await decideCandidate(tx, {
+        candidateId: pair.candidateId,
+        decision: 'merged',
+      });
+      expect(outcome.kind).toBe('recorded');
+      if (outcome.kind !== 'recorded') return;
+      expect(outcome.merged).toEqual({
+        winnerName: 'Riverside Stone',
+        loserName: 'RIVERSIDE STONE, INC.',
+      });
+
+      const distinct = await decideCandidate(tx, {
+        candidateId: other.candidateId,
+        decision: 'distinct',
+      });
+      expect(distinct).toMatchObject({ kind: 'recorded', merged: null });
+    }));
+
+  it('the empty queue tells "nothing ingested" from "queue clear"', () =>
+    withTxRollback(async (tx) => {
+      const c = asPg(tx);
+      const { a, b } = await seedTwoOrgs(c);
+      await actAs(c, CLAIMS_A);
+      expect(await readReviewQueue(tx)).toEqual({ top: null, remaining: 0, ingested: false });
+
+      // A run that never finished writing (running / failed) has scored nothing, and another
+      // org's finished run is not this org's.
+      await actAsOwner(c);
+      for (const [org, status] of [
+        [a, 'running'],
+        [a, 'failed'],
+        [b, 'complete'],
+      ] as const) {
+        await c.query(
+          `insert into ingest_runs (org_id, source_key, started_at, status)
+           values ($1, 'tx_comptroller', now(), $2)`,
+          [org, status],
+        );
+      }
+      await actAs(c, CLAIMS_A);
+      expect((await readReviewQueue(tx)).ingested).toBe(false);
+
+      await actAsOwner(c);
+      await c.query(
+        `insert into ingest_runs (org_id, source_key, started_at, status)
+         values ($1, 'overture', now(), 'stopped')`,
+        [a],
+      );
+      await actAs(c, CLAIMS_A);
+      expect(await readReviewQueue(tx)).toEqual({ top: null, remaining: 0, ingested: true });
+    }));
+
   it('skip sinks a pair below the undecided and distinct decides one', () =>
     withTxRollback(async (tx) => {
       const c = asPg(tx);
@@ -285,7 +351,7 @@ describe('review actions, as a Clerk user', () => {
         candidateId: pair.candidateId,
         decision: 'distinct',
       });
-      expect(first).toEqual({ ok: true, data: { remaining: 0 } });
+      expect(first).toEqual({ ok: true, data: { remaining: 0, merged: null } });
 
       const second = await actions.recordReviewDecision({
         candidateId: pair.candidateId,
@@ -309,7 +375,13 @@ describe('review actions, as a Clerk user', () => {
 
       expect(
         await actions.recordReviewDecision({ candidateId: pair.candidateId, decision: 'merged' }),
-      ).toEqual({ ok: true, data: { remaining: 0 } });
+      ).toEqual({
+        ok: true,
+        data: {
+          remaining: 0,
+          merged: { winnerName: 'Riverside Stone', loserName: 'Riverside Stone' },
+        },
+      });
       const merge = await c.query<{ id: string; loser_id: string }>(
         'select id, loser_id from business_merges where candidate_id = $1',
         [pair.candidateId],

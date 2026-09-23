@@ -40,7 +40,38 @@ export const MAX_ATTEMPTS = 3;
 export type DecisionOutcome =
   | { kind: 'missing' }
   | { kind: 'already_decided' }
-  | { kind: 'recorded'; remaining: number; mergeId: string | null };
+  | {
+      kind: 'recorded';
+      remaining: number;
+      mergeId: string | null;
+      /** Set only on a recorded merge — see `readMergedNames`. */
+      merged: MergedNames | null;
+    };
+
+/**
+ * The success toast's two names ("Merged — “{loser}” now resolves to “{winner}”"), read AFTER
+ * the merge in the same transaction. The winner is chosen by `mergePair` (older `created_at`),
+ * never by the screen, so only the server can name it truthfully; and the winner's name is the
+ * one survivorship just gave it — which is exactly what the loser now resolves to.
+ * `display_name` only, verbatim (D-12).
+ */
+export type MergedNames = { winnerName: string; loserName: string };
+
+async function readMergedNames(
+  tx: Tx,
+  winnerId: string,
+  loserId: string,
+): Promise<MergedNames | null> {
+  const rows = rowsOf<{ id: string; display_name: string }>(
+    await tx.execute(sql`
+      select b.id, b.display_name
+        from businesses b
+       where b.id = ${winnerId} or b.id = ${loserId}`),
+  );
+  const winner = rows.find((r) => r.id === winnerId);
+  const loser = rows.find((r) => r.id === loserId);
+  return winner && loser ? { winnerName: winner.display_name, loserName: loser.display_name } : null;
+}
 
 export async function decideCandidate(
   tx: Tx,
@@ -64,8 +95,9 @@ export async function decideCandidate(
 
   const x = drizzleExecutor(tx);
   let mergeId: string | null = null;
+  let merged: MergedNames | null = null;
   if (input.decision === 'merged') {
-    const merged = await mergePair(x, {
+    const result = await mergePair(x, {
       candidateId: candidate.id,
       leftId: candidate.left_id,
       rightId: candidate.right_id,
@@ -73,12 +105,13 @@ export async function decideCandidate(
       score: candidate.score,
       features: candidate.features ?? {},
     });
-    mergeId = merged.mergeId;
+    mergeId = result.mergeId;
+    merged = await readMergedNames(tx, result.winnerId, result.loserId);
   } else {
     await recordCandidateDecision(x, { candidateId: candidate.id, decision: input.decision });
   }
 
-  return { kind: 'recorded', remaining: await readReviewRemaining(tx), mergeId };
+  return { kind: 'recorded', remaining: await readReviewRemaining(tx), mergeId, merged };
 }
 
 export type UnmergeOutcome =
