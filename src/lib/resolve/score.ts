@@ -10,10 +10,12 @@
  *
  * 🔴 THE GUARANTEE IS STRUCTURAL, NOT ARITHMETIC. "≥ 95 requires two independent signals plus
  * the geo gate" is enforced by separate `Math.min(s, 94)` statements, each individually
- * deletable and each pinned by exactly one named test (mutations M13, M14, M15). The weight
- * table happens to agree — the best single-signal pair reaches 75 (name-only), 85
- * (phone-only) or 70 (address-only) — but that is the braces; the caps are the belt, and the
- * belt is what the tests pin.
+ * deletable and each pinned by exactly one named test (mutations M13, M14, M15). Under the
+ * committed weights the table also agrees: the best single-signal pair reaches 75 (name
+ * only), 94 (phone only, with name 34 at sim 0.8499) or 79 (address only). That makes R5
+ * redundant TODAY. It exists for the re-tune, and the injectable `Weights` below lets a test
+ * prove it (see `Weights`). (03-RESEARCH put phone-only at 85; that assumed name ≤ 25, but a
+ * sim just under the 0.85 signal bar scores 34.)
  *
  * 🔴 R3 cannot fire on a Comptroller↔Overture pair at all, because `jrea-zgmq` carries no
  * phone column. It exists for Overture↔Overture pairs and for the Places-derived phones
@@ -107,11 +109,11 @@ export const ADDRESS_POSTAL_ONLY = 5; // postal only
 
 /** Distance tiers, in metres. Only the first tier (≤ 100 m) is a signal. */
 export const DISTANCE_SIGNAL_POINTS = 15;
-export const DISTANCE_TIERS: ReadonlyArray<{ maxM: number; points: number }> = [
-  { maxM: 100, points: DISTANCE_SIGNAL_POINTS },
-  { maxM: 500, points: 10 },
-  { maxM: 2_000, points: 4 },
-];
+export const DISTANCE_TIERS: ReadonlyArray<{ maxM: number; points: number }> = Object.freeze([
+  Object.freeze({ maxM: 100, points: DISTANCE_SIGNAL_POINTS }),
+  Object.freeze({ maxM: 500, points: 10 }),
+  Object.freeze({ maxM: 2_000, points: 4 }),
+]);
 
 export const CLUSTER_SAME = 5;
 export const CLUSTER_UNMAPPED = 0;
@@ -119,6 +121,51 @@ export const CLUSTER_DIFFERENT = -10;
 
 /** D-07: an exact phone + same ZIP auto-merges only at or above this name similarity. */
 export const PHONE_LOCALITY_NAME_SIM = 0.6;
+
+/**
+ * The weight table as one value, so `score()` can take it as a parameter.
+ *
+ * 🔴 WHY THIS IS INJECTABLE. Under these weights R5 is ARITHMETICALLY REDUNDANT: the
+ * strongest single-signal pair sums to exactly 94 (phone 30 + name 34 at sim < 0.85 +
+ * address 15 + distance 10 + cluster 5). So deleting R5 changes no outcome, and no test that
+ * only calls `score(pair)` can prove R5 is there (mutation M14 would survive green). R5 exists
+ * for the re-tune D-09 expects: raise one weight and a single signal can pass 95. The test
+ * `one signal cannot reach 95` passes a re-tuned table to show R5 still holds. Production
+ * callers pass nothing and get the committed values. The thresholds (95, 80), the 94 caps,
+ * the 25 km rule and the geo gate are STRUCTURAL and deliberately not in this table.
+ */
+export type Weights = {
+  nameMax: number;
+  nameSimFloor: number;
+  nameSimSpan: number;
+  nameSignalSim: number;
+  phonePoints: number;
+  addressFull: number;
+  addressNumPostal: number;
+  addressPostalOnly: number;
+  /** Ascending by `maxM`. Only the first tier is a signal. */
+  distanceTiers: ReadonlyArray<{ maxM: number; points: number }>;
+  clusterSame: number;
+  clusterUnmapped: number;
+  clusterDifferent: number;
+  phoneLocalityNameSim: number;
+};
+
+export const DEFAULT_WEIGHTS: Readonly<Weights> = Object.freeze({
+  nameMax: NAME_MAX,
+  nameSimFloor: NAME_SIM_FLOOR,
+  nameSimSpan: NAME_SIM_SPAN,
+  nameSignalSim: NAME_SIGNAL_SIM,
+  phonePoints: PHONE_POINTS,
+  addressFull: ADDRESS_FULL,
+  addressNumPostal: ADDRESS_NUM_POSTAL,
+  addressPostalOnly: ADDRESS_POSTAL_ONLY,
+  distanceTiers: DISTANCE_TIERS,
+  clusterSame: CLUSTER_SAME,
+  clusterUnmapped: CLUSTER_UNMAPPED,
+  clusterDifferent: CLUSTER_DIFFERENT,
+  phoneLocalityNameSim: PHONE_LOCALITY_NAME_SIM,
+});
 
 /** D-09 / D-10: the geo gate — both locations known, promotable, and within this distance. */
 export const GEO_GATE_M = 500;
@@ -161,58 +208,82 @@ function sameValue(x: string | null, y: string | null): boolean {
   return present(x) && present(y) && x === y;
 }
 
+// ─── Match facts ────────────────────────────────────────────────────────────────────────────
+//
+// Signals are read from these FACTS, never from the points a feature scored. Reading them from
+// points (`address === 30`) would silently change meaning the day a re-tune makes two tiers
+// equal. The points are the weight table's business; whether a signal fired is not.
+
+/** Both locations known, as the raw haversine distance; null when either is unknown. */
+function pairDistance(a: Side, b: Side): number | null {
+  return locationKnown(a) && locationKnown(b) ? distanceMeters(a.lat, a.lng, b.lat, b.lng) : null;
+}
+
+/** Both phones present, equal, and BOTH blockable. A toll-free or 555 number is never one. */
+function phoneMatches(a: Side, b: Side): boolean {
+  return sameValue(a.phoneE164, b.phoneE164) && a.phoneBlockable && b.phoneBlockable;
+}
+
+function addressFull(a: Side, b: Side): boolean {
+  return (
+    sameValue(a.streetNum, b.streetNum) &&
+    sameValue(a.streetNorm, b.streetNorm) &&
+    sameValue(a.postal, b.postal)
+  );
+}
+
+/** Distance tiers need BOTH locations promotable: a Census Non_Exact side earns nothing here. */
+function promotableDistance(a: Side, b: Side, distanceM: number | null): number | null {
+  return distanceM !== null && locationPromotable(a) && locationPromotable(b) ? distanceM : null;
+}
+
 // ─── Features ───────────────────────────────────────────────────────────────────────────────
 
-function nameFeature(nameSim: number): number {
-  return Math.round(NAME_MAX * clamp((nameSim - NAME_SIM_FLOOR) / NAME_SIM_SPAN, 0, 1));
+function nameFeature(nameSim: number, w: Weights): number {
+  return Math.round(w.nameMax * clamp((nameSim - w.nameSimFloor) / w.nameSimSpan, 0, 1));
 }
 
-function phoneFeature(a: Side, b: Side): number {
-  return sameValue(a.phoneE164, b.phoneE164) && a.phoneBlockable && b.phoneBlockable
-    ? PHONE_POINTS
-    : 0;
-}
-
-function addressFeature(a: Side, b: Side): number {
-  const num = sameValue(a.streetNum, b.streetNum);
-  const street = sameValue(a.streetNorm, b.streetNorm);
+function addressFeature(a: Side, b: Side, w: Weights): number {
+  if (addressFull(a, b)) return w.addressFull;
   const postal = sameValue(a.postal, b.postal);
-  if (num && street && postal) return ADDRESS_FULL;
-  if (num && postal) return ADDRESS_NUM_POSTAL;
-  if (postal) return ADDRESS_POSTAL_ONLY;
+  if (sameValue(a.streetNum, b.streetNum) && postal) return w.addressNumPostal;
+  if (postal) return w.addressPostalOnly;
   return 0;
 }
 
-/** Distance points need BOTH locations promotable: a Census Non_Exact side scores 0 here. */
-function distanceFeature(a: Side, b: Side, distanceM: number | null): number {
-  if (distanceM === null || !locationPromotable(a) || !locationPromotable(b)) return 0;
-  for (const tier of DISTANCE_TIERS) {
-    if (distanceM <= tier.maxM) return tier.points;
+function distanceFeature(promotableM: number | null, w: Weights): number {
+  if (promotableM === null) return 0;
+  for (const tier of w.distanceTiers) {
+    if (promotableM <= tier.maxM) return tier.points;
   }
   return 0;
 }
 
-function clusterFeature(a: Side, b: Side): number {
-  if (!present(a.clusterKey) || !present(b.clusterKey)) return CLUSTER_UNMAPPED;
-  return a.clusterKey === b.clusterKey ? CLUSTER_SAME : CLUSTER_DIFFERENT;
+function clusterFeature(a: Side, b: Side, w: Weights): number {
+  if (!present(a.clusterKey) || !present(b.clusterKey)) return w.clusterUnmapped;
+  return a.clusterKey === b.clusterKey ? w.clusterSame : w.clusterDifferent;
 }
 
-type FeatureScores = Pick<Features, 'name' | 'phone' | 'address' | 'distance' | 'nameSim'>;
-
-/** The independent signals, in a fixed order (name, phone, address, distance). The cluster
- *  feature is never a signal. The distance signal is the ≤ 100 m tier, which already requires
- *  both locations promotable. */
-export function signalNames(f: FeatureScores): SignalName[] {
+/** The independent signals observed on a pair, in a fixed order (name, phone, address,
+ *  distance). The cluster feature is never a signal. The distance signal is the first tier
+ *  (≤ 100 m) between two promotable locations. */
+export function signalNames(pair: CandidatePair, w: Weights = DEFAULT_WEIGHTS): SignalName[] {
+  const { a, b, nameSim } = pair;
+  const promotableM = promotableDistance(a, b, pairDistance(a, b));
+  const firstTier = w.distanceTiers[0];
   const out: SignalName[] = [];
-  if (f.nameSim >= NAME_SIGNAL_SIM) out.push('name');
-  if (f.phone === PHONE_POINTS) out.push('phone');
-  if (f.address === ADDRESS_FULL) out.push('address');
-  if (f.distance === DISTANCE_SIGNAL_POINTS) out.push('distance');
+  if (nameSim >= w.nameSignalSim) out.push('name');
+  if (phoneMatches(a, b)) out.push('phone');
+  if (addressFull(a, b)) out.push('address');
+  if (promotableM !== null && firstTier !== undefined && promotableM <= firstTier.maxM) {
+    out.push('distance');
+  }
   return out;
 }
 
-export function countSignals(f: FeatureScores): number {
-  return signalNames(f).length;
+/** The OBSERVED signal count. R3 may lift the count `score()` uses; this never does. */
+export function countSignals(pair: CandidatePair, w: Weights = DEFAULT_WEIGHTS): number {
+  return signalNames(pair, w).length;
 }
 
 /** D-09 / D-10: both locations known, both promotable, and within 500 m. A pair with one
@@ -232,22 +303,21 @@ export function band(s: number): Exclude<Band, 'distinct'> {
 
 // ─── The scorer ─────────────────────────────────────────────────────────────────────────────
 
-export function score(pair: CandidatePair): ScoreResult {
+export function score(pair: CandidatePair, w: Weights = DEFAULT_WEIGHTS): ScoreResult {
   const { a, b, nameSim } = pair;
-  const distanceM =
-    locationKnown(a) && locationKnown(b) ? distanceMeters(a.lat, a.lng, b.lat, b.lng) : null;
+  const distanceM = pairDistance(a, b);
+  const phoneMatch = phoneMatches(a, b);
 
   const f: Features = {
-    name: nameFeature(nameSim),
-    phone: phoneFeature(a, b),
-    address: addressFeature(a, b),
-    distance: distanceFeature(a, b, distanceM),
-    cluster: clusterFeature(a, b),
+    name: nameFeature(nameSim, w),
+    phone: phoneMatch ? w.phonePoints : 0,
+    address: addressFeature(a, b, w),
+    distance: distanceFeature(promotableDistance(a, b, distanceM), w),
+    cluster: clusterFeature(a, b, w),
     nameSim,
     distanceM,
-    signals: [],
+    signals: signalNames(pair, w),
   };
-  f.signals = signalNames(f);
 
   // R1 (D-10, M13) — both locations known and more than 25 km apart is `distinct` by
   // construction. Short-circuits: nothing below can revive it. The literal is spelled here,
@@ -258,18 +328,18 @@ export function score(pair: CandidatePair): ScoreResult {
 
   let s = clamp(f.name + f.phone + f.address + f.distance + f.cluster, 0, 100);
   let signals = f.signals.length;
-  const phoneLocality = f.phone === PHONE_POINTS && sameValue(a.postal, b.postal);
+  const phoneLocality = phoneMatch && sameValue(a.postal, b.postal);
 
   // R3 (D-07) — exact phone + same ZIP + a name above the lower bar: the trusted identifier.
   // The signal COUNT is lifted to two; the named list stays what was actually observed.
-  if (phoneLocality && nameSim >= PHONE_LOCALITY_NAME_SIM) {
+  if (phoneLocality && nameSim >= w.phoneLocalityNameSim) {
     signals = Math.max(signals, 2);
     s = Math.max(s, 95);
     f.rule = 'phone_locality_name';
   }
 
   // R4 (D-07) — exact phone + same ZIP + a dissimilar name: RGV phone reuse. Review, never merge.
-  if (phoneLocality && nameSim < PHONE_LOCALITY_NAME_SIM) {
+  if (phoneLocality && nameSim < w.phoneLocalityNameSim) {
     s = clamp(s, 80, 94);
     f.rule = 'phone_locality_review';
   }
