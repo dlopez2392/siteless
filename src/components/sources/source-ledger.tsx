@@ -434,7 +434,9 @@ function SourceTableRows({
         </TableRow>
       ) : null}
       {detail ? (
-        <TableRow className="hover:bg-transparent">
+        // The table primitive greys any row holding an expanded control; here that split the
+        // Overture line (white) from its own distribution (grey). Kept on the card surface.
+        <TableRow className="hover:bg-transparent has-aria-expanded:bg-transparent">
           <TableCell colSpan={7} className="px-4 pt-0 pb-4 whitespace-normal">
             {detail}
           </TableCell>

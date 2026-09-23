@@ -138,7 +138,10 @@ export function ConfidenceDistribution({
                   <div
                     data-band={band.key}
                     data-count={band.count}
-                    className="grid grid-cols-[6rem_minmax(0,1fr)_auto_auto] items-center gap-x-4"
+                    // Fixed figure columns, so every bar's track starts and ends at the same
+                    // x — each band is its own grid, and `auto` columns sized to "245" vs
+                    // "35,270" left the tracks ragged (seen on the first built-app capture).
+                    className="grid grid-cols-[4.5rem_minmax(0,1fr)_4rem_3.5rem] items-center gap-x-4 sm:grid-cols-[6rem_minmax(0,1fr)_5rem_4rem]"
                   >
                     <span className="text-sm font-normal tabular-nums text-muted-foreground">
                       {band.label}
@@ -151,7 +154,7 @@ export function ConfidenceDistribution({
                     <span className="text-right text-sm font-normal tabular-nums">
                       {formatCount(band.count)}
                     </span>
-                    <span className="w-16 text-right text-sm font-normal tabular-nums text-muted-foreground">
+                    <span className="text-right text-sm font-normal tabular-nums text-muted-foreground">
                       {formatPct(share)}
                     </span>
                   </div>
