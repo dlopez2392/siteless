@@ -85,6 +85,12 @@ jobs:
       # the script that touches the network and it is never run here.
       - run: pnpm db:seed
       - run: pnpm test:db
+      - run: pnpm test:workflow
+      # ^ The workflow lane runs a real compiled workflow against this service container and
+      # msw-served Places payloads (D-01: CI never spends). It inherits RUNTIME_DB_URL and the
+      # CLERK_SECRET_KEY placeholder above; no Places key, Places mode or cron secret is added
+      # to CI — the lane forces a fake key in its config. (Those three are deliberately not
+      # spelled here by their variable names: a grep over this file for them must stay empty.)
 
   e2e:
     runs-on: ubuntu-latest
