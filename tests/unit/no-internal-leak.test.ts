@@ -15,6 +15,7 @@
  * a reachable state from Phase 8 onward.
  */
 import * as nodeFs from 'node:fs';
+import * as nodePath from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { buildPayload, PAYLOAD_BUILDERS, type PayloadBuilder } from '@/lib/export/registry';
 import {
@@ -29,6 +30,8 @@ import {
   NAME_NORM_CANARY,
   STREET_NORM_CANARY,
 } from './fixtures/business';
+import { GOOGLE_CHECK_FIXTURES } from './fixtures/google-check';
+import { walk } from './_walk';
 
 const CANARY = 'INTERNAL-CANARY-7f3a2b';
 const EXPORT_DIR = 'src/lib/export';
@@ -187,5 +190,81 @@ describe('internal annotations never leave the building', () => {
     );
     const registered = new Set(PAYLOAD_BUILDERS.map((b) => `${b.name}.ts`));
     expect(modules.filter((m) => !registered.has(m))).toEqual([]);
+  });
+});
+
+/**
+ * Executor Rule 32 / T-4-04 (04-25): Places coordinates are NEVER RENDERED. They are a
+ * retention-limited Google value (at most 30 days, CLAUDE.md § Legal) held in their own table
+ * that `authenticated` has no grant on (0027); the business detail's "Location" field keeps its
+ * durable source (Census geocoder / Overture). Two halves:
+ *
+ *   1. No module under src/components or src/app names the coordinate table or its schema
+ *      module. The match is on the WHOLE identifier (`\b`), so the purge cron's call to
+ *      `app.purge_expired_…` — a route handler that deletes the rows and renders nothing — is
+ *      not a false positive, while a component that imports or selects the table still is.
+ *   2. The `GoogleCheckView` fixtures the card is rendered from carry no lat/lng-shaped key at
+ *      any depth: the card is fed exactly what `readGoogleCheck` returns.
+ *
+ * Mutation: name the coordinate table in a comment in google-check.tsx — red, naming the line.
+ * Mutation: add `lat` to a fixture listing — red, naming the fixture path.
+ */
+const COORDINATE_NAMES = [/\bplace_coordinates\b/, /\bplaceCoordinates\b/, /\bplace-coordinates\b/];
+const COORDINATE_KEYS = new Set([
+  'lat',
+  'lng',
+  'lon',
+  'latitude',
+  'longitude',
+  'coordinates',
+  'location',
+  'geom',
+]);
+
+function keyPathsOf(value: unknown, at: string, found: string[] = []): string[] {
+  if (Array.isArray(value)) value.forEach((v, i) => keyPathsOf(v, `${at}[${i}]`, found));
+  else if (typeof value === 'object' && value !== null) {
+    for (const [k, v] of Object.entries(value)) {
+      found.push(`${at}.${k}`);
+      keyPathsOf(v, `${at}.${k}`, found);
+    }
+  }
+  return found;
+}
+
+describe('places coordinates never reach a screen', () => {
+  it('places coordinates are never rendered', () => {
+    const exts = new Set(['.ts', '.tsx']);
+    const files = [...walk('src/components', { exts }), ...walk('src/app', { exts })].map((f) =>
+      f.split(nodePath.sep).join('/'),
+    );
+
+    // Two-sided: a wrong cwd or an empty walk must not read as clean.
+    expect(files.length).toBeGreaterThan(50);
+    expect(files).toContain('src/components/business-detail/google-check.tsx');
+    expect(files).toContain('src/app/(app)/businesses/[id]/page.tsx');
+
+    const offenders: string[] = [];
+    for (const file of files) {
+      nodeFs
+        .readFileSync(file, 'utf8')
+        .split(/\r?\n/)
+        .forEach((line, i) => {
+          if (COORDINATE_NAMES.some((re) => re.test(line))) offenders.push(`${file}:${i + 1}`);
+        });
+    }
+    expect(offenders).toEqual([]);
+
+    // The fixtures the card renders from: no coordinate-shaped key, at any depth.
+    const names = Object.keys(GOOGLE_CHECK_FIXTURES);
+    expect(names.length).toBeGreaterThanOrEqual(4);
+    const paths = names.flatMap((name) => keyPathsOf(GOOGLE_CHECK_FIXTURES[name], name));
+    // Positive control: the walk reaches the nested listing and history keys.
+    expect(paths).toContain('MIXED.listings[0].latest.hostClass');
+    expect(paths).toContain('MIXED.history[0].runId');
+    const coordinateKeys = paths.filter((p) =>
+      COORDINATE_KEYS.has(p.slice(p.lastIndexOf('.') + 1)),
+    );
+    expect(coordinateKeys).toEqual([]);
   });
 });
