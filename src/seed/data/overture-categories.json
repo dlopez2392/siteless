@@ -1,0 +1,625 @@
+[
+  {
+    "_meta": {
+      "source": "Overture Maps places, s3://overturemaps-us-west-2/release/2026-08-19.0/theme=places/type=place/*, read with @duckdb/node-api 1.5.5-r.5",
+      "release": "2026-08-19.0",
+      "capturedAt": "2026-09-22",
+      "bbox": {
+        "xmin": -99.3,
+        "xmax": -97.1,
+        "ymin": 25.8,
+        "ymax": 26.75
+      },
+      "filter": "bbox.xmin between xmin and xmax and bbox.ymin between ymin and ymax and addresses[1].country = 'US' and addresses[1].region = 'TX'",
+      "totalRows": 56944,
+      "nullRows": 1223,
+      "distinctCategories": 244,
+      "mappedCategories": 70,
+      "mappedRows": 32890,
+      "rule": "A basic_category maps to the cluster whose Comptroller NAICS ranges (clusters.json) its businesses would carry: 23 home_services; 721-723 food_hospitality; 8121 and 621 personal_care_health; 8111 and 44-45 auto_retail (so grocery, convenience, pharmacy and gas stations are auto_retail, exactly as their NAICS codes are). A category that does not clearly belong to one cluster is NOT mapped: the ingest reports it in ingest_runs.stats.unmapped and the row stays in the spine outside the funnel (D-02).",
+      "coverageNote": "The top 60 categories cover about 80% of the slice, but about 42% of the slice is finance, real estate, worship, schools, government, parks and the like, which belong to no cluster. Honest mapping covers 57.8% of all rows; the rest is decidedUnmapped, the undecided tail, or NULL.",
+      "decidedAboveRows": 100,
+      "decidedUnmapped": [
+        {
+          "basic_category": "financial_service",
+          "rows": 2950,
+          "reason": "NAICS 52 (finance), outside all four ranges"
+        },
+        {
+          "basic_category": "christian_place_of_worship",
+          "rows": 1533,
+          "reason": "place of worship (NAICS 8131), not a trade"
+        },
+        {
+          "basic_category": "real_estate_service",
+          "rows": 1247,
+          "reason": "NAICS 53 (real estate), outside all four ranges"
+        },
+        {
+          "basic_category": "professional_service",
+          "rows": 795,
+          "reason": "NAICS 54, outside all four ranges; also catches mis-tagged rows (one Firestone outlet carries it)"
+        },
+        {
+          "basic_category": "event_or_party_service",
+          "rows": 789,
+          "reason": "mixes caterers (7223), planners (5619) and party rentals (5322): no single cluster"
+        },
+        {
+          "basic_category": "attorney_or_law_firm",
+          "rows": 577,
+          "reason": "NAICS 5411, outside all four ranges"
+        },
+        {
+          "basic_category": "social_or_community_service",
+          "rows": 577,
+          "reason": "NAICS 624, outside all four ranges"
+        },
+        {
+          "basic_category": "historic_site",
+          "rows": 566,
+          "reason": "not a commercial outlet"
+        },
+        {
+          "basic_category": "gym",
+          "rows": 533,
+          "reason": "NAICS 7139 (fitness), outside all four ranges"
+        },
+        {
+          "basic_category": "rental_service",
+          "rows": 498,
+          "reason": "NAICS 532 (rental and leasing), outside all four ranges"
+        },
+        {
+          "basic_category": "government_office",
+          "rows": 452,
+          "reason": "government, not a commercial outlet"
+        },
+        {
+          "basic_category": "sport_or_fitness_facility",
+          "rows": 451,
+          "reason": "NAICS 7139, outside all four ranges"
+        },
+        {
+          "basic_category": "elementary_school",
+          "rows": 441,
+          "reason": "education (NAICS 61), not a commercial outlet"
+        },
+        {
+          "basic_category": "family_service",
+          "rows": 439,
+          "reason": "NAICS 624, outside all four ranges"
+        },
+        {
+          "basic_category": "park",
+          "rows": 425,
+          "reason": "not a commercial outlet"
+        },
+        {
+          "basic_category": "religious_organization",
+          "rows": 398,
+          "reason": "NAICS 8131, not a trade"
+        },
+        {
+          "basic_category": "bank_or_credit_union",
+          "rows": 388,
+          "reason": "NAICS 52, outside all four ranges"
+        },
+        {
+          "basic_category": "manufacturer",
+          "rows": 367,
+          "reason": "NAICS 31-33, outside all four ranges"
+        },
+        {
+          "basic_category": "place_of_learning",
+          "rows": 333,
+          "reason": "education (NAICS 61), outside all four ranges"
+        },
+        {
+          "basic_category": "supplier_or_distributor",
+          "rows": 329,
+          "reason": "NAICS 42 (wholesale), outside the 44-45 retail range"
+        },
+        {
+          "basic_category": "atm",
+          "rows": 319,
+          "reason": "a machine, not an outlet"
+        },
+        {
+          "basic_category": "b2b_transportation_and_storage_service",
+          "rows": 317,
+          "reason": "NAICS 48-49, outside all four ranges"
+        },
+        {
+          "basic_category": "animal_or_pet_service",
+          "rows": 291,
+          "reason": "pet care 812910 / vets 541940, outside the 8121 personal-care range"
+        },
+        {
+          "basic_category": "specialty_school",
+          "rows": 280,
+          "reason": "education (NAICS 61), outside all four ranges"
+        },
+        {
+          "basic_category": "storage_facility",
+          "rows": 275,
+          "reason": "NAICS 531130, outside all four ranges"
+        },
+        {
+          "basic_category": "shipping_or_delivery_service",
+          "rows": 265,
+          "reason": "NAICS 492, outside all four ranges"
+        },
+        {
+          "basic_category": "printing_service",
+          "rows": 263,
+          "reason": "NAICS 323, outside all four ranges"
+        },
+        {
+          "basic_category": "corporate_or_business_office",
+          "rows": 259,
+          "reason": "NAICS 55, not an outlet"
+        },
+        {
+          "basic_category": "media_service",
+          "rows": 232,
+          "reason": "NAICS 51, outside all four ranges"
+        },
+        {
+          "basic_category": "technical_service",
+          "rows": 226,
+          "reason": "no single NAICS sector; outside all four ranges as far as the name says"
+        },
+        {
+          "basic_category": "hospital",
+          "rows": 210,
+          "reason": "NAICS 622, outside the 621 ambulatory-care range"
+        },
+        {
+          "basic_category": "community_and_government",
+          "rows": 195,
+          "reason": "government, not a commercial outlet"
+        },
+        {
+          "basic_category": "legal_service",
+          "rows": 194,
+          "reason": "NAICS 5411, outside all four ranges"
+        },
+        {
+          "basic_category": "travel_service",
+          "rows": 194,
+          "reason": "NAICS 5615, outside all four ranges"
+        },
+        {
+          "basic_category": "water_utility_provider",
+          "rows": 192,
+          "reason": "NAICS 22, outside all four ranges"
+        },
+        {
+          "basic_category": "music_venue",
+          "rows": 191,
+          "reason": "mixes performing arts (7111) and drinking places (7224): no single cluster"
+        },
+        {
+          "basic_category": "laundry_service",
+          "rows": 181,
+          "reason": "NAICS 8123, outside the 8121 personal-care range"
+        },
+        {
+          "basic_category": "sport_or_recreation_club",
+          "rows": 175,
+          "reason": "NAICS 7139, outside all four ranges"
+        },
+        {
+          "basic_category": "b2b_service",
+          "rows": 172,
+          "reason": "business-to-business, no single NAICS sector"
+        },
+        {
+          "basic_category": "high_school",
+          "rows": 165,
+          "reason": "education (NAICS 61), not a commercial outlet"
+        },
+        {
+          "basic_category": "farm",
+          "rows": 160,
+          "reason": "NAICS 11, outside all four ranges"
+        },
+        {
+          "basic_category": "travel_and_transportation",
+          "rows": 154,
+          "reason": "NAICS 48, outside all four ranges"
+        },
+        {
+          "basic_category": "senior_living_facility",
+          "rows": 149,
+          "reason": "NAICS 623, outside the 621 ambulatory-care range"
+        },
+        {
+          "basic_category": "college_university",
+          "rows": 133,
+          "reason": "education (NAICS 61), not a commercial outlet"
+        },
+        {
+          "basic_category": "preschool",
+          "rows": 131,
+          "reason": "NAICS 6244 (child care), outside all four ranges"
+        },
+        {
+          "basic_category": "design_service",
+          "rows": 130,
+          "reason": "NAICS 5414, outside all four ranges"
+        },
+        {
+          "basic_category": "civic_organization",
+          "rows": 122,
+          "reason": "NAICS 8134, not a trade"
+        },
+        {
+          "basic_category": "sports_and_recreation",
+          "rows": 116,
+          "reason": "NAICS 71, outside all four ranges"
+        },
+        {
+          "basic_category": "education",
+          "rows": 109,
+          "reason": "education (NAICS 61), not a commercial outlet"
+        }
+      ],
+      "undecidedTail": {
+        "categories": 125,
+        "rows": 2943
+      }
+    }
+  },
+  {
+    "basic_category": "restaurant",
+    "cluster_key": "food_hospitality",
+    "rows": 4556
+  },
+  {
+    "basic_category": "personal_or_beauty_service",
+    "cluster_key": "personal_care_health",
+    "rows": 2857
+  },
+  {
+    "basic_category": "automotive_service",
+    "cluster_key": "auto_retail",
+    "rows": 2328
+  },
+  {
+    "basic_category": "home_service",
+    "cluster_key": "home_services",
+    "rows": 1869
+  },
+  {
+    "basic_category": "fashion_and_apparel_store",
+    "cluster_key": "auto_retail",
+    "rows": 1617
+  },
+  {
+    "basic_category": "food_and_beverage_store",
+    "cluster_key": "auto_retail",
+    "rows": 1272
+  },
+  {
+    "basic_category": "health_care",
+    "cluster_key": "personal_care_health",
+    "rows": 1026
+  },
+  {
+    "basic_category": "wellness_service",
+    "cluster_key": "personal_care_health",
+    "rows": 1024
+  },
+  {
+    "basic_category": "casual_eatery",
+    "cluster_key": "food_hospitality",
+    "rows": 1022
+  },
+  {
+    "basic_category": "hardware_home_and_garden_store",
+    "cluster_key": "auto_retail",
+    "rows": 1016
+  },
+  {
+    "basic_category": "auto_dealer",
+    "cluster_key": "auto_retail",
+    "rows": 977
+  },
+  {
+    "basic_category": "convenience_store",
+    "cluster_key": "auto_retail",
+    "rows": 910
+  },
+  {
+    "basic_category": "electronics_store",
+    "cluster_key": "auto_retail",
+    "rows": 772
+  },
+  {
+    "basic_category": "fast_food_restaurant",
+    "cluster_key": "food_hospitality",
+    "rows": 633
+  },
+  {
+    "basic_category": "diagnostics_imaging_or_lab_service",
+    "cluster_key": "personal_care_health",
+    "rows": 609
+  },
+  {
+    "basic_category": "medical_service",
+    "cluster_key": "personal_care_health",
+    "rows": 541
+  },
+  {
+    "basic_category": "specialized_health_care",
+    "cluster_key": "personal_care_health",
+    "rows": 529
+  },
+  {
+    "basic_category": "gas_station",
+    "cluster_key": "auto_retail",
+    "rows": 507
+  },
+  {
+    "basic_category": "bar",
+    "cluster_key": "food_hospitality",
+    "rows": 469
+  },
+  {
+    "basic_category": "specialty_store",
+    "cluster_key": "auto_retail",
+    "rows": 457
+  },
+  {
+    "basic_category": "dental_clinic",
+    "cluster_key": "personal_care_health",
+    "rows": 427
+  },
+  {
+    "basic_category": "flowers_and_gifts_store",
+    "cluster_key": "auto_retail",
+    "rows": 424
+  },
+  {
+    "basic_category": "discount_store",
+    "cluster_key": "auto_retail",
+    "rows": 400
+  },
+  {
+    "basic_category": "second_hand_store",
+    "cluster_key": "auto_retail",
+    "rows": 400
+  },
+  {
+    "basic_category": "vehicle_parts_store",
+    "cluster_key": "auto_retail",
+    "rows": 358
+  },
+  {
+    "basic_category": "shopping",
+    "cluster_key": "auto_retail",
+    "rows": 349
+  },
+  {
+    "basic_category": "hotel",
+    "cluster_key": "food_hospitality",
+    "rows": 340
+  },
+  {
+    "basic_category": "primary_care_or_general_clinic",
+    "cluster_key": "personal_care_health",
+    "rows": 327
+  },
+  {
+    "basic_category": "building_or_construction_service",
+    "cluster_key": "home_services",
+    "rows": 299
+  },
+  {
+    "basic_category": "pharmacy_and_drug_store",
+    "cluster_key": "auto_retail",
+    "rows": 286
+  },
+  {
+    "basic_category": "physical_medicine_and_rehabilitation",
+    "cluster_key": "personal_care_health",
+    "rows": 286
+  },
+  {
+    "basic_category": "behavioral_or_mental_health_clinic",
+    "cluster_key": "personal_care_health",
+    "rows": 255
+  },
+  {
+    "basic_category": "coffee_shop",
+    "cluster_key": "food_hospitality",
+    "rows": 253
+  },
+  {
+    "basic_category": "pediatric_clinic",
+    "cluster_key": "personal_care_health",
+    "rows": 219
+  },
+  {
+    "basic_category": "lodging",
+    "cluster_key": "food_hospitality",
+    "rows": 201
+  },
+  {
+    "basic_category": "sporting_goods_store",
+    "cluster_key": "auto_retail",
+    "rows": 199
+  },
+  {
+    "basic_category": "complementary_and_alternative_medicine",
+    "cluster_key": "personal_care_health",
+    "rows": 176
+  },
+  {
+    "basic_category": "food_truck_stand",
+    "cluster_key": "food_hospitality",
+    "rows": 173
+  },
+  {
+    "basic_category": "reproductive_perinatal_and_womens_care",
+    "cluster_key": "personal_care_health",
+    "rows": 168
+  },
+  {
+    "basic_category": "arts_crafts_and_hobby_store",
+    "cluster_key": "auto_retail",
+    "rows": 162
+  },
+  {
+    "basic_category": "books_music_and_video_store",
+    "cluster_key": "auto_retail",
+    "rows": 160
+  },
+  {
+    "basic_category": "vehicle_dealer",
+    "cluster_key": "auto_retail",
+    "rows": 160
+  },
+  {
+    "basic_category": "vision_or_eye_care_clinic",
+    "cluster_key": "personal_care_health",
+    "rows": 160
+  },
+  {
+    "basic_category": "outpatient_care_facility",
+    "cluster_key": "personal_care_health",
+    "rows": 157
+  },
+  {
+    "basic_category": "personal_care_and_beauty_store",
+    "cluster_key": "auto_retail",
+    "rows": 148
+  },
+  {
+    "basic_category": "rv_park",
+    "cluster_key": "food_hospitality",
+    "rows": 146
+  },
+  {
+    "basic_category": "cafe",
+    "cluster_key": "food_hospitality",
+    "rows": 140
+  },
+  {
+    "basic_category": "surgery",
+    "cluster_key": "personal_care_health",
+    "rows": 124
+  },
+  {
+    "basic_category": "smoothie_juice_bar",
+    "cluster_key": "food_hospitality",
+    "rows": 114
+  },
+  {
+    "basic_category": "department_store",
+    "cluster_key": "auto_retail",
+    "rows": 112
+  },
+  {
+    "basic_category": "private_lodging",
+    "cluster_key": "food_hospitality",
+    "rows": 111
+  },
+  {
+    "basic_category": "dance_club",
+    "cluster_key": "food_hospitality",
+    "rows": 81
+  },
+  {
+    "basic_category": "animal_and_pet_store",
+    "cluster_key": "auto_retail",
+    "rows": 74
+  },
+  {
+    "basic_category": "warehouse_club_store",
+    "cluster_key": "auto_retail",
+    "rows": 67
+  },
+  {
+    "basic_category": "food_service",
+    "cluster_key": "food_hospitality",
+    "rows": 57
+  },
+  {
+    "basic_category": "lounge",
+    "cluster_key": "food_hospitality",
+    "rows": 47
+  },
+  {
+    "basic_category": "non_alcoholic_beverage_venue",
+    "cluster_key": "food_hospitality",
+    "rows": 47
+  },
+  {
+    "basic_category": "office_supply_store",
+    "cluster_key": "auto_retail",
+    "rows": 43
+  },
+  {
+    "basic_category": "resort",
+    "cluster_key": "food_hospitality",
+    "rows": 43
+  },
+  {
+    "basic_category": "toys_and_games_store",
+    "cluster_key": "auto_retail",
+    "rows": 38
+  },
+  {
+    "basic_category": "vehicle_service",
+    "cluster_key": "auto_retail",
+    "rows": 38
+  },
+  {
+    "basic_category": "fueling_station",
+    "cluster_key": "auto_retail",
+    "rows": 33
+  },
+  {
+    "basic_category": "musical_instrument_and_pro_audio_store",
+    "cluster_key": "auto_retail",
+    "rows": 28
+  },
+  {
+    "basic_category": "superstore",
+    "cluster_key": "auto_retail",
+    "rows": 16
+  },
+  {
+    "basic_category": "inn",
+    "cluster_key": "food_hospitality",
+    "rows": 11
+  },
+  {
+    "basic_category": "nightlife_venue",
+    "cluster_key": "food_hospitality",
+    "rows": 11
+  },
+  {
+    "basic_category": "urgent_care_clinic",
+    "cluster_key": "personal_care_health",
+    "rows": 11
+  },
+  {
+    "basic_category": "bed_and_breakfast",
+    "cluster_key": "food_hospitality",
+    "rows": 10
+  },
+  {
+    "basic_category": "alcoholic_beverage_venue",
+    "cluster_key": "food_hospitality",
+    "rows": 7
+  },
+  {
+    "basic_category": "walk_in_clinic",
+    "cluster_key": "personal_care_health",
+    "rows": 3
+  }
+]

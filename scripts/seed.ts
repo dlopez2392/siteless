@@ -1,6 +1,7 @@
 /**
  * The reference-row loader. Reads the committed JSON under `src/seed/data/` and upserts it
- * into the six reference tables as `org_id IS NULL` built-ins (D-05).
+ * into the seven reference tables as `org_id IS NULL` built-ins (D-05). The seventh,
+ * `overture_category_map`, is Phase 3's (03-08): the Overture half of D-02's cluster tag.
  *
  *   pnpm db:seed       -> tsx scripts/seed.ts --target=test
  *   pnpm db:seed:prod  -> tsx scripts/seed.ts --target=prod
@@ -37,12 +38,14 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { config as loadEnv } from 'dotenv';
 import { Client } from 'pg';
-import type {
-  CitiesFile,
-  ClustersFile,
-  CountiesFile,
-  GeoPresetsFile,
-  OutletCountsFile,
+import {
+  overtureCategorySeeds,
+  type CitiesFile,
+  type ClustersFile,
+  type CountiesFile,
+  type GeoPresetsFile,
+  type OutletCountsFile,
+  type OvertureCategoriesFile,
 } from '../src/seed/types';
 
 loadEnv({ path: '.env.local', override: false, quiet: true });
@@ -62,6 +65,8 @@ export const clustersFile = () => readSeedFile<ClustersFile>('clusters.json');
 export const citiesFile = () => readSeedFile<CitiesFile>('cities.json');
 export const outletCountsFile = () => readSeedFile<OutletCountsFile>('outlet-counts.json');
 export const geoPresetsFile = () => readSeedFile<GeoPresetsFile>('geo-presets.json');
+export const overtureCategoriesFile = () =>
+  readSeedFile<OvertureCategoriesFile>('overture-categories.json');
 
 // ---------------------------------------------------------------------------------------
 // The upserts. Exported so tests/db/reference-rows.test.ts runs the REAL statement rather
@@ -120,6 +125,16 @@ export const GEO_PRESET_UPSERT = `
     display_name = excluded.display_name,
     kind         = excluded.kind,
     payload      = excluded.payload
+  returning (xmax = 0) as inserted`;
+
+/** 03-08. `sort_order` is the category's rank by measured row count (1 = most rows), so a
+ *  UI listing the map shows the categories that matter first without re-sorting. */
+export const OVERTURE_CATEGORY_UPSERT = `
+  insert into overture_category_map (org_id, basic_category, cluster_key, sort_order)
+  values (null, $1, $2, $3)
+  on conflict on constraint overture_category_map_org_category_uniq do update set
+    cluster_key = excluded.cluster_key,
+    sort_order  = excluded.sort_order
   returning (xmax = 0) as inserted`;
 
 export type Tally = { inserted: number; updated: number };
@@ -307,7 +322,28 @@ export async function upsertGeoPresets(c: Client): Promise<Tally> {
   return tally;
 }
 
-/** FK order matters: cities need counties, terms need clusters, presets need both. */
+export async function upsertOvertureCategories(c: Client): Promise<Tally> {
+  const tally = emptyTally();
+  // `cluster_key` is text, not an FK (src/db/schema/overture-categories.ts), so the database
+  // would accept a key no cluster has. Resolve every key against the SEEDED built-in
+  // clusters here and throw naming the category: a mapping into a cluster that does not
+  // exist silently drops that category's rows out of every preset.
+  const byKey = await clusterIdsByKey(c);
+  const seeds = overtureCategorySeeds(overtureCategoriesFile());
+  for (const [i, seed] of seeds.entries()) {
+    required(byKey, seed.cluster_key, `overture_category_map ${seed.basic_category} cluster key`);
+    await upsert(
+      c,
+      OVERTURE_CATEGORY_UPSERT,
+      [seed.basic_category, seed.cluster_key, i + 1],
+      tally,
+    );
+  }
+  return tally;
+}
+
+/** FK order matters: cities need counties, terms need clusters, presets need both, and the
+ *  Overture category map resolves its cluster keys against the seeded clusters. */
 export async function seedAll(c: Client): Promise<Array<[string, Tally]>> {
   return [
     ['counties', await upsertCounties(c)],
@@ -316,6 +352,7 @@ export async function seedAll(c: Client): Promise<Array<[string, Tally]>> {
     ['cities', await upsertCities(c)],
     ['outlet_counts', await upsertOutletCounts(c)],
     ['geo_presets', await upsertGeoPresets(c)],
+    ['overture_category_map', await upsertOvertureCategories(c)],
   ];
 }
 
@@ -367,6 +404,7 @@ const MUST_BE_NON_EMPTY = [
   'cities',
   'outlet_counts',
   'geo_presets',
+  'overture_category_map',
 ] as const;
 
 async function main(): Promise<void> {
