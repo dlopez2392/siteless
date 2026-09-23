@@ -28,6 +28,8 @@ import { readdirSync, readFileSync } from 'node:fs';
 
 import { http, HttpResponse, type JsonBodyType } from 'msw';
 
+import { assertAnonymizedPage } from '../../../scripts/lib/anonymize-places';
+
 import dailyEnvelope from './fixtures/places-429-daily.json';
 import minuteEnvelope from './fixtures/places-429-minute.json';
 import invalidEnvelope from './fixtures/places-400-invalid.json';
@@ -104,7 +106,10 @@ for (const [name, envelope] of Object.entries(ENVELOPES) as Array<[string, Envel
   }
 }
 
-const SIDECAR_FILES = sidecar.files as Record<string, { places: number; nextPageToken: boolean }>;
+const SIDECAR_FILES = sidecar.files as Record<
+  string,
+  { places: number; nextPageToken: boolean; synthetic?: boolean; anonymized?: boolean }
+>;
 
 /** Every `places-*.json` on disk, parsed — the sidecar excepted. Read from disk rather than
  *  from the imports above so a NEW fixture file is covered without anyone registering it. */
@@ -131,8 +136,18 @@ for (const [file, page] of Object.entries(ON_DISK)) {
   if (listed.nextPageToken !== (typeof page.nextPageToken === 'string')) {
     fail(`${file}'s nextPageToken disagrees with ${SIDECAR_FILE}.`);
   }
-  // While the sidecar says synthetic, every id must be one we made up.
-  if (sidecar.synthetic === true) {
+  // Per FILE (04-19): a recording the sidecar marks `anonymized: true` (written by
+  // scripts/record-places-fixtures.ts) must have exactly the anonymized shape — every string one
+  // of the synthetic forms, only known keys. Every other file is hand-authored, and every id in
+  // it must be one we made up. A raw capture dropped in beside them fails one rule or the other.
+  if (listed.anonymized === true) {
+    if (listed.synthetic !== false) fail(`${file} is marked anonymized but not synthetic: false.`);
+    try {
+      assertAnonymizedPage(page, file);
+    } catch (e) {
+      fail(`${(e as Error).message}.`);
+    }
+  } else {
     for (const place of placesOf(page)) {
       if (typeof place.id !== 'string' || !place.id.startsWith('synthetic-')) {
         fail(`${file} carries a non-synthetic place id ${JSON.stringify(place.id)}.`);

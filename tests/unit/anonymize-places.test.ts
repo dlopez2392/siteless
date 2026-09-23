@@ -6,8 +6,13 @@
  * The input page below is hand-built to LOOK real (every string is distinctive and made up here);
  * no Google-authored text is in this file.
  */
+import { copyFileSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { hostClass } from '@/lib/places/host-class';
+import { FIXTURES_DIR, writeRecording } from '../../scripts/record-places-fixtures';
 import {
   anonymizePage,
   assertAnonymizedPage,
@@ -114,7 +119,7 @@ describe('the anonymizer (D-20)', () => {
     expect(out.places.map((p) => hostClass(p.websiteUri as string | undefined))).toEqual(
       input.places.map((p) => hostClass(p.websiteUri as string | undefined)),
     );
-    // The five classes a recording can carry all survive, and "absent" stays absent.
+    // Every host class survives, and "absent" (none) stays absent.
     expect(new Set(out.places.map((p) => hostClass(p.websiteUri as string | undefined)))).toEqual(
       new Set(['none', 'other', 'social', 'business_site_dead', 'directory', 'platform_subdomain']),
     );
@@ -327,5 +332,77 @@ describe('the recorder guards (D-01, D-04)', () => {
     );
     // No fixture unless --out is also given.
     expect(parseRecordArgs(['--ids-only', ...BASE])).not.toHaveProperty('out');
+  });
+
+  it('the recorder writes only anonymized pages and marks them in the sidecar', () => {
+    // A scratch copy of the fixtures' sidecar — the real directory is never written by a test.
+    const dir = mkdtempSync(join(tmpdir(), 'siteless-record-'));
+    try {
+      copyFileSync(
+        new URL('places-recordings.json', FIXTURES_DIR),
+        join(dir, 'places-recordings.json'),
+      );
+      const dirUrl = pathToFileURL(dir + '/');
+      const input = realLookingPage();
+      const anonymize = { rect: RECT, city: 'McAllen', placesType: 'plumber' };
+      // Page 1 as the loop keeps it (anonymized); page 2 handed over RAW, as a regressed loop
+      // would — the write line anonymizes it anyway.
+      const pages = [anonymizePage(input, CTX), { places: input.places.slice(0, 5) }];
+
+      const names = writeRecording(
+        {
+          out: 'unit-test',
+          pages,
+          anonymize,
+          requests: 2,
+          truncatedByCap: false,
+          recordedAt: '2026-09-23T00:00:00.000Z',
+          purpose: 'unit test',
+        },
+        dirUrl,
+      );
+
+      expect(names).toEqual([
+        'places-recorded-unit-test-p1.json',
+        'places-recorded-unit-test-p2.json',
+      ]);
+      for (const name of names) {
+        const text = readFileSync(join(dir, name), 'utf8');
+        for (const s of DISTINCTIVE) expect(text, `${name}: ${s}`).not.toContain(s);
+        expect(() => assertAnonymizedPage(JSON.parse(text))).not.toThrow();
+      }
+      const sidecar = JSON.parse(readFileSync(join(dir, 'places-recordings.json'), 'utf8'));
+      expect(sidecar.anonymized).toBe(true);
+      expect(sidecar.files['places-recorded-unit-test-p1.json']).toMatchObject({
+        places: 20,
+        nextPageToken: true,
+        synthetic: false,
+        anonymized: true,
+        recordedAt: '2026-09-23T00:00:00.000Z',
+        requests: 2,
+      });
+      expect(sidecar.files['places-recorded-unit-test-p2.json']).toMatchObject({
+        places: 5,
+        nextPageToken: false,
+      });
+      // Never overwritten.
+      expect(() =>
+        writeRecording(
+          {
+            out: 'unit-test',
+            pages: pages.slice(0, 1),
+            anonymize,
+            requests: 1,
+            truncatedByCap: false,
+            recordedAt: 'x',
+            purpose: 'again',
+          },
+          dirUrl,
+        ),
+      ).toThrow(/already exists/);
+      expect(readdirSync(dir).sort()).toEqual([...names, 'places-recordings.json'].sort());
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
