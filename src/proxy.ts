@@ -23,9 +23,10 @@ import { clerkMiddleware } from '@clerk/nextjs/server';
 // describing (the same reason src/lib/auth/sole-organization.ts avoids its two tokens).
 export default clerkMiddleware();
 
+// Workflow's internal queue endpoints are excluded: session context on them breaks the local world's queue (workflow docs, getting-started/next).
 export const config = {
   matcher: [
-    '/((?!_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|webmanifest)).*)',
+    '/((?!_next|\\.well-known/workflow/|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|webmanifest)).*)',
     '/(api|trpc)(.*)',
     '/__clerk/(.*)',
   ],

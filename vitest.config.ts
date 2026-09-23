@@ -22,6 +22,11 @@ import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+// Assigned AFTER .env.local so a real key there can never reach a test; msw's Places
+// handler requires the header. This lane loads no env file itself, but the assignment is
+// unconditional on purpose: a key exported in the shell is overwritten just the same.
+process.env.GOOGLE_PLACES_API_KEY = 'test-key-not-real';
+
 const alias = { '@': fileURLToPath(new URL('./src', import.meta.url)) };
 
 // The node lane additionally resolves `server-only` to its no-op twin.
