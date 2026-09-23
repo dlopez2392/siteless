@@ -191,7 +191,7 @@ describe('sources ledger', () => {
         status: 'failed',
         counts: [0, 0, 0, 0],
         totalSeen: 4210,
-        error: 'DuckDB: HTTP 403 reading s3://overturemaps-us-west-2/release/2026-08-19.0',
+        error: 'DuckDB: HTTP 403 reading the 2026-08-19.0 places parquet',
       });
       await actAs(c, CLAIMS_A);
 
@@ -202,7 +202,7 @@ describe('sources ledger', () => {
       // destructive Alert from these fields rather than a blank row or the older success.
       expect(overture.status).toBe('failed');
       expect(overture.error).toBe(
-        'DuckDB: HTTP 403 reading s3://overturemaps-us-west-2/release/2026-08-19.0',
+        'DuckDB: HTTP 403 reading the 2026-08-19.0 places parquet',
       );
       expect(overture.totalSeen).toBe(4210);
       expect(overture.lastRunAt?.toISOString()).toBe('2026-09-21T12:00:00.000Z');
