@@ -199,6 +199,70 @@ describe('merge and unmerge (DEDUP-02)', () => {
       });
     }));
 
+  /**
+   * A-CR-01 (review 03, suspected race #1, confirmed). The reviewer race needed no precise
+   * timing: reviewer B's action reads the pair as pending, reviewer A's "Different" commits
+   * `distinct`, and B's `record_merge` then saw `distinct`, let it through because the reason
+   * was 'review', merged the two businesses and overwrote the candidate to 'merged' — A's
+   * decision gone without a trace. The definer is now the lock-holder and refuses a
+   * non-pending candidate for BOTH reasons. The action's pending read is exactly the step the
+   * race skips, so this calls the shared merge path directly, after the distinct commit.
+   */
+  it('a reviewer "Same business" after a "Different" is refused, never a silent overwrite', () =>
+    withRollback(async (c) => {
+      const { a } = await seedTwoOrgs(c);
+      const { comptroller, overture, candidateId } = await seedMergePair(c, a);
+      await actAs(c, CLAIMS_A);
+      const x = asEtlExecutor(c);
+      await recordCandidateDecision(x, { candidateId, decision: 'distinct' });
+      // Positive control: the distinct decision is what the second reviewer meets.
+      const before = await c.query('select decision from merge_candidates where id = $1', [
+        candidateId,
+      ]);
+      expect(before.rows).toEqual([{ decision: 'distinct' }]);
+
+      await expect(
+        mergePair(x, {
+          candidateId,
+          leftId: comptroller.businessId,
+          rightId: overture.businessId,
+          reason: 'review',
+          score: 95,
+          features: FEATURES,
+        }),
+      ).rejects.toMatchObject({ code: '55000', message: 'record_merge: pair was marked distinct' });
+    }));
+
+  it('a candidate already merged is refused by name, not re-merged', () =>
+    withRollback(async (c) => {
+      const { a } = await seedTwoOrgs(c);
+      const { comptroller, overture, candidateId } = await seedMergePair(c, a);
+      await actAs(c, CLAIMS_A);
+      const x = asEtlExecutor(c);
+      const pair = {
+        candidateId,
+        leftId: comptroller.businessId,
+        rightId: overture.businessId,
+        reason: 'review' as const,
+        score: 95,
+        features: FEATURES,
+      };
+      const first = await mergePair(x, pair);
+      expect(first.mergeId).not.toBeNull();
+      // The candidate stays 'merged'; its two businesses are split by hand (a test lever, as
+      // the owner) so the definer reaches the candidate check instead of the "already one"
+      // early return that a re-submitted pair of one cluster takes.
+      await c.query('reset role');
+      await c.query("update businesses set merged_into_id = null, status = 'active' where id = $1", [
+        overture.businessId,
+      ]);
+      await actAs(c, CLAIMS_A);
+      await expect(mergePair(x, pair)).rejects.toMatchObject({
+        code: '55000',
+        message: 'record_merge: candidate already decided',
+      });
+    }));
+
   it('three-way cluster', () =>
     withRollback(async (c) => {
       const { a } = await seedTwoOrgs(c);
