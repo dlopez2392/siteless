@@ -44,3 +44,28 @@ and the plan that found it.
   `businesses_merged_idx` can both serve.
 - **Why it matters:** it is correct, just slow, and against production every merge also pays
   the network round trip.
+
+## From 03-21 (production migrate + deploy + e2e, 2026-09-23)
+
+### No product delete path for a preset, so `presets.spec.ts` cannot tear down
+
+- **Gap:** `tests/e2e/presets.spec.ts` creates three `searches` rows (each with one
+  `search_versions` row) per run, named `e2e-<epoch>-{cities,county,radius}` in both
+  `display_name` and `name_internal`, in whatever database the E2E_BASE_URL app writes to —
+  production, in CI and in this plan's run. The product has **no delete path** for a preset
+  (the server actions are duplicate, estimate, queue-run and save-version), so there is no
+  product path an `afterAll` could drive.
+- **Refused alternative:** a direct database delete from the spec. The only credential that can
+  delete on production is `SUPABASE_DB_URL` (the owner, bypasses RLS), which `docs/deploy.md`
+  §3 forbids from leaving a developer machine.
+- **What 03-21 did instead:** the spec's `afterAll` prints the names of every preset it created
+  (`presets.spec.ts: this run named 3 preset(s) … e2e-<epoch>-cities, …`), so a cleanup can
+  target exactly those rows.
+- **Measured on production (read-only, 2026-09-23):** **12** `e2e-*` searches (12 versions)
+  from **4** prior runs before 03-21's run; 03-21's run added three more:
+  `e2e-1790140526554-cities`, `e2e-1790140526554-county`, `e2e-1790140526554-radius` —
+  confirmed read-only afterwards at **15** searches / 15 versions from 5 runs. (The
+  mutation-check run of `sources`/`businesses` created none.)
+- **Fix:** a "delete preset" (or archive) server action with its own RLS test. Then turn the
+  `afterAll` into a real teardown through it, and do a one-time human cleanup of the `e2e-%`
+  rows (FK order: any runs, then versions, then searches).

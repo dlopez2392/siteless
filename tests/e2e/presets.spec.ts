@@ -23,7 +23,42 @@ import { expect, test, type Page } from '@playwright/test';
  */
 
 const RUN = `e2e-${Date.now()}`;
-const nameFor = (kind: string) => `${RUN}-${kind}`;
+
+/**
+ * 🔴 THE TEARDOWN THIS FILE OWES, AND WHY IT IS A REPORT RATHER THAN A DELETE (03-21).
+ *
+ * Every run of this file leaves three `searches` rows (plus their `search_versions`) named
+ * `e2e-<epoch>-{cities,county,radius}` in whatever database E2E_BASE_URL's app writes to —
+ * in CI that is PRODUCTION. The product has NO delete path for a preset: no server action,
+ * no route, no button (the actions are duplicate, estimate, queue-run, save-version). So
+ * there is no product path for an `afterAll` to drive.
+ *
+ * The one alternative — deleting through a database connection — is refused for the same
+ * reason `preset-detail.spec.ts` refuses its production fixture: the only credential that
+ * can delete rows on production Supabase is `SUPABASE_DB_URL`, the project OWNER, which
+ * bypasses RLS and which `docs/deploy.md` §3 forbids from leaving a developer machine.
+ *
+ * So the gap is recorded in `.planning/phases/03-free-data-spine-entity-resolution/
+ * deferred-items.md` (a "delete preset" action is the fix, and the cleanup then becomes a
+ * real `afterAll` through it), and until then this file NAMES every row it created, so a
+ * human cleanup can target exactly those rows.
+ */
+const created: string[] = [];
+const nameFor = (kind: string) => {
+  const name = `${RUN}-${kind}`;
+  created.push(name);
+  return name;
+};
+
+test.afterAll(() => {
+  if (created.length === 0) return;
+  // stdout, not an assertion: the list reporter prints it, and CI keeps it in the job log.
+  console.log(
+    `presets.spec.ts: this run named ${created.length} preset(s); each test that reached ` +
+      `save left its row behind, with no product delete path (see deferred-items.md): ` +
+      created.join(', '),
+  );
+});
 
 /** Empty list -> the Empty component's CTA; non-empty -> the header CTA. Both lead to
  *  `/presets/new`, and which one is on screen depends on rows this run does not own. */
