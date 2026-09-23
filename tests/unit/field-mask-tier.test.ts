@@ -19,6 +19,7 @@ import { describe, expect, it } from 'vitest';
 import {
   ALL_PLACES_FIELDS,
   fieldMaskTier,
+  PLACES_IDS_ONLY_FIELD_MASK,
   PLACES_TEXT_SEARCH_FIELD_MASK,
   type PlacesField,
 } from '@/lib/budget/field-mask-tier';
@@ -48,6 +49,8 @@ const FIELD_TIERS: ReadonlyArray<readonly [PlacesField, TextSearchSku, TextSearc
   ['places.location', 'ts_pro', 'ts_essentials'],
   ['places.types', 'ts_pro', 'ts_essentials'],
   ['places.businessStatus', 'ts_pro', 'ts_essentials'],
+  // D-13 / M27: Pro, so free at the margin under the Enterprise mask it rides in.
+  ['places.pureServiceAreaBusiness', 'ts_pro', 'ts_essentials'],
   ['places.websiteUri', 'ts_enterprise', 'ts_pro'],
   ['places.nationalPhoneNumber', 'ts_enterprise', 'ts_pro'],
   ['places.rating', 'ts_enterprise', 'ts_pro'],
@@ -57,7 +60,9 @@ const FIELD_TIERS: ReadonlyArray<readonly [PlacesField, TextSearchSku, TextSearc
 
 const SRC_DIR = 'src';
 const FIELD_MASK_HEADER = 'X-Goog-FieldMask';
-const HEADER_MAY_BE_NAMED_IN = new Set(['src/lib/budget/field-mask-tier.ts']);
+/** 04-12: the rule moved to the module that SENDS the header. field-mask-tier.ts prices the
+ *  mask and deliberately no longer spells the header name. */
+const HEADER_MAY_BE_NAMED_IN = new Set(['src/lib/places/client.ts']);
 
 /** Posix-relative paths so the assertion reads the same on Windows and in CI. Every file,
  *  whatever its extension (no `exts`), through the shared walker that skips the generated
@@ -116,13 +121,37 @@ describe('field mask tiering (BUDG-01)', () => {
     );
   });
 
-  it('X-Goog-FieldMask is named in at most one module under src', () => {
+  it('the Places mask stays enterprise with the service-area flag', () => {
+    // D-13: the SAB flag rides in the mask Phase 4 sends. D-21: rating and review count stay
+    // requested (memory-only) — dropping them would not lower the tier, and Phase 6 wants them.
+    expect(PLACES_TEXT_SEARCH_FIELD_MASK).toContain('places.pureServiceAreaBusiness');
+    expect(PLACES_TEXT_SEARCH_FIELD_MASK).toContain('places.rating');
+    expect(PLACES_TEXT_SEARCH_FIELD_MASK).toContain('places.userRatingCount');
+    // The whole point of the mask: it carries websiteUri.
+    expect(PLACES_TEXT_SEARCH_FIELD_MASK).toContain('places.websiteUri');
+    // A Pro field under an Enterprise mask does not move the price.
+    expect(fieldMaskTier(PLACES_TEXT_SEARCH_FIELD_MASK)).toBe('ts_enterprise');
+    // No field is requested twice (a duplicate would be a merge accident, not a choice).
+    expect(new Set(PLACES_TEXT_SEARCH_FIELD_MASK).size).toBe(PLACES_TEXT_SEARCH_FIELD_MASK.length);
+  });
+
+  it('the ids-only mask is free', () => {
+    // D-16: the change check enumerates ids only, and that is the free, unlimited SKU.
+    expect(PLACES_IDS_ONLY_FIELD_MASK).toEqual(['places.id', 'nextPageToken']);
+    expect(fieldMaskTier(PLACES_IDS_ONLY_FIELD_MASK)).toBe('ts_essentials');
+    // Positive control: the same function prices the full mask above Essentials, so the
+    // assertion above is a property of the mask and not of a function stuck on 'free'.
+    expect(fieldMaskTier(PLACES_TEXT_SEARCH_FIELD_MASK)).not.toBe('ts_essentials');
+  });
+
+  it('X-Goog-FieldMask is named in exactly one module under src', () => {
     const files = walkPosix(SRC_DIR);
 
-    // A wrong cwd throws; a right-but-empty walk would pass vacuously. Pin a file that
-    // is known to be there so only a real absence can make this green.
+    // A wrong cwd throws; a right-but-empty walk would pass vacuously. Pin files that
+    // are known to be there so only a real absence can make this green.
     expect(files.length).toBeGreaterThan(0);
     expect(files).toContain('src/lib/budget/field-mask-tier.ts');
+    expect(files).toContain('src/lib/places/client.ts');
     // The exclusion is real, not merely declared (posix paths, so a posix probe).
     expect(files.some((f) => f.includes('.well-known/workflow'))).toBe(false);
 
@@ -135,8 +164,10 @@ describe('field mask tiering (BUDG-01)', () => {
       .filter(({ text }) => text.includes(FIELD_MASK_HEADER))
       .map(({ file }) => file);
 
-    // Forward-compatible: Phase 2 makes no Places call, so the count is 0 or 1 today and
-    // Phase 4's client must import the mask from here rather than spell the header again.
-    expect(namesTheHeader.filter((file) => !HEADER_MAY_BE_NAMED_IN.has(file))).toEqual([]);
+    // Exactly the client (04-12): it sends the header, with the mask built by
+    // src/lib/places/request.ts from the constants above. A second module spelling the
+    // header is a second call site that could send a mask nobody priced; zero modules would
+    // mean the client stopped sending it (and the msw harness would answer 501).
+    expect(namesTheHeader).toEqual([...HEADER_MAY_BE_NAMED_IN]);
   });
 });
