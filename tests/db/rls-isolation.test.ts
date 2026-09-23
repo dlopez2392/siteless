@@ -15,9 +15,9 @@
  * — 'a tenant cannot re-key its own clerk_org_id' goes red, and only that one.
  */
 import { describe, expect, it } from 'vitest';
-import { actAs, actAsRole, seedTwoOrgs, withRollback } from './_fixtures';
+import { actAs, actAsRole, seedTwoOrgs, SQL_FRESH_EXTERNAL_KEY, withRollback } from './_fixtures';
 
-const INSERT_BUSINESS = 'insert into businesses (org_id, display_name) values ($1,$2)';
+const INSERT_BUSINESS = `insert into businesses (org_id, display_name, external_key) values ($1,$2,${SQL_FRESH_EXTERNAL_KEY})`;
 
 describe('RLS tenant isolation', () => {
   it('org A sees only its own org rows under a v1 flat claim', () =>

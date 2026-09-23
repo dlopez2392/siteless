@@ -18,12 +18,12 @@
  * database — 'a caller cannot author its own audit row' goes red, and only that one.
  */
 import { describe, expect, it } from 'vitest';
-import { actAs, seedTwoOrgs, withRollback } from './_fixtures';
+import { actAs, seedTwoOrgs, SQL_FRESH_EXTERNAL_KEY, withRollback } from './_fixtures';
 
 const EMIT = 'select app.emit_event($1::text, $2::uuid, $3::text, $4::jsonb) as id';
 
 const ORG_A_CLAIMS = { o: { id: 'org_A' }, sub: 'user_danlo', role: 'authenticated' } as const;
-const INSERT_BUSINESS = 'insert into businesses (org_id, display_name) values ($1,$2)';
+const INSERT_BUSINESS = `insert into businesses (org_id, display_name, external_key) values ($1,$2,${SQL_FRESH_EXTERNAL_KEY})`;
 
 describe('events are immutable by grant', () => {
   it('events are append-only: UPDATE as authenticated is refused', () =>
