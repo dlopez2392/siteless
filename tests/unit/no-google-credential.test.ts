@@ -24,6 +24,7 @@
 import * as nodeFs from 'node:fs';
 import * as nodePath from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { walk } from './_walk';
 
 const ROOT = 'src';
 const EXTENSIONS = new Set(['.ts', '.tsx', '.css', '.json']);
@@ -38,24 +39,19 @@ const FORBIDDEN: Array<{ label: string; re: RegExp }> = [
   { label: 'maps.googleapis.com', re: /maps\.googleapis\.com/i },
 ];
 
-function walk(dir: string, found: string[] = []): string[] {
-  for (const entry of nodeFs.readdirSync(dir, { withFileTypes: true })) {
-    const full = nodePath.join(dir, entry.name);
-    if (entry.isDirectory()) walk(full, found);
-    else if (EXTENSIONS.has(nodePath.extname(entry.name))) found.push(full);
-  }
-  return found;
-}
-
 describe('no Google credential in the source tree', () => {
   it('no google credential is read anywhere in src', () => {
-    const scanned = walk(ROOT);
+    // The shared walker skips the generated workflow tree (04-RESEARCH Pitfall 6): it
+    // bundles the Places client and would report the one sanctioned reader twice.
+    const scanned = walk(ROOT, { exts: EXTENSIONS });
 
     // The two-sided half. A broken path glob, a wrong cwd, or an extension set that no
     // longer matches the repo would all otherwise pass by scanning an empty list.
     expect(scanned.length).toBeGreaterThan(15);
     expect(scanned).toContain(nodePath.join('src', 'env.ts'));
     expect(scanned).toContain(nodePath.join('src', 'lib', 'time.ts'));
+    // ...and the exclusion is real, not merely declared.
+    expect(scanned.some((f) => f.includes(nodePath.join('.well-known', 'workflow')))).toBe(false);
 
     const offences: string[] = [];
     for (const file of scanned) {
@@ -73,17 +69,24 @@ describe('no Google credential in the source tree', () => {
     expect(offences, offences.join('\n')).toEqual([]);
   });
 
-  it('src/env.ts declares no Google variable', () => {
+  it('src/env.ts declares no Google variable and only the PLACES_MODE switch', () => {
     // env.ts is where a server-side key would be declared, so it gets its own named
     // assertion: the walk above would catch a KEY-shaped name, but `GOOGLE_PROJECT_ID` or
     // a bare `PLACES_*` would slip through it and still mean the app had started to depend
     // on a credential that does not exist.
+    //
+    // Amended in 04-02 (never deleted): D-02 declares the Places kill switch here, and D-03
+    // keeps the key OUT of this file — src/lib/places/client.ts is its one sanctioned reader.
     const source = nodeFs.readFileSync(nodePath.join('src', 'env.ts'), 'utf8');
 
-    // Positive control: prove we read the real module and not an empty string.
+    // Positive controls: prove we read the real module and not an empty string, and that the
+    // switch the strip below removes is actually there to remove.
     expect(source).toContain('CLERK_SECRET_KEY');
+    expect(source).toContain('PLACES_MODE');
 
     expect(source).not.toContain('GOOGLE');
-    expect(source).not.toContain('PLACES');
+    // D-02 puts exactly one Places-shaped name here: the kill switch. Strip it, then nothing
+    // Places-shaped may remain — a PLACES_KEY or PLACES_API_* would still trip this.
+    expect(source.replaceAll('PLACES_MODE', '')).not.toContain('PLACES');
   });
 });

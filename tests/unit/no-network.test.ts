@@ -25,6 +25,7 @@
 import * as nodeFs from 'node:fs';
 import * as nodePath from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { walk } from './_walk';
 
 const HOSTS: readonly string[] = [
   'data.' + 'texas.gov',
@@ -49,15 +50,6 @@ const ALLOWED_PREFIXES = ['tests/unit/msw/'];
 const PROVENANCE_DIR = 'src/seed/data/';
 const PROVENANCE_LINE = /^\s*"source"\s*:/;
 
-function walk(dir: string, found: string[] = []): string[] {
-  for (const entry of nodeFs.readdirSync(dir, { withFileTypes: true })) {
-    const full = nodePath.join(dir, entry.name);
-    if (entry.isDirectory()) walk(full, found);
-    else if (EXTENSIONS.has(nodePath.extname(entry.name))) found.push(full);
-  }
-  return found;
-}
-
 const toPosix = (p: string) => p.split(nodePath.sep).join('/');
 
 function offencesIn(file: string): string[] {
@@ -74,12 +66,18 @@ function offencesIn(file: string): string[] {
 
 describe('CI hygiene', () => {
   it('CI never reaches the network', () => {
-    const scanned = [...walk('src'), ...walk('tests')].map(toPosix);
+    // The shared walker skips the generated workflow tree (04-RESEARCH Pitfall 6).
+    const scanned = [
+      ...walk('src', { exts: EXTENSIONS }),
+      ...walk('tests', { exts: EXTENSIONS }),
+    ].map(toPosix);
 
     // Two-sided: the walk found real files in both trees...
     expect(scanned.length).toBeGreaterThan(40);
     expect(scanned).toContain('src/lib/geocode/census.ts');
     expect(scanned).toContain('tests/unit/msw/server.ts');
+    // ...none of them generated workflow output (paths are posix here, so the probe is too)...
+    expect(scanned.some((f) => f.includes('.well-known/workflow'))).toBe(false);
     // ...and the matcher works. The allow-listed Census client DOES name its host, so a
     // broken HOSTS list or a matcher that never fires goes red here instead of green.
     expect(offencesIn('src/lib/geocode/census.ts').length).toBeGreaterThan(0);
