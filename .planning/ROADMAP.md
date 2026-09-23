@@ -235,7 +235,7 @@ Plans:
 - [x] 04-26-PLAN.md — queueRun starts the workflow (mode refusal, kinds, ceiling, one active run); notice retired; e2e can never start a run
 
 **Wave 7** *(blocked on Wave 6)*
-- [ ] 04-27-PLAN.md — Preset detail: three ways to run, the Places-mode notice, recent runs
+- [x] 04-27-PLAN.md — Preset detail: three ways to run, the Places-mode notice, recent runs
 
 **Wave 8** *(blocked on Wave 7)*
 - [ ] 04-28-PLAN.md — Attribution registry, local run-report e2e with computed tag styles, budget-banner guard, full phase gate
