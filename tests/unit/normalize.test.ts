@@ -220,6 +220,20 @@ describe('addressKey', () => {
     const k = addressKey('PO BOX 764', '78147');
     expect(k.streetNum).toBeNull();
     expect(k.postal).toBe('78147');
+    // Periods are deleted, not spaced: "P.O." folds to the same key as "PO".
+    expect(addressKey('P.O. Box 764', '78147')).toEqual(k);
+  });
+
+  it('addressKey does not mistake a street word for a unit', () => {
+    // A designator must be a whole word followed by an identifier, and never the first token.
+    expect(addressKey('1200 LOTUS DR', '78501')).toEqual({
+      streetNum: '1200',
+      streetNorm: 'lotus dr',
+      unit: null,
+      postal: '78501',
+    });
+    expect(addressKey('300 FLORIDA AVE', '78501').unit).toBeNull();
+    expect(addressKey('300 FLORIDA AVE', '78501').streetNorm).toBe('florida ave');
   });
 
   it('addressKey folds directions and is case-insensitive', () => {

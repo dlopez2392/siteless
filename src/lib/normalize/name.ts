@@ -119,13 +119,21 @@ function trailingPhoneRun(tokens: readonly string[]): number {
   return cut;
 }
 
+/**
+ * Ligature fold → NFD → strip combining marks. Callers case-fold afterwards (the ligature
+ * table already emits lowercase). The ONE diacritic fold in
+ * the codebase: the name and the address key both call it, so they cannot drift apart.
+ */
+export function foldDiacritics(raw: string): string {
+  const folded = [...raw].map((ch) => LIGATURES[ch] ?? ch).join('');
+  return folded.normalize('NFD').replace(/\p{M}+/gu, '');
+}
+
 export function nameNormDetail(raw: string | null | undefined): NameNormDetail {
   if (!raw) return { norm: null, hadStoreNumber: false };
 
-  const folded = [...raw].map((ch) => LIGATURES[ch] ?? ch).join('');
-  const stripped = folded
-    .normalize('NFD')
-    .replace(/\p{M}+/gu, '')
+  // foldDiacritics is the ligature fold, then normalize('NFD'), then the mark strip.
+  const stripped = foldDiacritics(raw)
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, ' ');
 
@@ -139,10 +147,10 @@ export function nameNormDetail(raw: string | null | undefined): NameNormDetail {
   const last = kept.at(-1);
   const hadStoreNumber = phoneRun > 0 || (last !== undefined && ALL_DIGITS.test(last));
 
-  // 🔴 trim() is defect 1's fix, kept deliberately. Honest note: with empty tokens filtered
-  // above, the join cannot produce an edge space, so no mutation of THIS line reds a test
-  // today — the token filter is what does the work, and 'nameNorm defect 1' pins that. The
-  // trim() is here so a future change to the tokeniser cannot reintroduce the edge space.
+  // 🔴 trim() is defect 1's fix, and it has a TWIN: the empty-token filter above. Mutation-
+  // checked: removing either one alone leaves the suite green, because the other covers the
+  // edge; removing BOTH reds 'nameNorm defect 1: no leading or trailing space'. Two guards
+  // for one edge is deliberate: the plan names trim() as the fix, and neither costs anything.
   const norm = kept.join(' ').trim();
   return { norm: norm.length === 0 ? null : norm, hadStoreNumber };
 }
