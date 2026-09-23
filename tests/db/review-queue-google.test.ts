@@ -283,8 +283,10 @@ describe('review queue — the google item kind', () => {
       // Still pending, still counted — a skip is not a decision.
       expect(next.remaining).toBe(2);
 
-      // In the mixed queue the skipped 93 falls below the 85 pair as well.
+      // In the mixed queue the skipped 93 falls below the 85 pair as well — even when every
+      // listing is skipped, so the best listing left to compare IS a skipped one.
       expect((await readReviewQueue(tx, 'all', [high])).top?.kind).toBe('pair');
+      expect((await readReviewQueue(tx, 'all', [high, low])).top?.kind).toBe('pair');
 
       // Everything skipped: the skipped ones resurface, highest first — never an empty screen
       // while listings are still pending.
