@@ -2,6 +2,7 @@
 
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { Card } from '@/components/ui/card';
+import { THUMB_BAR_HEIGHT_VAR } from '@/lib/ui/chrome';
 
 /**
  * The thumb zone (MOB-01). Phone: the `--card` surface with a 1px top border and 16px padding,
@@ -27,10 +28,21 @@ export function ThumbBar({ children }: { children: ReactNode }) {
   useLayoutEffect(() => {
     const bar = barRef.current;
     if (!bar || typeof ResizeObserver === 'undefined') return;
-    const measure = () => setHeight(Math.ceil(bar.getBoundingClientRect().height));
+    const root = document.documentElement;
+    const measure = () => {
+      const measured = Math.ceil(bar.getBoundingClientRect().height);
+      setHeight(measured);
+      // C-WR-07: the phone Toaster's offset (`PHONE_TOAST_OFFSET`) reads this, so a toast
+      // lands ABOVE the bar — and moves up with it when a refusal makes it taller.
+      root.style.setProperty(THUMB_BAR_HEIGHT_VAR, `${measured}px`);
+    };
     const observer = new ResizeObserver(measure);
     observer.observe(bar);
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      // Off `/review` there is no bar; toasts clear the tab bar alone.
+      root.style.removeProperty(THUMB_BAR_HEIGHT_VAR);
+    };
   }, []);
 
   return (

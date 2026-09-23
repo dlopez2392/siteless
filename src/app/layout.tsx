@@ -3,6 +3,7 @@ import { Inter } from 'next/font/google';
 import { ActivateSoleOrganization } from '@/components/activate-sole-organization';
 import { ThemeProvider } from '@/components/theme-provider';
 import { Toaster } from '@/components/ui/sonner';
+import { PHONE_TOAST_OFFSET } from '@/lib/ui/chrome';
 import { cn } from '@/lib/utils';
 import './globals.css';
 
@@ -46,7 +47,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 remembered. */}
             <ActivateSoleOrganization />
             {children}
-            <Toaster />
+            {/* On a phone the stack sits above the tab bar and `/review`'s thumb bar, not
+                16px off the bottom edge on top of them (C-WR-07, measured). A plain object
+                from a server-safe module, so it crosses to the client as data. */}
+            <Toaster mobileOffset={PHONE_TOAST_OFFSET} />
           </ThemeProvider>
         </body>
       </html>
