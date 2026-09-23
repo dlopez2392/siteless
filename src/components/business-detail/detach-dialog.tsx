@@ -72,7 +72,11 @@ import { detachListing } from '@/server/actions/detach-listing';
  */
 type Refusal = { message: string; retryable: boolean };
 
-function refusalOf(result: { code: string; message: string; detail?: Record<string, string | number> }): Refusal {
+function refusalOf(result: {
+  code: string;
+  message: string;
+  detail?: Record<string, string | number>;
+}): Refusal {
   if (result.code === 'conflict' && result.detail?.reason === 'already_decided') {
     return { message: DETACH_ALREADY_DECIDED, retryable: false };
   }

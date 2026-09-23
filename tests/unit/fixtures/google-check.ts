@@ -88,7 +88,12 @@ export const MIXED: GoogleCheckView = {
       tieBusinessId: null,
       decidedBy: 'user_danlo',
       decidedMs: WEEK_AGO_MS,
-      latest: { hadWebsiteUri: true, hostClass: 'social', observedMs: WEEK_AGO_MS, runId: IDS.runWeek },
+      latest: {
+        hadWebsiteUri: true,
+        hostClass: 'social',
+        observedMs: WEEK_AGO_MS,
+        runId: IDS.runWeek,
+      },
     },
     {
       attachmentId: IDS.tentative,

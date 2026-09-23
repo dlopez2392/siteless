@@ -17,7 +17,13 @@ vi.mock('@/server/actions/detach-listing', () => ({ detachListing: vi.fn() }));
 // `useIsDesk` lives in run-drawer.tsx, which also imports the queue-run action — same reason.
 vi.mock('@/server/actions/queue-run', () => ({ queueRun: vi.fn() }));
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ refresh: vi.fn(), push: vi.fn(), replace: vi.fn(), back: vi.fn(), prefetch: vi.fn() }),
+  useRouter: () => ({
+    refresh: vi.fn(),
+    push: vi.fn(),
+    replace: vi.fn(),
+    back: vi.fn(),
+    prefetch: vi.fn(),
+  }),
 }));
 vi.mock('sonner', () => ({ toast: vi.fn() }));
 
@@ -109,10 +115,9 @@ describe('google maps check', () => {
 
   it('the listings render attached, then tentative, then rejected and detached', () => {
     const { container } = renderCheck(MIXED);
-    const rows = [...container.querySelectorAll('[data-testid^="business-google-listing-"]')].map((r) => [
-      r.getAttribute('data-testid'),
-      r.getAttribute('data-status'),
-    ]);
+    const rows = [...container.querySelectorAll('[data-testid^="business-google-listing-"]')].map(
+      (r) => [r.getAttribute('data-testid'), r.getAttribute('data-status')],
+    );
     expect(rows).toEqual([
       [`business-google-listing-${IDS.attachedA}`, 'attached'],
       [`business-google-listing-${IDS.attachedB}`, 'attached'],
@@ -195,9 +200,15 @@ describe('google maps check', () => {
     expect(signal).toHaveTextContent('No website listed');
     expect(container.querySelectorAll('[data-testid^="business-google-listing-"]')).toHaveLength(0);
     // The signal row carries the listing's actions beneath it.
-    expect(within(signal).getByTestId(`business-google-open-maps-${IDS.attachedA}`)).toBeInTheDocument();
-    expect(within(signal).getByTestId(`business-google-detach-${IDS.attachedA}`)).toBeInTheDocument();
-    expect(container.querySelectorAll('[data-testid^="business-google-open-maps-"]')).toHaveLength(1);
+    expect(
+      within(signal).getByTestId(`business-google-open-maps-${IDS.attachedA}`),
+    ).toBeInTheDocument();
+    expect(
+      within(signal).getByTestId(`business-google-detach-${IDS.attachedA}`),
+    ).toBeInTheDocument();
+    expect(container.querySelectorAll('[data-testid^="business-google-open-maps-"]')).toHaveLength(
+      1,
+    );
     expect(tagsIn(signal)).toHaveLength(1);
     // One observation: no history toggle.
     expect(screen.queryByTestId('business-google-history-toggle')).toBeNull();
@@ -210,7 +221,10 @@ describe('google maps check', () => {
     expect(empty).toHaveTextContent(
       "It's checked the next time a run covers McAllen for Food & hospitality.",
     );
-    expect(within(empty).getByRole('link', { name: 'Open presets' })).toHaveAttribute('href', '/presets');
+    expect(within(empty).getByRole('link', { name: 'Open presets' })).toHaveAttribute(
+      'href',
+      '/presets',
+    );
     expect(tagsIn(screen.getByTestId('business-google'))).toHaveLength(0);
     expect(screen.queryByTestId('business-google-signal')).toBeNull();
   });
@@ -235,7 +249,8 @@ describe('google maps check', () => {
     // The pending listing itself still renders below, tagged, with no sentence.
     const row = screen.getByTestId(`business-google-listing-${IDS.tentative}`);
     expect(tagsIn(row)).toHaveLength(1);
-    for (const sentence of SIX_SENTENCES) expect(screen.getByTestId('business-google')).not.toHaveTextContent(sentence);
+    for (const sentence of SIX_SENTENCES)
+      expect(screen.getByTestId('business-google')).not.toHaveTextContent(sentence);
     expect(screen.queryByTestId('business-google-empty')).toBeNull();
   });
 
@@ -264,7 +279,12 @@ describe('google maps check', () => {
       expect(placesContainerOf(row)).toBe(row);
       expect(tagsIn(row)).toHaveLength(1);
     });
-    const [late, pending, week, detached] = rows as [HTMLElement, HTMLElement, HTMLElement, HTMLElement];
+    const [late, pending, week, detached] = rows as [
+      HTMLElement,
+      HTMLElement,
+      HTMLElement,
+      HTMLElement,
+    ];
     expect(late).toHaveTextContent('Sep 22, 2026');
     expect(late).not.toHaveTextContent('Sep 23');
     expect(late).toHaveTextContent('Website listed — a dead Google site (business.site)');

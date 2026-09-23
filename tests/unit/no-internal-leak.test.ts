@@ -262,7 +262,9 @@ describe('places coordinates never reach a screen', () => {
     // Positive control: the walk reaches the nested listing and history keys.
     expect(paths).toContain('MIXED.listings[0].latest.hostClass');
     expect(paths).toContain('MIXED.history[0].runId');
-    const coordinateKeys = paths.filter((p) => COORDINATE_KEYS.has(p.slice(p.lastIndexOf('.') + 1)));
+    const coordinateKeys = paths.filter((p) =>
+      COORDINATE_KEYS.has(p.slice(p.lastIndexOf('.') + 1)),
+    );
     expect(coordinateKeys).toEqual([]);
   });
 });

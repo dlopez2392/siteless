@@ -102,7 +102,9 @@ describe('detach confirmation', () => {
     expect(body).toHaveTextContent("Siteless stops using this listing's website signal");
     expect(body).toHaveTextContent('never attaches it to this business again');
     expect(body).toHaveTextContent('recorded with your name and the time');
-    expect(d.getByTestId('business-google-detach-confirm')).toHaveTextContent('Detach this listing');
+    expect(d.getByTestId('business-google-detach-confirm')).toHaveTextContent(
+      'Detach this listing',
+    );
     expect(d.getByTestId('business-google-detach-dismiss')).toHaveTextContent('Keep it attached');
     expect(d.queryByText('Cancel')).toBeNull();
     expect(d.queryByRole('button', { name: 'Close' })).toBeNull();
@@ -134,7 +136,9 @@ describe('detach confirmation', () => {
 
     const error = await screen.findByTestId('business-google-detach-error');
     expect(error).toHaveTextContent(DETACH_FAILED);
-    expect(within(error).getByTestId('business-google-detach-retry')).toHaveTextContent('Try again');
+    expect(within(error).getByTestId('business-google-detach-retry')).toHaveTextContent(
+      'Try again',
+    );
     expect(within(error).getByTestId('business-google-detach-reload')).toHaveTextContent(
       'Reload this business',
     );
@@ -253,7 +257,9 @@ describe('detach confirmation', () => {
     await act(async () => {
       settle({ ok: false, code: 'unexpected', message: DETACH_FAILED });
     });
-    expect(await screen.findByTestId('business-google-detach-error')).toHaveTextContent(DETACH_FAILED);
+    expect(await screen.findByTestId('business-google-detach-error')).toHaveTextContent(
+      DETACH_FAILED,
+    );
   });
 
   it('on a phone the detach confirmation is a drawer with the same contract', () => {

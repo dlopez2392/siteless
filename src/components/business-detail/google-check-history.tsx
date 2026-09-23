@@ -31,7 +31,10 @@ export function GoogleCheckHistory({ count, children }: { count: number; childre
           className="h-11 w-fit gap-2 px-4 text-base font-normal [&[data-state=open]>svg]:rotate-180"
         >
           {open ? BUSINESS_GOOGLE_HISTORY_HIDE : BUSINESS_GOOGLE_HISTORY_SHOW(count)}
-          <ChevronDown aria-hidden="true" className="size-4 transition-transform motion-reduce:transition-none" />
+          <ChevronDown
+            aria-hidden="true"
+            className="size-4 transition-transform motion-reduce:transition-none"
+          />
         </Button>
       </CollapsibleTrigger>
       <CollapsibleContent>{children}</CollapsibleContent>

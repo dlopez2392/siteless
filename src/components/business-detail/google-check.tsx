@@ -122,7 +122,10 @@ function SourceTag({ observedMs, dateTestId }: { observedMs: number | null; date
     <span className="whitespace-nowrap">
       <GoogleMapsTag />
       {observedMs === null ? null : (
-        <span data-testid={dateTestId} className="text-sm font-normal text-muted-foreground tabular-nums">
+        <span
+          data-testid={dateTestId}
+          className="text-sm font-normal text-muted-foreground tabular-nums"
+        >
           {GOOGLE_MAPS_TAG_DATE(shortDate(observedMs))}
         </span>
       )}
@@ -131,7 +134,13 @@ function SourceTag({ observedMs, dateTestId }: { observedMs: number | null; date
 }
 
 /** "Open this listing on Google Maps" + "Detach this listing" for one attached listing. */
-function ListingActions({ listing, business }: { listing: Listing; business: GoogleCheckBusiness }) {
+function ListingActions({
+  listing,
+  business,
+}: {
+  listing: Listing;
+  business: GoogleCheckBusiness;
+}) {
   return (
     <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
       <Button asChild variant="outline" className="h-11 w-full gap-2 sm:w-fit">
@@ -142,8 +151,7 @@ function ListingActions({ listing, business }: { listing: Listing; business: Goo
           data-testid={`business-google-open-maps-${listing.attachmentId}`}
         >
           <ExternalLink aria-hidden="true" className="size-4" />
-          {BUSINESS_GOOGLE_OPEN_MAPS}{' '}
-          <span className="sr-only">{GOOGLE_MAPS_LINK_SR_SUFFIX}</span>
+          {BUSINESS_GOOGLE_OPEN_MAPS} <span className="sr-only">{GOOGLE_MAPS_LINK_SR_SUFFIX}</span>
         </a>
       </Button>
       <DetachDialog attachmentId={listing.attachmentId} businessName={business.displayName}>
@@ -358,7 +366,13 @@ export function GoogleCheck({
         {rows.length > 0 ? (
           <ul className="divide-y divide-border border-t border-border">
             {rows.map((l, i) => (
-              <ListingRow key={l.attachmentId} listing={l} index={i + 1} business={business} actors={actors} />
+              <ListingRow
+                key={l.attachmentId}
+                listing={l}
+                index={i + 1}
+                business={business}
+                actors={actors}
+              />
             ))}
           </ul>
         ) : null}
