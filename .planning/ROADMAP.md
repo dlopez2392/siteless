@@ -143,10 +143,10 @@ Plans:
 
 Plans:
 **Wave 1**
-- [ ] 03-01-PLAN.md — Toolchain, the extensions migration (pg_trgm + unaccent, FIRST of the phase) and `app.distance_m()`
+- [x] 03-01-PLAN.md — Toolchain, the extensions migration (pg_trgm + unaccent, FIRST of the phase) and `app.distance_m()`
 - [ ] 03-02-PLAN.md — The scorer, its pinned ten-pair fixture, and the Crockford external lead key
 - [ ] 03-03-PLAN.md — Socrata client lift, permits + closures transforms (unpadded county codes), recorded msw fixtures
-- [ ] 03-04-PLAN.md — Six-destination nav (Leads / Operations, four phone tabs + More sheet), the full copy table, touch-targets fix
+- [x] 03-04-PLAN.md — Six-destination nav (Leads / Operations, four phone tabs + More sheet), the full copy table, touch-targets fix
 
 **Wave 2** *(blocked on Wave 1)*
 - [ ] 03-05-PLAN.md — Spine schema: five new tables, three new provenance FKs, grants, triggers, the widened audit lists
