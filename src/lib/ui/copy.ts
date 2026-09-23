@@ -25,8 +25,28 @@
  */
 import { formatUsd } from '@/lib/budget/money';
 
-/** UI-SPEC § Copy Table → Shell. */
-export const NAV = { presets: 'Presets', spend: 'Spend', settings: 'Settings' } as const;
+/**
+ * UI-SPEC § Copy Table → Shell, extended by 03-UI-SPEC § 0 to six destinations.
+ *
+ * The six split into ONE partition used at both breakpoints: Leads (Presets · Review ·
+ * Businesses) are the three phone tabs and the first desk group; Operations (Sources ·
+ * Spend · Settings) live behind the phone's fourth `More` tab and in the second desk group.
+ */
+export const NAV = {
+  presets: 'Presets',
+  review: 'Review',
+  businesses: 'Businesses',
+  sources: 'Sources',
+  spend: 'Spend',
+  settings: 'Settings',
+  more: 'More',
+} as const;
+
+/** 03-UI-SPEC § 0 → the desk sidebar's two group eyebrows (Label 14/600 muted, not links). */
+export const NAV_GROUP = { leads: 'Leads', operations: 'Operations' } as const;
+
+/** 03-UI-SPEC § 0 → the phone More sheet's title. */
+export const MORE_SHEET_TITLE = 'More';
 
 export const SKIP_LINK = 'Skip to main content';
 
@@ -283,4 +303,471 @@ export function GEOCODE_NOT_TEXAS(address: string) {
 /** UI-SPEC § Copy Table → Duplicate dialog default name (D-17). */
 export function COPY_OF(name: string) {
   return `Copy of ${name}`;
+}
+
+/* ======================================================================================
+ * PHASE 3 — 03-UI-SPEC § Copy Table, § States → Empty, § States → Error.
+ *
+ * This plan (03-04) owns this file for the whole phase. The four screen plans READ it and
+ * never edit it, which is what lets them run in parallel — so every string those screens
+ * render is already here, verbatim, including the ones no screen has been built for yet.
+ *
+ * 🔴 NOTHING BELOW FORMATS A DATE, A NUMBER OR A PHONE. A parameter that renders a number
+ * takes it TWICE where grammar depends on it: the raw `number` (to pick "1 pair" over
+ * "1 pairs") and the caller's already-formatted `shown` string (to print "1,284" rather
+ * than "1284"). The caller formats through the pinned locale from `src/lib/time.ts`, the
+ * way `summary-card.tsx` already does. Dates arrive pre-formatted through `formatLocal`.
+ *
+ * 🔴 Curly quotes (“ ”) and the `·` separator ARE the copy. Straight apostrophes are too,
+ * where the spec has them ("didn't", "Foursquare's") — reproduced exactly as written.
+ *
+ * Commands the spec sets in code formatting (`tsx scripts/ingest-comptroller.ts`) are plain
+ * text inside the sentences below; the markdown backticks were typesetting, not copy. The
+ * commands also stand alone as `INGEST_COMMAND` so a "Copy the command" action copies
+ * exactly the string the sentence names.
+ * ==================================================================================== */
+
+/** The desk scripts the empty and error copy names. One spelling, shared by the sentence
+ *  and by the clipboard action beside it. */
+export const INGEST_COMMAND = {
+  comptroller: 'tsx scripts/ingest-comptroller.ts',
+  overture: 'tsx scripts/ingest-overture.ts <release>',
+} as const;
+
+/* --- /review (03-UI-SPEC § 1) ------------------------------------------------------- */
+
+export const REVIEW_TITLE = 'Review queue';
+
+/** "{n} pairs left to review" / "1 pair left to review". `shown` is `n` pre-formatted. */
+export function REVIEW_REMAINING(n: number, shown: string = String(n)) {
+  return n === 1 ? '1 pair left to review' : `${shown} pairs left to review`;
+}
+
+export const REVIEW_ORDERING_NOTE = 'Highest score first';
+
+/** The accessible group label on the chip band. `score` is the integer pair score. */
+export function REVIEW_CHIP_GROUP_LABEL(score: number) {
+  return `Why these two scored ${score}`;
+}
+
+/** Label 14/400 muted, right-aligned in the header row — never without its chips. */
+export function REVIEW_SCORE_LINE(score: number) {
+  return `Score ${score} of 100`;
+}
+
+/**
+ * The signal chips (03-UI-SPEC § Copy Table → Chips). Static text, not controls. The words
+ * carry the meaning ("different", "no") — the outline variant is redundancy.
+ *
+ * The two that carry a figure take it pre-formatted: `REVIEW_CHIP_NAME('0.81')`,
+ * `REVIEW_CHIP_APART('140 m')` / `REVIEW_CHIP_APART('3.1 km')`.
+ */
+export const REVIEW_CHIP = {
+  phoneExact: 'phone exact',
+  sameZip: 'same ZIP',
+  sameCluster: 'same cluster',
+  differentCluster: 'different cluster',
+  noPhoneEitherSide: 'no phone on either side',
+  noLocationOneSide: 'no location on one side',
+} as const;
+
+export function REVIEW_CHIP_NAME(similarity: string) {
+  return `name ${similarity}`;
+}
+
+export function REVIEW_CHIP_APART(distance: string) {
+  return `${distance} apart`;
+}
+
+/** Screen-reader names for the two sides — "Left"/"Right" on desk, where they sit side by
+ *  side; "First record"/"Second record" on phone, where they stack. */
+export const REVIEW_SIDE_LABEL = {
+  desk: { a: 'Left', b: 'Right' },
+  phone: { a: 'First record', b: 'Second record' },
+} as const;
+
+export const REVIEW_ACTION_SAME = 'Same business';
+export const REVIEW_ACTION_DIFFERENT = 'Different';
+export const REVIEW_ACTION_SKIP = 'Skip';
+export const REVIEW_BUSY = 'Recording…';
+export const REVIEW_SKIP_HELPER = 'Skip leaves this pair pending and moves on.';
+export const REVIEW_DIFFERENT_HELPER =
+  'Different records these two as separate for good — they will never auto-merge.';
+
+/** Rendered where a side's source does not carry a field. Never a blank, never a bare dash. */
+export const REVIEW_MISSING_FIELD = 'Not on this record';
+
+/** The `Closed` badge. `date` is pre-formatted through `formatLocal`. */
+export function FLAG_CLOSED(date: string) {
+  return `Closed ${date}`;
+}
+
+/** The chain flag (D-11: a flag, never a merge). `shown` is `n` pre-formatted. */
+export function FLAG_CHAIN(n: number, shown: string = String(n)) {
+  return `Chain · ${shown} in Texas`;
+}
+
+/* --- /sources (03-UI-SPEC § 2) ------------------------------------------------------ */
+
+export const SOURCES_TITLE = 'Sources';
+export const SOURCES_SUBTITLE =
+  'Every ingest run, what it changed, and which version of the source it read.';
+
+export const SOURCES_COLUMN = {
+  source: 'Source',
+  version: 'Version ingested',
+  lastRun: 'Last run',
+  added: 'Added',
+  changed: 'Changed',
+  unchanged: 'Unchanged',
+  gone: 'Gone',
+} as const;
+
+/** The four ledger rows — static structure, rendered before any run exists (Rule 27). */
+export const SOURCE_NAME = {
+  tx_comptroller: 'Comptroller permits',
+  tx_comptroller_closures: 'Comptroller closures',
+  overture: 'Overture places',
+  census_geocoder: 'Census geocoder',
+} as const;
+
+export const SOURCES_NEVER_RUN = 'Never run';
+
+/** The three run-status badge words. `stopped` reads "Stopped early", never "Stopped". */
+export const SOURCES_RUN_STATUS = {
+  complete: 'Complete',
+  stopped: 'Stopped early',
+  failed: 'Failed',
+} as const;
+
+export const SOURCES_GONE_EXPLAINER =
+  'Gone means a row stopped appearing in the source. Siteless marks it and keeps it — ' +
+  'Overture drops and re-adds ids between releases, so nothing is ever deleted on an ' +
+  'absence alone.';
+
+export const SOURCES_CONFIDENCE_TOGGLE = 'Show the confidence distribution';
+export const SOURCES_CONFIDENCE_TOGGLE_HIDE = 'Hide the confidence distribution';
+
+/** `cutoff` is the committed constant, pre-formatted (e.g. "0.70"). */
+export function SOURCES_CUTOFF_LINE(cutoff: string) {
+  return (
+    `Funnel cutoff: ${cutoff} — rows below this stay in the spine and never enter the ` +
+    `lead funnel.`
+  );
+}
+
+export const ATTRIBUTION_HEADING = 'Where this data comes from';
+
+/**
+ * 🔴 LICENCE TEXT. CDLA-Permissive 2.0 requires the Overture attribution to travel with the
+ * data; this sentence is the in-app half of that obligation. Phase 8 (COMP-03) writes the
+ * export half — not here.
+ */
+export const ATTRIBUTION_BODY =
+  'Places data © Overture Maps Foundation, released under CDLA-Permissive 2.0. Overture ' +
+  "places carry data from Foursquare's open location data set and other open providers; " +
+  'each record keeps its provider attribution. Texas sales-tax permit and closure data is ' +
+  'published by the Texas Comptroller of Public Accounts and is in the public domain. ' +
+  'Addresses are geocoded by the US Census Bureau Geocoder, a free federal service. None ' +
+  'of this is Google data — Google Places is a transient verifier and never becomes part ' +
+  'of the durable record.';
+
+export const ATTRIBUTION_FOOTNOTE =
+  'This attribution travels with any export. The CSV wording ships with the export in ' +
+  'Phase 8.';
+
+/* --- /businesses (03-UI-SPEC § 3) --------------------------------------------------- */
+
+export const BUSINESSES_TITLE = 'Businesses';
+export const BUSINESSES_SEARCH_PLACEHOLDER = 'Search by name or lead key';
+
+/**
+ * "{n} businesses · showing the first {m}" / "1 business".
+ *
+ * The "showing the first" clause appears only when fewer than all `n` rows are on screen —
+ * a list of 30 that reads "showing the first 30" is describing a cut that did not happen.
+ * `nShown`/`mShown` are the caller's pre-formatted figures.
+ */
+export function BUSINESSES_COUNT_LINE(
+  n: number,
+  m: number,
+  nShown: string = String(n),
+  mShown: string = String(m),
+) {
+  if (n === 1) return '1 business';
+  if (m < n) return `${nShown} businesses · showing the first ${mShown}`;
+  return `${nShown} businesses`;
+}
+
+export const BUSINESSES_FILTER_LABEL = { cluster: 'Cluster', status: 'Status' } as const;
+
+export const BUSINESSES_FILTER_OPTION = {
+  anyCluster: 'Any cluster',
+  noClusterMapped: 'No cluster mapped',
+  anyStatus: 'Any status',
+  active: 'Active',
+  closed: 'Closed',
+  mergedAway: 'Merged away',
+} as const;
+
+export const BUSINESSES_COLUMN = {
+  name: 'Name',
+  city: 'City',
+  cluster: 'Cluster',
+  sources: 'Sources',
+  status: 'Status',
+} as const;
+
+export const BUSINESSES_SHOW_MORE = 'Show 50 more';
+export const BUSINESSES_SHOW_MORE_BUSY = 'Loading…';
+
+/** The cluster cell for a D-02 unmapped row — visible, muted, never blank. */
+export const NO_CLUSTER_MAPPED = 'No cluster mapped';
+
+/** Status badge words on `/businesses` and the detail header. */
+export const BUSINESS_STATUS = {
+  active: 'Active',
+  merged_away: 'Merged away',
+} as const;
+
+/* --- /businesses/[id] (03-UI-SPEC § 4) ---------------------------------------------- */
+
+export const LEAD_KEY_LABEL = 'Lead key';
+export const COPY_LEAD_KEY = 'Copy lead key';
+
+/** The success toast after copying. `key` is the external lead key, e.g. SL-7F3K2. */
+export function LEAD_KEY_COPIED(key: string) {
+  return `Lead key ${key} copied`;
+}
+
+export const BUSINESS_SECTION = {
+  fields: 'Fields and sources',
+  sourceRecords: 'Source records',
+  mergeHistory: 'Merge history',
+} as const;
+
+/** D-18's rows, in order. The Phase 7 triage card inherits this order. */
+export const BUSINESS_FIELD_LABEL = {
+  displayName: 'Display name',
+  legalName: 'Legal name (state filing)',
+  phone: 'Phone',
+  address: 'Address',
+  cityZip: 'City · ZIP',
+  location: 'Location',
+  category: 'Category / cluster',
+  overtureConfidence: 'Overture confidence',
+  permitDates: 'Permit dates',
+  closedOn: 'Closed on',
+} as const;
+
+/** A field no durable source supplied — CONVENTIONS § Retention made honest on screen. */
+export const FIELD_NOT_STORED = 'Not stored';
+export const FIELD_NO_DURABLE_SOURCE = 'No durable source';
+
+export const LEGAL_NAME_NOTE = 'The string on the state filing. Outreach uses the display name.';
+
+/** Label 14/400 muted plain text, keyed by `source_records.source`. Never a badge (Rule 22). */
+export const SOURCE_TAG = {
+  tx_comptroller: 'Comptroller',
+  tx_comptroller_closures: 'Comptroller closures',
+  overture: 'Overture',
+  census_geocoder: 'Census geocoder',
+} as const;
+
+/** A `gone` source record (D-05), said in words rather than left as a silent stale date. */
+export function STALE_SOURCE_RECORD(version: string) {
+  return `Last seen in the ${version} release — not in the latest run`;
+}
+
+export function MERGE_ROW(loser: string, winner: string) {
+  return `${loser} merged into ${winner}`;
+}
+
+export function MERGE_REASON_AUTO(score: number) {
+  return `Auto-merged at ${score}`;
+}
+
+export function MERGE_REASON_REVIEW(actor: string) {
+  return `Reviewed by ${actor}`;
+}
+
+/** Named, never icon-only: on a screen of near-identical rows the consequential choice is
+ *  the unambiguous one. */
+export function UNMERGE_ACTION(loser: string) {
+  return `Unmerge ${loser}`;
+}
+
+/** `date` is pre-formatted through `formatLocal`. */
+export function MERGE_UNDONE(actor: string, date: string) {
+  return `Unmerged by ${actor} on ${date}`;
+}
+
+/* --- The unmerge confirmation (D-20 — the one destructive action in this phase) ----- */
+
+export function UNMERGE_TITLE(loser: string, winner: string) {
+  return `Unmerge “${loser}” from “${winner}”?`;
+}
+
+/**
+ * Names all four consequences — loser back to active, each key to its own record, the
+ * loser's fields restored from its own sources, the pair marked distinct — plus the audit.
+ */
+export function UNMERGE_BODY(loser: string, winner: string, loserKey: string, winnerKey: string) {
+  return (
+    `Both records go back to standing on their own. “${loser}” becomes active again with ` +
+    `its own lead key ${loserKey} and the fields its own sources supplied; “${winner}” ` +
+    `keeps ${winnerKey} and loses whatever came from “${loser}”. Siteless then records ` +
+    `this pair as different, so nothing will merge them again automatically — you can ` +
+    `still merge them by hand from the review queue if a later ingest changes your mind. ` +
+    `This is recorded with your name and the time, like every other change in Siteless.`
+  );
+}
+
+export const UNMERGE_CONFIRM = 'Unmerge these two records';
+/** Never "Cancel" (Voice rules → no generic labels). */
+export const UNMERGE_DISMISS = 'Keep them merged';
+export const UNMERGE_BUSY = 'Unmerging…';
+
+/* --- Success toasts (03-UI-SPEC § Copy Table → Toasts). Success only — a refusal is a
+ *     persistent Alert, because a dismissed toast is indistinguishable from none. ------ */
+
+export function TOAST_MERGED(loser: string, winner: string) {
+  return `Merged — “${loser}” now resolves to “${winner}”`;
+}
+
+export const TOAST_DISTINCT = 'Recorded as different';
+
+export function TOAST_UNMERGED(loser: string) {
+  return `Unmerged — “${loser}” is active again`;
+}
+
+/** The fourth toast is `LEAD_KEY_COPIED(key)` above — one spelling, not two. */
+
+/* --- Empty states (03-UI-SPEC § States → Empty). Heading · body · action. ----------- */
+
+export const REVIEW_CLEAR_HEADING = 'Queue clear';
+export const REVIEW_CLEAR_BODY =
+  'Every pair in the 80–95 band has a decision. New pairs appear here after the next ' +
+  'ingest, when Comptroller and Overture describe the same business closely enough to ' +
+  'need a person. Auto-merges at 95 and above, and anything under 80, never reach this ' +
+  'queue.';
+export const REVIEW_CLEAR_ACTION = 'See the source runs';
+
+export const REVIEW_EMPTY_HEADING = 'Nothing to review yet';
+export const REVIEW_EMPTY_BODY =
+  'No ingest has run, so there are no candidate pairs to score. Run ' +
+  `${INGEST_COMMAND.comptroller} and then ${INGEST_COMMAND.overture} at the desk; the ` +
+  '80–95 band lands here as soon as scoring finishes.';
+export const REVIEW_EMPTY_ACTION = 'Open sources';
+
+export const SOURCES_EMPTY_HEADING = 'No ingest has run yet';
+export const SOURCES_EMPTY_BODY =
+  `The four sources below are wired and waiting. Run ${INGEST_COMMAND.comptroller} at the ` +
+  'desk to load active sales-tax permits for Cameron, Hidalgo, Starr and Willacy, then ' +
+  `${INGEST_COMMAND.overture} for Overture places. Each run writes its counts here.`;
+export const SOURCES_EMPTY_ACTION = "See what's in the spine";
+
+export const BUSINESSES_EMPTY_HEADING = 'The spine is empty';
+export const BUSINESSES_EMPTY_BODY =
+  'Businesses appear here after the first ingest — about 35,000 Comptroller outlets and ' +
+  '57,000 Texas-side Overture places across the four RGV counties. Run the ingests at the ' +
+  'desk and this list fills itself.';
+export const BUSINESSES_EMPTY_ACTION = 'Open sources';
+
+/** The user's own query is quoted back, verbatim, because it is the thing that matched
+ *  nothing. */
+export function BUSINESSES_NO_MATCH_HEADING(query: string) {
+  return `No business matches “${query}”`;
+}
+export const BUSINESSES_NO_MATCH_BODY =
+  'Siteless searches the display name, the legal name and the lead key. Names are stored ' +
+  'exactly as their source spelled them, accents and all — try fewer words, or search the ' +
+  'lead key if you have it.';
+export const BUSINESSES_NO_MATCH_ACTION = 'Clear search';
+
+/** A complete, correct state — deliberately no action. */
+export const MERGES_EMPTY_HEADING = 'One source, no merges';
+export const MERGES_EMPTY_BODY =
+  'This record came from a single source record, so there is nothing to unmerge. If a ' +
+  'second source turns up the same business, the merge appears here with both parents and ' +
+  'an unmerge action.';
+
+/* --- Errors (03-UI-SPEC § States → Error). Every one says what was and was not written,
+ *     and ends with a way out. ----------------------------------------------------------- */
+
+/** Shared action words across the error states. */
+export const ERROR_ACTION = {
+  tryAgain: 'Try again',
+  reloadQueue: 'Reload the queue',
+  openSources: 'Open sources',
+  openBusinesses: 'Open businesses',
+  clearFilters: 'Clear filters',
+  copyCommand: 'Copy the command',
+} as const;
+
+export const REVIEW_DECISION_FAILED =
+  "That decision didn't reach the server. Nothing was recorded and this pair is still " +
+  "pending, so you haven't lost your place in the queue. Try again, or reload if it keeps " +
+  'happening.';
+
+export const REVIEW_LOAD_FAILED =
+  "We couldn't load the review queue. Nothing is wrong with your decisions — every one " +
+  'already recorded is safe. Try again, or check the sources ledger to see whether the ' +
+  'last ingest finished.';
+
+export const UNMERGE_FAILED =
+  "The unmerge didn't complete. The two records are still merged exactly as they were — " +
+  'nothing was half-undone, and both lead keys still point where they did a moment ago. ' +
+  'Try again, or check the sources ledger if an ingest is running.';
+
+export const SOURCES_LOAD_FAILED =
+  "We couldn't read the run history. The ingests themselves are desk scripts and are " +
+  'unaffected by this — any run in flight is still writing. Try again.';
+
+/**
+ * A `failed` ingest run, rendered inside that source's row as a destructive Alert.
+ * `rows` is pre-formatted; `error` is the run's recorded error text; `script` is one of
+ * `INGEST_COMMAND`.
+ */
+export function INGEST_RUN_FAILED(source: string, rows: string, error: string, script: string) {
+  return (
+    `The last ${source} run failed after ${rows} rows: ${error}. Nothing partial was left ` +
+    `behind — the run is idempotent by external id, so re-running it picks up exactly ` +
+    `where the data is. Re-run ${script} at the desk.`
+  );
+}
+
+/** A `stopped` ingest run, as a warning Alert. `rows` is pre-formatted. */
+export function INGEST_RUN_STOPPED(source: string, rows: string) {
+  return (
+    `The last ${source} run stopped early after ${rows} rows. The rows it did write are ` +
+    `complete and consistent; re-running is safe and only touches what changed.`
+  );
+}
+
+export const BUSINESS_SEARCH_FAILED =
+  "The search didn't come back. Your query is still in the box — nothing was lost. Try " +
+  'again, or clear the filters and search the name on its own.';
+
+export const BUSINESS_NOT_FOUND =
+  'No business with that id. It may have been merged into another record — merges keep ' +
+  'every parent, so the lead key still resolves to whichever record survived. Search for ' +
+  'it by name or by lead key.';
+
+export const BUSINESS_BAD_ID =
+  "That isn't a business id. Siteless uses an internal id in this address and a lead key " +
+  'like SL-7F3K2 on the page — the lead key is for reading aloud, not for the address ' +
+  'bar. Search for the business instead.';
+
+/**
+ * 03-UI-SPEC § Error → "Unexpected server error", for the spine screens. Not
+ * `UNEXPECTED_ERROR` above: that one is Phase 2's and says "Nothing was charged", which is
+ * true of a preset and says nothing about what a merge screen needs to hear.
+ */
+export function SPINE_UNEXPECTED_ERROR(thing: string) {
+  return (
+    `Something broke on our side loading ${thing}. No business record was changed and no ` +
+    `merge was written. Try again — if it keeps happening, the sources ledger shows ` +
+    `whether the last ingest finished.`
+  );
 }
