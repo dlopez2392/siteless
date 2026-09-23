@@ -8,6 +8,12 @@ import {
   type RunPartition,
   type RunVersionOption,
 } from '@/components/preset-detail/run-drawer';
+import {
+  MODE_ALLOWS,
+  planRunActions,
+  RUN_KIND_OF_ACTION,
+  type RunActionKey,
+} from '@/components/preset-detail/run-plan';
 import { formatWeekRange } from '@/lib/time';
 import {
   PRESET_CHECK_DESCRIPTION,
@@ -20,7 +26,7 @@ import {
   RUN_PARTITION,
   type PlacesModeName,
 } from '@/lib/ui/copy';
-import { RUN_KIND_LABEL, type RunKind } from '@/lib/ui/run-tone';
+import { RUN_KIND_LABEL } from '@/lib/ui/run-tone';
 import { cn } from '@/lib/utils';
 
 /**
@@ -47,8 +53,6 @@ import { cn } from '@/lib/utils';
  * page imports nothing from here but `RunActions` and erased types.
  */
 
-export type RunActionKey = 'full' | 'partition' | 'check';
-
 export type RunActionsProps = {
   slot: 'primary' | 'card';
   mode: PlacesModeName;
@@ -69,46 +73,18 @@ export type RunActionsProps = {
   };
 };
 
-const ORDER: readonly RunActionKey[] = ['full', 'partition', 'check'];
-
 const TEST_ID: Record<RunActionKey, string> = {
   full: 'run-preset',
   partition: 'run-partition',
   check: 'run-check-changes',
 };
 
-/** The button says the verb ("Run this week's partition")… */
+/** The button says the verb ("Run this week's partition"); a card row's title names the kind. */
 const LABEL: Record<RunActionKey, string> = {
   full: RUN_FULL_SWEEP,
   partition: RUN_PARTITION,
   check: RUN_CHECK_CHANGES,
 };
-
-/** …and a card row's title names the kind ("This week's partition") — the words the run report
- *  and recent runs use — so a row never says the same thing twice. */
-const RUN_KIND_OF: Record<RunActionKey, RunKind> = {
-  full: 'full_sweep',
-  partition: 'partition',
-  check: 'change_check',
-};
-
-/** D-02: what each mode lets run. `queueRun` enforces the same table on the server. */
-const MODE_ALLOWS: Record<PlacesModeName, Record<RunActionKey, boolean>> = {
-  enterprise: { full: true, partition: true, check: true },
-  ids_only: { full: false, partition: false, check: true },
-  off: { full: false, partition: false, check: false },
-};
-
-/**
- * The primary slot holds the first action the MODE enables; in `off`, where none is, the
- * inert full sweep. The card holds the other two in the fixed order. A zero-cell week never
- * moves the accent: the partition is never the first enabled action while the full sweep is.
- */
-function planRunActions(mode: PlacesModeName): { primary: RunActionKey; card: RunActionKey[] } {
-  const allows = MODE_ALLOWS[mode];
-  const primary = ORDER.find((k) => allows[k]) ?? 'full';
-  return { primary, card: ORDER.filter((k) => k !== primary) };
-}
 
 const DISABLED_CLASS = 'cursor-not-allowed opacity-50';
 
@@ -266,7 +242,8 @@ export function RunActions(props: RunActionsProps) {
       ) : undefined;
     return {
       key,
-      title: RUN_KIND_LABEL[RUN_KIND_OF[key]],
+      // The row's title names the kind ("This week's partition"); its button says the verb.
+      title: RUN_KIND_LABEL[RUN_KIND_OF_ACTION[key]],
       description,
       costLine: costs[key],
       costTestId: `run-cost-${key}`,

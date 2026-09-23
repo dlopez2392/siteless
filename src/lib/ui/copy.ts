@@ -1432,7 +1432,14 @@ export function PRESET_RECENT_RUN_ROW(
   version: number,
   cost: MicroUsd,
 ) {
-  return `${started} · ${kind} · version ${version} · ${formatUsd(cost)}`;
+  return `${PRESET_RECENT_RUN_META(started, kind, version)} · ${formatUsd(cost)}`;
+}
+
+/** The row's left half — "{started} · {kind} · version {n}" — when the cost renders apart from
+ *  it (right-aligned, Body 16/600). A kind the label map lacks is `null` and is left out, never
+ *  printed as its key (Rule 35). */
+export function PRESET_RECENT_RUN_META(started: string, kind: string | null, version: number) {
+  return [started, kind, `version ${version}`].filter((p) => p !== null).join(' · ');
 }
 
 export const PRESET_RECENT_RUNS_EMPTY_HEADING = 'No runs yet';

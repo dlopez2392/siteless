@@ -11,13 +11,23 @@ import {
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
 import { Button } from '@/components/ui/button';
-import { RunDrawer, type RunVersionOption } from '@/components/preset-detail/run-drawer';
+import { PlacesModeNotice } from '@/components/preset-detail/places-mode-notice';
+import {
+  RECENT_RUNS_LIMIT,
+  RecentRuns,
+  type RecentRun,
+} from '@/components/preset-detail/recent-runs';
+import { RunActions, type RunActionsProps } from '@/components/preset-detail/run-actions';
+import { presetRunCosts } from '@/components/preset-detail/run-costs';
+import { planRunActions, RUN_KIND_OF_ACTION } from '@/components/preset-detail/run-plan';
+import type { RunVersionOption } from '@/components/preset-detail/run-drawer';
 import {
   estimateLineParts,
   estimateRangeLabel,
   estimateRequestsLabel,
   SummaryCard,
   type LastRun,
+  type SummaryRunCost,
 } from '@/components/preset-detail/summary-card';
 import {
   describeVersionDiff,
@@ -30,12 +40,14 @@ import {
   type HistoryVersion,
 } from '@/components/preset-detail/version-history';
 import { withOrg } from '@/db/with-org';
+import { env } from '@/env';
 import { orgClaims } from '@/lib/auth/require-org';
 import { formatUsd } from '@/lib/budget/money';
 import { isUuid } from '@/lib/ids';
 import { ESTIMATE_SKU } from '@/lib/estimate/assumptions';
 import { estimatePreset, type EstimateRange } from '@/lib/estimate/estimate';
-import type { RunStatus } from '@/lib/ui/run-tone';
+import type { PresetSpec } from '@/lib/estimate/expand-cells';
+import { RUN_KIND_LABEL, type RunStatus } from '@/lib/ui/run-tone';
 import {
   readCurrentPeriod,
   readUnitsUsedThisPeriod,
@@ -72,10 +84,15 @@ export const dynamic = 'force-dynamic';
  * run — is read in the single `withOrg` below, which is exactly why the query module
  * exports `tx`-taking `read*` functions beside its `get*` convenience wrappers.
  *
- * 🔴 EXECUTOR RULE 10, ONE ACCENT ACTION: "Run this preset" is the single filled accent
- * button on this screen and it appears exactly ONCE in the DOM. "Edit preset" is
- * secondary. The phone's sticky-bottom placement and the desk's title-row placement are
- * the same element moved by CSS, not two buttons with one hidden.
+ * 🔴 THREE WAYS TO RUN, ONE ACCENT AT MOST (04-UI-SPEC § Screen 2, Rules 33, 34, 40). "Run
+ * full sweep", "Run this week's partition" and "Check for changes (free)" are rendered by
+ * `RunActions` in two slots: the primary (title row on desk, sticky bar on phone — one element
+ * moved by CSS) and the "Other ways to run" card. The accent goes to the first action the
+ * Places mode enables, and there is none in `off`. "Edit preset" is secondary.
+ *
+ * 🔴 `PLACES_MODE` IS READ HERE, ON THE SERVER, AND ONLY PASSED ON AS A STRING (Rule 33, T-4-01).
+ * It is never a `NEXT_PUBLIC_` variable and no client component imports `src/env.ts`. The
+ * buttons are an affordance; `queueRun` refuses the same modes on its own (D-02, T-4-02).
  */
 
 /** Cluster ids -> display names. A key (`auto_retail`) is never shown to a person
@@ -147,7 +164,21 @@ function diffVersionOf(version: PresetVersionRow, index: ReferenceIndex): DiffVe
  * format by hand. `src/server/queries/budget.ts` had already reached that conclusion for
  * bigint, for `date`, and for its own timestamps.
  */
-type RawLastRun = { status: string; cost: string; at_ms: string | null };
+type RawRecentRun = {
+  id: string;
+  kind: string;
+  status: string;
+  stopped_reason: string | null;
+  cost: string;
+  version: number;
+  /** finished, else started, else created — "Last run {date}" on the summary card. */
+  at_ms: string | null;
+  /** started, else created — the recent-runs row's time. */
+  started_ms: string | null;
+};
+
+/** The notice's element id. Every mode-disabled run action points `aria-describedby` at it. */
+const NOTICE_ID = 'places-mode-notice';
 
 export default async function PresetDetailPage({
   params,
@@ -176,30 +207,39 @@ export default async function PresetDetailPage({
     const period = await readCurrentPeriod(tx, 'places');
     const units = await readUnitsUsedThisPeriod(tx, ESTIMATE_SKU, period.id);
 
-    // The preset's most recent run, across every version of it. Read here rather than
-    // added to `readPreset` because `src/server/queries/presets.ts` is shared with the
-    // plans building the list and the editor in this same wave, and a column added to a
-    // shared read for one screen is how three screens end up paying for each other's
-    // joins.
-    const lastRun =
-      rowsOf<RawLastRun>(
-        await tx.execute(sql`
-          select r.status,
-                 r.cost_micro_usd::text as cost,
-                 (extract(epoch from coalesce(r.finished_at, r.started_at, r.created_at))
-                    * 1000)::bigint::text as at_ms
-            from runs r
-            join search_versions v on v.id = r.search_version_id
-           where v.search_id = ${id}
-           order by r.created_at desc
-           limit 1`),
-      )[0] ?? null;
+    // The preset's most recent runs, across every version of it — the newest is the summary
+    // card's "last run", all five are the "Recent runs" card. Read here rather than added to
+    // `readPreset` because `src/server/queries/presets.ts` is shared with the list and the
+    // editor, and a column added to a shared read for one screen is how three screens end up
+    // paying for each other's joins. Same transaction as everything else (never nested).
+    const recent = rowsOf<RawRecentRun>(
+      await tx.execute(sql`
+        select r.id,
+               r.kind,
+               r.status,
+               r.stopped_reason,
+               r.cost_micro_usd::text as cost,
+               v.version,
+               (extract(epoch from coalesce(r.finished_at, r.started_at, r.created_at))
+                  * 1000)::bigint::text as at_ms,
+               (extract(epoch from coalesce(r.started_at, r.created_at))
+                  * 1000)::bigint::text as started_ms
+          from runs r
+          join search_versions v on v.id = r.search_version_id
+         where v.search_id = ${id}
+         order by r.created_at desc
+         limit ${RECENT_RUNS_LIMIT}`),
+    );
 
-    return { preset, period, units, index, lastRun };
+    return { preset, period, units, index, recent };
   });
 
   if (!data) notFound();
-  const { preset, period, units, index, lastRun } = data;
+  const { preset, period, units, index, recent } = data;
+  const lastRun = recent[0] ?? null;
+
+  // D-02 / Rule 33: the kill switch, read on the server and handed on as a plain string.
+  const placesMode = env.PLACES_MODE;
 
   const seed = getSeedTables();
   const estimateContext = {
@@ -219,12 +259,17 @@ export default async function PresetDetailPage({
    * offered. `queueRun` recomputes for the same reason; the number on this screen and the
    * number the reservation uses come from the same function over the same inputs.
    */
-  function estimateOf(version: PresetVersionRow): EstimateRange | null {
+  function specOf(version: PresetVersionRow): PresetSpec | null {
     if (!version.spec) return null;
     const resolved = resolveSpec(version.spec, index, preset.displayName);
-    if (!resolved.ok) return null;
+    return resolved.ok ? resolved.spec : null;
+  }
+
+  function estimateOf(version: PresetVersionRow): EstimateRange | null {
+    const spec = specOf(version);
+    if (!spec) return null;
     try {
-      return estimatePreset(resolved.spec, estimateContext);
+      return estimatePreset(spec, estimateContext);
     } catch {
       // The estimator throws when a (cluster, geography) pair has no seeded outlet count.
       // A preset that cannot be priced is still a preset you can read and edit.
@@ -234,6 +279,13 @@ export default async function PresetDetailPage({
 
   const current = preset.currentVersion;
   const currentEstimate = current ? estimateOf(current) : null;
+
+  /**
+   * The three run actions' cost lines, and this ISO week's partition (PLACE-04, D-16) — priced
+   * by the same `cellsForRun` + `estimatePreset({ onlyCells })` `queueRun` admits with, against
+   * the same meter reading as everything else on this screen. The week is the RGV's (APP_TZ).
+   */
+  const runCosts = presetRunCosts(current ? specOf(current) : null, estimateContext, new Date());
 
   const history: HistoryVersion[] = preset.versions.map((v, i) => {
     const range = estimateOf(v);
@@ -281,16 +333,75 @@ export default async function PresetDetailPage({
 
   const lastRunProps: LastRun | null = lastRun
     ? {
+        id: lastRun.id,
         status: lastRun.status as RunStatus,
         at: requireInstant(lastRun.at_ms, 'the last run timestamp'),
         costMicroUsd: BigInt(lastRun.cost),
       }
     : null;
 
+  const recentRuns: RecentRun[] = recent.map((r) => ({
+    id: r.id,
+    kind: r.kind,
+    status: r.status,
+    stoppedReason: r.stopped_reason,
+    costMicroUsd: BigInt(r.cost),
+    at: requireInstant(r.started_ms, 'a recent run timestamp'),
+    version: Number(r.version),
+  }));
+
+  /**
+   * One version option per run kind, for the drawer each action opens. The partition's drawer
+   * must quote the PARTITION's range and the check's must show the full request count — the
+   * drawer reads "Estimated cost" and "Requests" off the option it is given.
+   */
+  const currentOption = runOptions.find((o) => o.isCurrent) ?? null;
+  const optionFor = (range: EstimateRange | null): RunVersionOption[] =>
+    currentOption
+      ? [
+          {
+            ...currentOption,
+            costRange: range ? estimateRangeLabel(range) : null,
+            requests: range ? estimateRequestsLabel(range) : null,
+          },
+        ]
+      : [];
+
+  // Accent and the summary's cost line follow the PRIMARY action: the first one the mode enables
+  // (the change check in ids_only, the full sweep otherwise). So the three costs are all on
+  // screen in every mode — two in the card, one beside the estimate.
+  const { primary } = planRunActions(placesMode);
+  const summaryRunCost: SummaryRunCost | null = current
+    ? { kindLabel: RUN_KIND_LABEL[RUN_KIND_OF_ACTION[primary]], line: runCosts.lines[primary] }
+    : null;
+
+  const runActions: Omit<RunActionsProps, 'slot'> | null = preset.currentVersionId
+    ? {
+        mode: placesMode,
+        noticeId: NOTICE_ID,
+        costs: runCosts.lines,
+        partition: runCosts.partition,
+        drawer: {
+          presetName: preset.displayName,
+          initialVersionId: preset.currentVersionId,
+          remainingLabel: historyContext.remainingLabel,
+          isAdmin,
+          versions: {
+            full: runOptions,
+            partition: optionFor(runCosts.ranges.partition),
+            check: optionFor(runCosts.ranges.full),
+          },
+        },
+      }
+    : null;
+
   return (
     /* Extra bottom room on phone so the sticky run bar never sits on top of the last
-       version row: the shell already clears the 64px tab bar, this clears the bar above it. */
-    <div className="flex flex-col gap-6 pb-20 sm:pb-0">
+       version row: the shell already clears the 64px tab bar, this clears the bar above it
+       (and, in off mode, the one-line note under it). */
+    <div
+      className={`flex flex-col gap-6 sm:pb-0 ${placesMode === 'off' && runActions ? 'pb-28' : 'pb-20'}`}
+    >
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
@@ -307,7 +418,7 @@ export default async function PresetDetailPage({
         </BreadcrumbList>
       </Breadcrumb>
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-4">
         <h1 data-testid="preset-name" className="text-xl font-semibold leading-tight">
           {preset.displayName}
         </h1>
@@ -331,33 +442,18 @@ export default async function PresetDetailPage({
           </span>
 
           {/*
-            🔴 THE ONE FILLED ACCENT BUTTON ON THIS SCREEN (Executor Rule 10), and one
-            element in the DOM. On a phone the wrapper below lifts it into a sticky action
-            bar sitting ABOVE the 64px tab bar and its safe-area inset; from 640px up it
-            sits here in the title row. Plan 02-12 Task 2 wraps this trigger in the run
-            drawer.
+            🔴 THE PRIMARY RUN ACTION, one element in the DOM: the first action the mode
+            enables (accent), or in `off` the inert full sweep (no accent). On a phone its
+            wrapper lifts it into a sticky bar ABOVE the 64px tab bar; from 640px up it sits
+            here in the title row. The other two actions are the "Other ways to run" card.
           */}
-          {preset.currentVersionId ? (
-            <RunDrawer
-              kind="full"
-              presetName={preset.displayName}
-              versions={runOptions}
-              initialVersionId={preset.currentVersionId}
-              pickable={false}
-              remainingLabel={historyContext.remainingLabel}
-              isAdmin={isAdmin}
-            >
-              <Button
-                variant="default"
-                data-testid="run-preset"
-                className="fixed inset-x-4 bottom-[calc(5rem+env(safe-area-inset-bottom))] z-40 h-12 shadow-lg sm:static sm:inset-auto sm:h-9 sm:shadow-none"
-              >
-                Run this preset
-              </Button>
-            </RunDrawer>
-          ) : null}
+          {runActions ? <RunActions slot="primary" {...runActions} /> : null}
         </div>
       </div>
+
+      {/* In `off` this is the screen's focal point; `enterprise` renders nothing. Rendered
+          even without a runnable version: the recent-runs empty state points at it. */}
+      <PlacesModeNotice mode={placesMode} id={NOTICE_ID} />
 
       {current ? (
         <SummaryCard
@@ -366,6 +462,7 @@ export default async function PresetDetailPage({
           clusterNames={clusterNamesOf(current.clusterIds, index)}
           geo={diffGeoOf(current, index)}
           estimate={currentEstimate ? estimateLineParts(currentEstimate) : null}
+          runCost={summaryRunCost}
           lastRun={lastRunProps}
         />
       ) : null}
@@ -379,6 +476,10 @@ export default async function PresetDetailPage({
           </Link>
         </Button>
       </div>
+
+      {runActions ? <RunActions slot="card" {...runActions} /> : null}
+
+      <RecentRuns runs={recentRuns} mode={placesMode} />
 
       <VersionHistory versions={history} editHref={editHref} context={historyContext} />
     </div>
