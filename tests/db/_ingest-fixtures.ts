@@ -13,7 +13,8 @@ import {
   startRun,
   type IngestSourceKey,
 } from '@/lib/ingest/run-report';
-import { addressKey, nameNorm, phoneE164 } from '@/lib/normalize';
+import { addressKey, nameNorm } from '@/lib/normalize';
+import { isSkipped, overtureRowToSourceRecord } from '@/lib/overture/transform';
 import { SQL_FRESH_EXTERNAL_KEY } from './_fixtures';
 
 /**
@@ -272,46 +273,47 @@ const MEXICAN_ROWS: OvertureFixtureRow[] = [
 
 export const OVERTURE_FIXTURE: readonly OvertureFixtureRow[] = [...TEXAS_ROWS, ...MEXICAN_ROWS];
 
+/** The release string every seeded Overture record carries. */
+export const OVERTURE_FIXTURE_RELEASE = '2026-08-19.0';
+
 /**
- * The Texas-side predicate the Overture transform applies (03-RESEARCH § Criterion 5):
- * `country='US' AND region='TX'` admits zero of the 41,532 Mexican places in the bbox,
- * including the three carrying `country='MX' AND region='TX'`.
- *
- * 🔴 HANDOFF TO 03-13. The production transform (`overtureRowToSourceRecord`) does not exist
- * yet — it ships in 03-13, a later wave. Until then this is the filter `seedOvertureFixture`
- * applies, and the M23 mutation (drop the `country` half) is exercised against THIS line.
- * 03-13 should make `seedOvertureFixture` run the real transform so that M23 on the transform
- * reds `texas side filter` AND `a naive-RGV-bbox radius search returns no Mexican-side row`.
+ * A fixture row in the shape the desk script's SELECT produces through DuckDB's node-api
+ * (`getRowObjects()`): lists as `{ items }`, the address flattened, `lon`/`lat` from
+ * ST_X/ST_Y. This is what `overtureRowToSourceRecord` reads — in production and here.
  */
-export function isTexasSide(row: Pick<OvertureFixtureRow, 'country' | 'region'>): boolean {
-  return row.country === 'US' && row.region === 'TX';
+export function toOvertureRow(row: OvertureFixtureRow): Record<string, unknown> {
+  return {
+    id: row.id,
+    name_primary: row.name,
+    basic_category: row.basic_category,
+    taxonomy_primary: null,
+    confidence: 0.95,
+    operating_status: 'open',
+    websites: { items: [] },
+    socials: { items: [] },
+    phones: { items: row.phone === null ? [] : [row.phone] },
+    emails: { items: [] },
+    street: row.street,
+    locality: row.locality,
+    postcode: row.postcode,
+    region: row.region,
+    country: row.country,
+    lon: row.lng,
+    lat: row.lat,
+    version: 0,
+  };
 }
 
-export function overtureIngestInput(row: OvertureFixtureRow): IngestInput {
-  const addr = addressKey(row.street, row.postcode);
-  const phone = phoneE164(row.phone);
-  return {
-    externalId: row.id,
-    payload: { ...row },
-    derived: {
-      displayName: row.name,
-      primarySource: 'overture',
-      nameNorm: nameNorm(row.name),
-      city: row.locality,
-      phoneE164: phone.e164,
-      phoneBlockable: phone.blockable,
-      street: row.street,
-      streetNum: addr.streetNum,
-      streetNorm: addr.streetNorm,
-      unit: addr.unit,
-      postal: addr.postal,
-      lat: row.lat,
-      lng: row.lng,
-      locationMatchType: 'overture',
-      basicCategory: row.basic_category,
-      operatingStatus: 'open',
-    },
-  };
+/**
+ * A fixture row → the ingest input, THROUGH THE PRODUCTION TRANSFORM (03-13), or `null` when
+ * the transform skips it. There is no fixture-side Texas filter any more: the criterion-5 DB
+ * test and the unit `texas side filter` test both exercise `overtureRowToSourceRecord`, so
+ * mutation M23 on the transform (drop the `country` half) reds both — executed in 03-13.
+ */
+export function overtureIngestInput(row: OvertureFixtureRow): IngestInput | null {
+  const r = overtureRowToSourceRecord(toOvertureRow(row), OVERTURE_FIXTURE_RELEASE);
+  if (isSkipped(r)) return null;
+  return { externalId: r.externalId, payload: { ...r.payload }, derived: r.derived };
 }
 
 // ---------------------------------------------------------------------------------------
@@ -361,18 +363,17 @@ export async function seedComptrollerFixture(
 }
 
 /**
- * Seeds the Overture fixture through the Texas-side filter (`keep`, default `isTexasSide`).
- * Returns the seeded businesses and how many rows the filter skipped — a caller can assert the
- * filter actually saw Mexican rows, not merely that none came out.
+ * Seeds the Overture fixture through the production transform, which is where the Texas-side
+ * filter lives. Returns the seeded businesses and how many rows the transform skipped — a
+ * caller can assert the filter actually saw Mexican rows, not merely that none came out.
  */
 export async function seedOvertureFixture(
   c: Client,
   orgId: string,
   rows: readonly OvertureFixtureRow[] = OVERTURE_FIXTURE,
-  keep: (row: OvertureFixtureRow) => boolean = isTexasSide,
 ): Promise<{ seeded: SeededBusiness[]; skipped: number }> {
-  const kept = rows.filter(keep);
-  const seeded = await writeAll(c, orgId, 'overture', kept.map(overtureIngestInput), new Date(), '2026-08-19.0');
+  const kept = rows.map(overtureIngestInput).filter((i): i is IngestInput => i !== null);
+  const seeded = await writeAll(c, orgId, 'overture', kept, new Date(), OVERTURE_FIXTURE_RELEASE);
   return { seeded, skipped: rows.length - kept.length };
 }
 
