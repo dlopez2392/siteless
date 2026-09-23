@@ -262,6 +262,8 @@ describe('the closure feed', () => {
       const { a } = await asDeskScript(c);
       const x = asEtlExecutor(c);
       const input = overtureIngestInput(OVERTURE_FIXTURE[0]!);
+      // Since 03-13 this runs the production transform, which returns null for a skipped row.
+      if (input === null) throw new Error('fixture row 0 was skipped by the transform');
       input.derived.operatingStatus = 'permanently_closed';
       const sr = await upsertSourceRecord(x, {
         orgId: a,
