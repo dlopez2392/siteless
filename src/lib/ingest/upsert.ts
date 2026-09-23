@@ -289,8 +289,10 @@ function assignmentsFor(
  * That early return is what keeps an unchanged re-run from producing ~92k `events` rows
  * (`businesses` carries `app.log_event`). It is deliberately its OWN statement, separate from
  * the lookup and from the update, so it can be deleted by itself and mutation-checked without
- * disturbing its neighbours: delete it and 're-run is idempotent' goes red on the events count
- * while 'payload hash diff' stays green.
+ * disturbing its neighbours. Executed 2026-09-22: deleting it reds 're-run is idempotent'
+ * (24 businesses events where 12 were expected) and 'payload hash diff' (24 where 13 — that
+ * test pins "exactly the one changed row wrote an event"), while 'gone is not a delete' and the
+ * run-report tests stay green.
  *
  * On insert it draws an external key and uses `on conflict (org_id, external_key) do nothing
  * returning id`, retrying with a fresh key up to `EXTERNAL_KEY_ATTEMPTS` times. A pre-read of
