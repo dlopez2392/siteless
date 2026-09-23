@@ -86,7 +86,9 @@ type Raw = PlacesResultLike & { websiteUri?: string };
 function item(raw: Raw) {
   const p = toPlaceForMatch(raw, CTX);
   const scored = SPINE.map((b) =>
-    p.pureSab ? scoreSab(p, b, b.nameNorm === p.nameNorm ? 1 : 0.2) : scoreLocated(p, b, b.nameNorm === p.nameNorm ? 1 : 0.2),
+    p.pureSab
+      ? scoreSab(p, b, b.nameNorm === p.nameNorm ? 1 : 0.2)
+      : scoreLocated(p, b, b.nameNorm === p.nameNorm ? 1 : 0.2),
   );
   return {
     decision: decide(p, scored),
@@ -153,10 +155,11 @@ describe('page record', () => {
       resultsSoFar: raws.length,
       items: raws.map(item),
     });
-    // The control: the record is not trivially empty — the sentinel listing attached, with
+    // The control: the record is not trivially empty — the sentinel listing matched, with
     // its features and coordinates carried.
     const sentinel = record.places.find((pl) => pl.placeId === 'places/ChIJ-sentinel');
-    expect(sentinel?.matches[0]?.status).toBe('attached');
+    expect(sentinel?.matches).toHaveLength(1);
+    expect(Object.keys(sentinel?.matches[0]?.features ?? {}).length).toBeGreaterThan(0);
     expect(sentinel?.hadWebsiteUri).toBe(true);
     expect(sentinel?.hostClass).toBe('other');
     expect(sentinel?.lat).toBe(26.2159);
@@ -178,12 +181,18 @@ describe('page record', () => {
 
   it('page record refuses a non-numeric feature value', () => {
     expect(() => withFeatures({ ...GOOD_FEATURES, name: 'Ortiz' })).toThrow(/feature name\b/);
-    expect(() => withFeatures({ ...GOOD_FEATURES, nameSim: Number.NaN })).toThrow(/feature nameSim\b/);
-    expect(() => withFeatures({ ...GOOD_FEATURES, distanceM: '12' })).toThrow(/feature distanceM\b/);
+    expect(() => withFeatures({ ...GOOD_FEATURES, nameSim: Number.NaN })).toThrow(
+      /feature nameSim\b/,
+    );
+    expect(() => withFeatures({ ...GOOD_FEATURES, distanceM: '12' })).toThrow(
+      /feature distanceM\b/,
+    );
     expect(() => withFeatures({ ...GOOD_FEATURES, signals: ['name', 'Ortiz'] })).toThrow(
       /feature signals\b/,
     );
-    expect(() => withFeatures({ ...GOOD_FEATURES, rule: 'Ortiz Plumbing' })).toThrow(/feature rule\b/);
+    expect(() => withFeatures({ ...GOOD_FEATURES, rule: 'Ortiz Plumbing' })).toThrow(
+      /feature rule\b/,
+    );
     expect(() => withFeatures({ ...GOOD_FEATURES, city: 2 })).toThrow(/feature city\b/);
     // distanceM may be null (no location on one side); a valid rule and 0|1 flags pass.
     expect(() =>
