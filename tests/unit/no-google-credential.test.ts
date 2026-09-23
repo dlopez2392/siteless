@@ -65,13 +65,17 @@ const FORBIDDEN: Array<{ label: string; re: RegExp; allowedIn?: ReadonlySet<stri
 
 /** Every `path:line [label] text` in `file` that matches a FORBIDDEN pattern, allowances
  *  ignored — the caller decides what is excused. */
-function hitsIn(file: string): Array<{ label: string; allowedIn?: ReadonlySet<string>; at: string }> {
+function hitsIn(
+  file: string,
+): Array<{ label: string; allowedIn?: ReadonlySet<string>; at: string }> {
   const hits: Array<{ label: string; allowedIn?: ReadonlySet<string>; at: string }> = [];
   const lines = nodeFs.readFileSync(file, 'utf8').split(/\r?\n/);
   lines.forEach((line, i) => {
     for (const { label, re, allowedIn } of FORBIDDEN) {
       // Name the file AND the line. A guard that reports only "failed" costs an hour.
-      if (re.test(line)) hits.push({ label, allowedIn, at: `${file}:${i + 1} [${label}] ${line.trim()}` });
+      if (re.test(line)) {
+        hits.push({ label, allowedIn, at: `${file}:${i + 1} [${label}] ${line.trim()}` });
+      }
     }
   });
   return hits;

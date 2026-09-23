@@ -54,13 +54,7 @@ export function placesKeyConfigured(): boolean {
 }
 
 export type SearchTextFailure =
-  | 'daily_quota'
-  | 'rate_limited'
-  | 'rejected'
-  | 'unavailable'
-  | 'timeout'
-  | 'bad_shape'
-  | 'no_key';
+  'daily_quota' | 'rate_limited' | 'rejected' | 'unavailable' | 'timeout' | 'bad_shape' | 'no_key';
 
 export type SearchTextOutcome =
   | { ok: true; places: ParsedPlace[]; nextPageToken: string | null }
@@ -74,7 +68,10 @@ function retryAfterMsOf(header: string | null): number {
 }
 
 /** One Text Search page. Never rejects: every outcome is a value. */
-export async function searchText(call: ReservedCall, req: PlacesRequest): Promise<SearchTextOutcome> {
+export async function searchText(
+  call: ReservedCall,
+  req: PlacesRequest,
+): Promise<SearchTextOutcome> {
   // A reservation priced at one SKU carrying a request priced at another is a caller bug —
   // and a ledger that would disagree with the invoice. Refused before anything is sent.
   if (call.sku !== req.sku) return { ok: false, reason: 'rejected', status: null };
