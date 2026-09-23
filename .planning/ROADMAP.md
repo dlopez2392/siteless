@@ -164,7 +164,7 @@ Plans:
 - [x] 03-13-PLAN.md — `scripts/ingest-overture.ts`: the DuckDB bbox range-read, the pure transform, the committed fixture
 
 **Wave 5** *(blocked on Wave 4)*
-- [ ] 03-14-PLAN.md — `scripts/resolve.ts`: block → score → auto-merge → enqueue, cluster-aware
+- [x] 03-14-PLAN.md — `scripts/resolve.ts`: block → score → auto-merge → enqueue, cluster-aware
 - [ ] 03-15-PLAN.md — Three query modules and two server actions
 
 **Wave 6** *(blocked on Wave 5)*
