@@ -172,7 +172,7 @@ Plans:
 - [x] 03-17-PLAN.md — `/sources`: the four-row ledger, the composed confidence distribution, the attribution block
 - [x] 03-18-PLAN.md — `/businesses`: search, filters, append paging
 - [x] 03-19-PLAN.md — `/businesses/[id]`: ten fields with inline source tags, merge history, unmerge
-- [ ] 03-20-PLAN.md — The desk run: real numbers committed, the confidence cutoff and the ten verdicts confirmed (checkpoint)
+- [x] 03-20-PLAN.md — The desk run: real numbers committed, the confidence cutoff and the ten verdicts confirmed (checkpoint)
 
 **Wave 7** *(blocked on Wave 6, checkpoints)*
 - [ ] 03-21-PLAN.md — Production migration and seed, deploy, the two chrome-only e2e specs, the owed teardown
