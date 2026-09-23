@@ -1,12 +1,11 @@
-import { Suspense, type ReactNode } from 'react';
+import { Suspense } from 'react';
 import { CandidatePair } from '@/components/review/candidate-pair';
 import { ReviewActions, ReviewAdvance } from '@/components/review/review-actions';
 import { ReviewNothingYet, ReviewQueueClear } from '@/components/review/review-empty';
 import { ReviewSkeleton } from '@/components/review/review-skeleton';
-import { Card } from '@/components/ui/card';
+import { ThumbBar } from '@/components/review/thumb-bar';
 import { Skeleton } from '@/components/ui/skeleton';
 import { orgClaims } from '@/lib/auth/require-org';
-import { cn } from '@/lib/utils';
 import {
   REVIEW_CLEAR_HEADING,
   REVIEW_EMPTY_HEADING,
@@ -56,35 +55,13 @@ function liveText({ top, remaining, ingested }: ReviewQueue): string {
   return ingested ? REVIEW_CLEAR_HEADING : REVIEW_EMPTY_HEADING;
 }
 
-/**
- * Phone only: the sticky action bar is two 48px rows, an 8px gap, 16px padding top and bottom
- * and a 1px border (2×48 + 8 + 2×16 + 1 = 137px). The layout's `<main>` already clears the
- * 64px tab bar and its inset, so this clears the bar on top of it — the last line of card B is
- * never under a thumb. From 640px up the actions are an ordinary row and need no clearance.
- */
-const PHONE_BAR_CLEARANCE = 'pb-[calc(2*3rem+0.5rem+2*1rem+1px)] sm:pb-0';
-
-/**
- * The thumb zone (MOB-01). Phone: the `--card` surface with a 1px top border and 16px padding,
- * fixed directly above the 64px tab bar — the safe-area inset is ADDED to the tab bar's height,
- * never substituted for it. From 640px up it is an ordinary row beneath the chip band. It holds
- * nothing destructive and nothing irreversible (Executor Rule 23).
- */
-function ThumbBar({ children }: { children: ReactNode }) {
-  return (
-    <Card className="fixed inset-x-0 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-40 rounded-none border-0 border-t p-4 shadow-none ring-0 sm:static sm:z-auto sm:overflow-visible sm:border-0 sm:bg-transparent sm:p-0">
-      {children}
-    </Card>
-  );
-}
-
 async function ReviewRegion() {
   const claims = await orgClaims();
   const queue = await listReviewQueue(claims);
   const { top, ingested } = queue;
 
   return (
-    <div className={cn('flex flex-col gap-4 lg:gap-6', top && PHONE_BAR_CLEARANCE)}>
+    <div className="flex flex-col gap-4 lg:gap-6">
       <div className="flex items-start justify-between gap-4">
         <div className="flex min-w-0 flex-col gap-1">
           <PageHeading />
@@ -131,7 +108,7 @@ async function ReviewRegion() {
 
 function ReviewLoading() {
   return (
-    <div className={cn('flex flex-col gap-4 lg:gap-6', PHONE_BAR_CLEARANCE)}>
+    <div className="flex flex-col gap-4 lg:gap-6">
       <div className="flex flex-col gap-1">
         <PageHeading />
         <Skeleton className="h-5 w-48" />
