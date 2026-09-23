@@ -1685,6 +1685,30 @@ export function BUSINESS_GOOGLE_EMPTY_BODY(city: string, cluster: string) {
   );
 }
 
+/**
+ * 04-25 copy gap (for danlo's copy review): the empty body above names "{city} for {cluster}",
+ * which is false for a business with no city or no cluster mapped — no run can cover it.
+ */
+export function BUSINESS_GOOGLE_EMPTY_BODY_UNCOVERED(missing: 'city' | 'cluster') {
+  const what = missing === 'city' ? 'no city on record' : 'no cluster mapped';
+  return (
+    `No Google Maps listing is attached to this business. Runs search a city for a cluster, and ` +
+    `this business has ${what}, so no run covers it yet. Until then Siteless has no Google ` +
+    `signal for it — and doesn't assume one.`
+  );
+}
+
+/**
+ * 04-25 copy gap: the muted mark after a history row whose listing is not (or no longer) a
+ * signal. DETACH_BODY promises "Its past checks stay in the history, marked detached", and a
+ * pending listing's check is never shown as a sentence (D-05).
+ */
+export const BUSINESS_GOOGLE_HISTORY_MARK = {
+  tentative: 'pending review',
+  rejected: 'not this business',
+  detached: 'detached',
+} as const;
+
 export const BUSINESS_GOOGLE_EMPTY_ACTION = PLACES_ACTION.openPresets;
 
 export const BUSINESS_GOOGLE_LOAD_FAILED =
@@ -1714,6 +1738,17 @@ export const DETACH_DISMISS = 'Keep it attached';
 export const DETACH_FAILED =
   "The detach didn't complete. The listing is still attached exactly as it was, and its " +
   'signal still counts for this business. Try again, or reload the business.';
+
+/**
+ * 04-25 copy gap (for danlo's copy review): `detachListing` answers `conflict` /
+ * `already_decided` when the listing is no longer attached — someone detached it (or it was
+ * never confirmed) while this page was open. DETACH_FAILED's "still attached exactly as it
+ * was" would be false there, so the dialog shows this and offers only the reload.
+ */
+export const DETACH_ALREADY_DECIDED =
+  "This listing isn't attached any more — someone else changed it while this page was open. " +
+  'Their decision stands and nothing of yours was recorded. Reload the business to see where ' +
+  'it stands.';
 
 /* --- /sources — the transient card (§ Screen 4) ------------------------------------------ */
 
