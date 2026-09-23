@@ -60,6 +60,10 @@ touches goes through it.
 
 - The single exception is `/api/health`'s `select 1`, which needs no claims and reads no
   table.
+- Two further non-`withOrg` paths exist since Phase 4, each allow-listed and narrow:
+  `withCronRole()` (`set local role siteless_cron`; execute on the purge function only) and
+  `withWorkerOrg()` (04-16; claims `{o:{id}}` + `app.actor_id` GUC, no `sub`, no role claim,
+  for workflow steps).
 - The claims are a **bound parameter**, never interpolated into the statement text (T-1-05).
 - `set_config('request.jwt.claims', $1, true)` — the third argument is `true`, the
   transaction-**LOCAL** form. The non-local form survives the COMMIT, and on a
