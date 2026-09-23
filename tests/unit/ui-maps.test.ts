@@ -290,9 +290,10 @@ describe('run kinds and stopped reasons (04-UI-SPEC Rule 35, Open Question 19)',
     expect(written).toContain('never_started');
     expect(written).toContain('budget_cap_reached');
     for (const reason of written) {
-      expect(STOPPED_REASONS as readonly string[], `${reason} is written but has no copy`).toContain(
-        reason,
-      );
+      expect(
+        STOPPED_REASONS as readonly string[],
+        `${reason} is written but has no copy`,
+      ).toContain(reason);
     }
   });
 
@@ -314,8 +315,9 @@ describe('run kinds and stopped reasons (04-UI-SPEC Rule 35, Open Question 19)',
       expect(sentence.trim(), `${reason} has empty copy`).not.toBe('');
       // Rule 35: a machine key never reaches the screen. No sentence carries an underscore,
       // which is the one character every key has and no English sentence here needs.
+      // (`abandoned` is both a key and an ordinary word — the sentence may say it; what it may
+      // not do is print a key with an underscore in it.)
       expect(sentence, `${reason} renders a machine key`).not.toContain('_');
-      expect(sentence).not.toContain(reason);
     }
   });
 

@@ -24,6 +24,13 @@
  * that names a zone for a machine.
  */
 import { formatUsd } from '@/lib/budget/money';
+import {
+  RUN_ABANDONED_AFTER_MINUTES,
+  RUN_NEVER_STARTED_AFTER_MINUTES,
+} from '@/lib/estimate/assumptions';
+import type { HostClass } from '@/lib/places/host-class';
+import { formatCount } from '@/lib/time';
+import type { StoppedReason } from './run-tone';
 
 /**
  * UI-SPEC § Copy Table → Shell, extended by 03-UI-SPEC § 0 to six destinations.
@@ -843,3 +850,951 @@ export const ERROR_THING = {
   page: 'this page',
   business: 'this business',
 } as const;
+
+// ─── Phase 4 (04-UI-SPEC § Copy Table) ───────────────────────────────────────────────────
+/* ======================================================================================
+ * PHASE 4 — 04-UI-SPEC § Copy Table, § States → Empty, § States → Error, and Amendment 1
+ * (the copy gaps settled at planning). Plan 04-07 owns this section for the whole phase; the
+ * screen plans import from it and never edit it, so they can run in parallel.
+ *
+ * 🔴 WHAT IS FORMATTED HERE AND WHAT IS NOT. Unlike the Phase 3 section above, a count is
+ * passed as a NUMBER and grouped here through `formatCount` (the pinned locale, `src/lib/
+ * time.ts`), and money is passed as µUSD and formatted here through `formatUsd` — so a caller
+ * cannot hand in "1284" or "$2.3". Instants and durations still arrive PRE-FORMATTED
+ * (`formatLocal` at the call site), because each one needs its own options (a time-only
+ * "2:14:05 PM" vs "Sep 23, 2:14 PM") and this module never picks a zone or a style. Nothing
+ * in this section calls `Intl`.
+ *
+ * 🔴 RULE 30: NO PARAMETER HERE IS GOOGLE TEXT. Every `name` is the SPINE's display name,
+ * every `city` the spine's; Google's name, address, phone and URL are never stored and so can
+ * never be interpolated. A host class arrives as its enum, never as the URL it came from.
+ *
+ * 🔴 Curly quotes (“ ”) around a business name ARE the copy; straight apostrophes are too,
+ * where the spec has them ("can't", "Google's"). Reproduced exactly as written.
+ * ==================================================================================== */
+
+type MicroUsd = bigint | number;
+
+/** "1 tile" / "3 tiles" / "1,284 tiles" — a count with its noun, grouped in the pinned locale. */
+function counted(n: number, one: string, many: string): string {
+  return `${formatCount(n)} ${n === 1 ? one : many}`;
+}
+
+/* --- Attribution (D-11, PLACE-06; Executor Rules 28–29) ---------------------------------- */
+
+/** Google's required attribution text. Exact, case-sensitive, never translated, never a badge.
+ *  `GoogleMapsTag` is its only renderer. */
+export const GOOGLE_MAPS_TAG = 'Google Maps';
+
+/** The date beside the tag — a SEPARATE muted span, so the tag's colour and font never reach
+ *  it. `date` is pre-formatted through `formatLocal`. */
+export function GOOGLE_MAPS_TAG_DATE(date: string) {
+  return ` · ${date}`;
+}
+
+/** The visually hidden suffix on every external Google Maps link's accessible name. */
+export const GOOGLE_MAPS_LINK_SR_SUFFIX = '(opens Google Maps)';
+
+/** Both "Open this listing on Google Maps" buttons (review card and business detail). */
+export const OPEN_LISTING_ON_GOOGLE_MAPS = 'Open this listing on Google Maps';
+
+/* --- Actions shared across the Phase 4 screens ------------------------------------------ */
+
+export const PLACES_ACTION = {
+  openSpend: 'Open spend view',
+  openPresets: 'Open presets',
+  reloadPreset: 'Reload this preset',
+  reloadBusiness: 'Reload this business',
+  reloadQueue: 'Reload the queue',
+  tryAgain: 'Try again',
+  showDuplicates: 'Show duplicates',
+  showGoogle: 'Show Google listings',
+} as const;
+
+/** "Open {preset name}" — the way out of a failed, never-started or abandoned run. */
+export function RUN_OPEN_PRESET(presetName: string) {
+  return `Open ${presetName}`;
+}
+
+/* --- Stopped reasons (Executor Rule 35) --------------------------------------------------
+ *
+ * The SHORT sentence for a stored `runs.stopped_reason`: the preset's recent-runs row, the
+ * `/spend` By-run sub-line, and (first clause) the run report's live announcement. The long
+ * alerts are further down. `tests/unit/ui-maps.test.ts` asserts every key has a sentence and
+ * no sentence contains an underscore — a machine key never reaches the screen. */
+
+export const STOPPED_REASON: Record<StoppedReason, string> = {
+  budget_cap_reached: 'Stopped at the monthly cap — nothing past it was charged.',
+  // "twice": RUN_CEILING_MULTIPLIER is 2, pinned beside this sentence in ui-maps.test.ts.
+  exceeded_estimate: 'Stopped at twice the estimate.',
+  google_daily_quota: "Stopped at Google's daily limit — the rest can run after it resets.",
+  places_request_rejected: 'Google rejected a request, so the run stopped.',
+  places_unavailable: "Google Places didn't answer, so the run stopped.",
+  places_key_missing: 'No Google Places key is set for this deployment.',
+  never_started: 'Never started — its budget hold was released.',
+  abandoned: 'Stopped reporting progress and was marked abandoned.',
+};
+
+/** The first clause of a `STOPPED_REASON` sentence, for "Run stopped early — {clause}". */
+function firstClause(sentence: string): string {
+  return (sentence.split(/ — |, /)[0] ?? sentence).replace(/\.$/, '');
+}
+
+/* --- Run report — `/runs/[id]` (§ Screen 1) --------------------------------------------- */
+
+export const RUN_REPORT_TITLE = 'Run report';
+
+export function RUN_REPORT_SUBTITLE(presetName: string, version: number) {
+  return `${presetName} · version ${version}`;
+}
+
+/** `document.title`. */
+export function RUN_REPORT_DOCUMENT_TITLE(presetName: string) {
+  return `Run report — ${presetName}`;
+}
+
+/** Breadcrumb tail. `startedAt` is pre-formatted ("Sep 23, 2:14 PM"). */
+export function RUN_REPORT_BREADCRUMB(startedAt: string) {
+  return `Run ${startedAt}`;
+}
+
+/** The phone back link is the preset's own name. */
+export function RUN_REPORT_BACK_LINK(presetName: string) {
+  return presetName;
+}
+
+export function RUN_REPORT_STARTED(startedAt: string) {
+  return `started ${startedAt}`;
+}
+
+/** The header card's one-line summary, by status (§ States → Running / terminal). */
+export const RUN_SUMMARY_QUEUED = 'Waiting to start';
+
+export function RUN_SUMMARY_RUNNING(searched: number, total: number) {
+  return `${formatCount(searched)} of ${counted(total, 'tile', 'tiles')} searched so far`;
+}
+
+/** `duration` is pre-formatted ("17m 04s"). */
+export function RUN_SUMMARY_COMPLETE(total: number, duration: string) {
+  return `Complete — ${counted(total, 'tile', 'tiles')} searched in ${duration}`;
+}
+
+export function RUN_SUMMARY_PARTIAL(searched: number, total: number) {
+  return `Stopped early — ${formatCount(searched)} of ${counted(total, 'tile', 'tiles')} searched`;
+}
+
+export const RUN_SUMMARY_REFUSED = 'Refused before any request';
+
+export function RUN_SUMMARY_FAILED(calls: number) {
+  return `Failed after ${counted(calls, 'request', 'requests')}`;
+}
+
+/**
+ * The estimate line under the cost (Amendment 1, D-18). The ceiling is ENFORCED ON REQUESTS —
+ * inside the monthly free allowance a run's dollar ceiling is $0.00, and "stops at $0.00" on
+ * its own would read as "stops immediately" — so both the dollar and the request ceiling are
+ * shown. Money in µUSD; `ceilingRequests` is the `runs.ceiling_requests` stored at insert.
+ */
+export function RUN_ESTIMATE_LINE(
+  lo: MicroUsd,
+  hi: MicroUsd,
+  ceilingUsd: MicroUsd,
+  ceilingRequests: number,
+) {
+  return (
+    `Estimated ${formatUsd(lo)}–${formatUsd(hi)} · this run stops at ${formatUsd(ceilingUsd)} · ` +
+    `${counted(ceilingRequests, 'request', 'requests')}`
+  );
+}
+
+/** Muted, not warning: nothing has stopped. */
+export function RUN_ABOVE_ESTIMATE(amount: MicroUsd, ceiling: MicroUsd) {
+  return (
+    `Above the estimate's top by ${formatUsd(amount)} — still under this run's ` +
+    `${formatUsd(ceiling)} stop.`
+  );
+}
+
+export const RUN_CHANGE_CHECK_COST_NOTE =
+  'Change checks use the free IDs-only search — every request is still written to the ledger.';
+
+/** `time` is pre-formatted, time only ("2:14:05 PM"). */
+export function RUN_REPORT_LIVE_LINE(time: string) {
+  return `Updated ${time} · updating every 5 seconds`;
+}
+
+/** `finishedAt` and `duration` are pre-formatted ("Sep 23, 2:31 PM", "17m 04s"). */
+export function RUN_REPORT_FINISHED_LINE(finishedAt: string, duration: string) {
+  return `Finished ${finishedAt} · took ${duration}`;
+}
+
+export const RUN_REPORT_REFRESH_NOW = 'Refresh now';
+export const RUN_REPORT_REFRESHING = 'Refreshing…';
+
+/** Inline, replacing the "Updated …" line. Both times pre-formatted. */
+export function RUN_REPORT_REFRESH_FAILED(time: string, lastTime: string) {
+  return (
+    `Couldn't refresh at ${time}. Showing the numbers from ${lastTime}; the next try is in ` +
+    `5 seconds.`
+  );
+}
+
+/* --- Run report → stop / refusal / failure alerts --------------------------------------- */
+
+/** `partial` · `budget_cap_reached` (warning). `resetDate` pre-formatted. */
+export function RUN_STOP_CAP(
+  cap: MicroUsd,
+  cost: MicroUsd,
+  searched: number,
+  notSearched: number,
+  resetDate: string,
+) {
+  return (
+    `Stopped at your ${formatUsd(cap)} monthly cap after ${formatUsd(cost)}. Siteless refused ` +
+    `the next request before it left, so nothing past the cap was charged. The ` +
+    `${counted(searched, 'tile', 'tiles')} already searched are complete; the ` +
+    `${formatCount(notSearched)} not searched yet can run after the cap resets on ${resetDate}, ` +
+    `or after you raise it.`
+  );
+}
+
+/** `partial` · `exceeded_estimate` (warning). `ceiling` is 2 × `hi` (RUN_CEILING_MULTIPLIER). */
+export function RUN_STOP_ESTIMATE(
+  lo: MicroUsd,
+  hi: MicroUsd,
+  ceiling: MicroUsd,
+  subdividing: number,
+) {
+  return (
+    `Stopped at twice the estimate. This run was estimated at ${formatUsd(lo)}–${formatUsd(hi)}, ` +
+    `and Siteless stops any run at 2× the top of its estimate — ${formatUsd(ceiling)} — so a ` +
+    `tiling surprise can't eat the month. ${counted(subdividing, 'tile was', 'tiles were')} ` +
+    `still subdividing when it stopped; they're listed below. Everything collected before the ` +
+    `stop is complete.`
+  );
+}
+
+/**
+ * `partial` · `google_daily_quota` (warning; Amendment 1, D-19). Google refused a request with
+ * 429 RESOURCE_EXHAUSTED at the per-API daily quota (the second wall), so the run ended cleanly
+ * as `partial` — the quota is a planned limit, not a pipeline failure. Action: "Open spend view".
+ */
+export function RUN_STOP_DAILY_QUOTA(quota: number, searched: number, notSearched: number) {
+  return (
+    `Stopped at Google's daily limit of ${counted(quota, 'request', 'requests')}. Google refused ` +
+    `the next request, so nothing past the limit was charged. The ` +
+    `${counted(searched, 'tile', 'tiles')} already searched are complete; the ` +
+    `${formatCount(notSearched)} not searched yet can run tomorrow — Google's daily quota ` +
+    `resets at midnight Pacific time.`
+  );
+}
+
+export const RUN_STOP_ACTION = {
+  raiseCap: 'Raise the monthly cap',
+  askAdmin: 'Ask an admin to raise the cap',
+  openSpend: PLACES_ACTION.openSpend,
+  showSubdividing: 'Show the tiles still subdividing',
+  hideSubdividing: 'Hide the tiles still subdividing',
+} as const;
+
+/** The Tiles card's collapsible on an `exceeded_estimate` run (§ Screen 1). */
+export function RUN_SUBDIVIDING_TITLE(count: number) {
+  return `Tiles still subdividing when the run stopped (${formatCount(count)})`;
+}
+
+/**
+ * The `{error}` clause inside `RUN_FAILED` for the three Places fail reasons (Amendment 1).
+ * Never a thrown message: the reducer's `failReasonOf` collapses every error to one of these
+ * keys precisely so no Places response fragment can reach a screen.
+ */
+export const RUN_FAILED_ERROR: Record<
+  'places_request_rejected' | 'places_unavailable' | 'places_key_missing',
+  string
+> = {
+  places_request_rejected: 'Google rejected a request as malformed (HTTP 400)',
+  places_unavailable: "Google Places didn't answer after retrying",
+  places_key_missing: 'no Google Places API key is set for this deployment, so nothing was sent',
+};
+
+/** `failed` (destructive). `error` is a `RUN_FAILED_ERROR` clause. Action: `RUN_OPEN_PRESET`. */
+export function RUN_FAILED(calls: number, error: string, cost: MicroUsd) {
+  return (
+    `The run failed after ${counted(calls, 'request', 'requests')}: ${error}. Every request ` +
+    `that left was reserved and ledgered first, so ${formatUsd(cost)} above is exactly what it ` +
+    `cost. Start the run again from its preset; the tiles it reached are listed below.`
+  );
+}
+
+/**
+ * `failed` · `never_started` (destructive; Amendment 1). Action: `RUN_OPEN_PRESET(name)`. The
+ * minutes are the sweeper's own constant, never a second literal.
+ */
+export const RUN_NEVER_STARTED =
+  `This run never started. The workflow didn't pick it up within ` +
+  `${RUN_NEVER_STARTED_AFTER_MINUTES} minutes, so Siteless released its budget hold — nothing ` +
+  `was charged. Start it again from its preset.`;
+
+/** `failed` · `abandoned` (destructive; Amendment 1). Action: `RUN_OPEN_PRESET(name)`. */
+export function RUN_ABANDONED(cost: MicroUsd) {
+  return (
+    `This run stopped reporting progress for ${RUN_ABANDONED_AFTER_MINUTES} minutes, so ` +
+    `Siteless marked it abandoned. Every request that left was reserved and ledgered first, so ` +
+    `${formatUsd(cost)} above is exactly what it cost. Start the run again from its preset; ` +
+    `the tiles it reached are listed below.`
+  );
+}
+
+/** `queued` for more than 2 minutes (muted — nothing is known to be wrong yet). */
+export function RUN_QUEUED_LONG(minutes: number) {
+  return (
+    `Still waiting to start after ${counted(minutes, 'minute', 'minutes')}. The workflow may not ` +
+    `have picked this run up — its budget hold is released automatically if it never starts, ` +
+    `so nothing is charged while it waits. Check the Workflow runs for this deployment in ` +
+    `Vercel.`
+  );
+}
+
+/* --- Run report → truncation warning (criterion 3) --------------------------------------- */
+
+export function RUN_TRUNCATION_HEADING(n: number) {
+  return `${counted(n, 'tile', 'tiles')} still hit Google's 60-result limit at the smallest tile size.`;
+}
+
+export const RUN_TRUNCATION_BODY =
+  'Google returns at most 60 places per search, and these tiles returned 60 even after ' +
+  "Siteless split them as far as it's allowed to. Places beyond the 60th in them are missing " +
+  'from this run. Every other tile is complete. Fixing it is a desk change — a narrower ' +
+  'Places type for these cells, or a smaller minimum tile in the tiling constants.';
+
+export function RUN_TRUNCATION_SHOW(n: number) {
+  return `Show the ${counted(n, 'truncated tile', 'truncated tiles')}`;
+}
+
+export const RUN_TRUNCATION_HIDE = 'Hide the truncated tiles';
+export const RUN_TRUNCATION_COPY = 'Copy the tile list';
+
+/** One truncated tile. `placesType` is OUR configured type key, not a Google-returned type. */
+export function RUN_TILE_ROW(geography: string, placesType: string, tileId: string) {
+  return `${geography} · ${placesType} · tile ${tileId}`;
+}
+
+/* --- Run report → cards ------------------------------------------------------------------ */
+
+export const RUN_REPORT_CARD = {
+  requests: 'Requests',
+  tiles: 'Tiles',
+  outcomes: 'Outcomes',
+  changes: 'Changes',
+} as const;
+
+export const RUN_REQUESTS_COLUMN = {
+  sku: 'SKU',
+  requests: 'Requests',
+  freeThisMonth: 'Free this month',
+  cost: 'Cost',
+} as const;
+
+export const RUN_SKU_NAME = {
+  ts_enterprise: 'Text Search Enterprise',
+  ts_essentials: 'Text Search Essentials (IDs only)',
+  refused: 'Refused by the meter',
+  total: 'Total',
+} as const;
+
+export const RUN_REQUESTS_FOOTNOTE =
+  'One ledger row per request, including the free ones — the monthly free allowance can only ' +
+  'be counted if every call is written down. Each results page is a separate request.';
+
+export const RUN_TILES_COUNT = {
+  searched: 'Searched',
+  saturated: 'Saturated',
+  subdivided: 'Subdivided',
+  truncated: 'Still truncated',
+} as const;
+
+export const RUN_TILES_EXPLAINER =
+  "Saturated means a search returned Google's full 60. Siteless splits a saturated tile into " +
+  "four and searches again; still truncated means it hit 60 at the smallest size it's allowed " +
+  'to split to.';
+
+export const RUN_MATCHING_COUNT = {
+  found: 'Found on Google',
+  attached: 'Attached',
+  tentative: 'Tentative',
+  unmatched: 'Matched nothing',
+} as const;
+
+export function RUN_REVIEW_LINK(n: number) {
+  return `Review ${formatCount(n)} in the queue`;
+}
+
+export const RUN_CLUSTER_COLUMN = {
+  cluster: 'Cluster',
+  found: RUN_MATCHING_COUNT.found,
+  attached: RUN_MATCHING_COUNT.attached,
+  tentative: RUN_MATCHING_COUNT.tentative,
+  unmatched: RUN_MATCHING_COUNT.unmatched,
+} as const;
+
+export const RUN_CLUSTER_FOOTNOTE =
+  'Matched nothing means no business in the spine scored 80 or above against the listing. ' +
+  "Siteless keeps only the listing's id — this column is how the Comptroller and Overture " +
+  'coverage gap gets measured, per cluster.';
+
+export const RUN_WEBSITE_TITLE = 'Website on Google';
+
+export const RUN_WEBSITE_ROW = {
+  listed: 'Listed a website',
+  none: 'No website listed',
+} as const;
+
+/**
+ * The run report's short host-class labels (the five non-`none` classes, indented under
+ * "Listed a website"; `none` is `RUN_WEBSITE_ROW.none`). Words, never colours (D-09).
+ * `src/lib/ui/places-format.ts` owns the ORDER; this owns the words.
+ */
+export const HOST_CLASS_SHORT_LABEL: Record<Exclude<HostClass, 'none'>, string> = {
+  other: 'Own website (not yet checked)',
+  social: 'Social page',
+  directory: 'Directory page',
+  platform_subdomain: 'Site-builder subdomain',
+  business_site_dead: 'Dead Google site (business.site)',
+};
+
+/** Business detail → the signal sentence, one per host class (all six). */
+export const HOST_CLASS_SENTENCE: Record<HostClass, string> = {
+  none: 'No website listed',
+  business_site_dead: 'Website listed — a dead Google site (business.site)',
+  social: 'Website listed — a social page, not a website',
+  directory: 'Website listed — a directory page, not a website',
+  platform_subdomain: 'Website listed — a site-builder subdomain',
+  other: 'Website listed — own domain, not checked yet',
+};
+
+export const RUN_CHANGE_COUNT = {
+  checked: 'Tiles checked',
+  unchanged: 'Unchanged',
+  new: 'With new places',
+  gone: 'With places gone',
+} as const;
+
+export function RUN_CHANGE_IDS_LINE(added: number, gone: number) {
+  return `New place ids ${formatCount(added)} · Gone place ids ${formatCount(gone)}`;
+}
+
+export function RUN_CHANGE_CANDIDATES(changed: number) {
+  return `The ${counted(changed, 'changed tile is a candidate', 'changed tiles are candidates')} for the next paid sweep.`;
+}
+
+export const RUN_REPORT_FOOTNOTE =
+  "Siteless keeps a Google listing's id, a derived website signal, and its coordinates for at " +
+  'most 30 days. Nothing else from Google is stored.';
+
+/* --- Run report → the polite live region (transitions only) ------------------------------ */
+
+export const RUN_ANNOUNCE_STARTED = 'Run started';
+
+export function RUN_ANNOUNCE_COMPLETE(cost: MicroUsd) {
+  return `Run complete — ${formatUsd(cost)}`;
+}
+
+/** "Run stopped early — {reason sentence's first clause}". */
+export function RUN_ANNOUNCE_STOPPED(reason: StoppedReason) {
+  return `Run stopped early — ${firstClause(STOPPED_REASON[reason])}`;
+}
+
+export const RUN_ANNOUNCE_REFUSED = 'Run refused';
+export const RUN_ANNOUNCE_FAILED = 'Run failed';
+
+export function RUN_ANNOUNCE_TRUNCATED(n: number) {
+  return `${counted(n, 'tile', 'tiles')} truncated`;
+}
+
+/* --- Run report → empty and error states -------------------------------------------------- */
+
+export const RUN_RESULTS_PENDING_HEADING = 'No Google places yet';
+export const RUN_RESULTS_PENDING_BODY =
+  'Results appear here as each tile finishes. The first ones usually land within a minute of ' +
+  'the run starting.';
+
+export const RUN_ZERO_PLACES_HEADING = 'Google returned no places for this run';
+export const RUN_ZERO_PLACES_BODY =
+  'Every tile was searched and none returned a listing of these Places types. That usually ' +
+  "means a type in this preset's clusters doesn't match how Google categorises these " +
+  "businesses — check the cluster's Places types at the desk.";
+
+export const RUN_REPORT_LOAD_FAILED =
+  "We couldn't load this run's report. The run itself is unaffected — if it's running, it " +
+  'keeps running and keeps writing to the ledger. Try again, or open the spend view to see ' +
+  'what it has cost so far.';
+
+export const RUN_REPORT_NOT_FOUND =
+  "No run with that id in this organization. Every run is listed on its preset's page and on " +
+  'the spend view.';
+
+export const RUN_REPORT_BAD_ID =
+  "That isn't a run id. Open a run from its preset or from the spend view — the address is " +
+  'filled in for you.';
+
+/* --- Preset detail — three ways to run (§ Screen 2) -------------------------------------- */
+
+export const RUN_FULL_SWEEP = 'Run full sweep';
+export const RUN_PARTITION = "Run this week's partition";
+export const RUN_CHECK_CHANGES = 'Check for changes (free)';
+
+export const PRESET_CARD = {
+  otherWays: 'Other ways to run',
+  recentRuns: 'Recent runs',
+} as const;
+
+export const PRESET_PARTITION_DESCRIPTION =
+  'Only the cells assigned to this week. Every cell has a fixed week, so four weekly ' +
+  'partitions cover the whole preset.';
+
+export const PRESET_CHECK_DESCRIPTION =
+  "Lists Google's place ids tile by tile with the free search and flags tiles whose listings " +
+  'changed since the last run. It finds no websites — changed tiles are what the next paid ' +
+  'sweep should cover.';
+
+/** "~$1.90–$2.90 · ~83 requests · every cell". */
+export function PRESET_COST_FULL(lo: MicroUsd, hi: MicroUsd, requests: number) {
+  return `~${formatUsd(lo)}–${formatUsd(hi)} · ~${counted(requests, 'request', 'requests')} · every cell`;
+}
+
+export function PRESET_COST_PARTITION(
+  lo: MicroUsd,
+  hi: MicroUsd,
+  requests: number,
+  cells: number,
+  totalCells: number,
+  week: number,
+) {
+  return (
+    `~${formatUsd(lo)}–${formatUsd(hi)} · ~${counted(requests, 'request', 'requests')} · ` +
+    `${formatCount(cells)} of ${formatCount(totalCells)} cells (week ${week})`
+  );
+}
+
+export function PRESET_COST_CHECK(requests: number) {
+  return `$0.00 · IDs only, no website data · ~${counted(requests, 'request', 'requests')}`;
+}
+
+export const PRESET_OFF_STICKY_NOTE = 'Places is switched off — see the note at the top.';
+
+/** The Places-mode notice (muted Alert). `PLACES_MODE` is named on purpose (Open Question 8). */
+export const PLACES_MODE_NOTICE_OFF_TITLE = 'Google Places is switched off for this deployment.';
+export const PLACES_MODE_NOTICE_OFF_BODY =
+  "Nothing on this page can run until it's on. Siteless ships with Places off until the Maps " +
+  'Platform terms question is answered and recorded in PROJECT.md → Key Decisions. To turn it ' +
+  "on, set PLACES_MODE to ids_only or enterprise in the Vercel project's environment variables " +
+  'and redeploy. There is deliberately no switch inside the app.';
+
+export const PLACES_MODE_NOTICE_IDS_ONLY_TITLE = 'Google Places is in IDs-only mode.';
+export const PLACES_MODE_NOTICE_IDS_ONLY_BODY =
+  "Change checks run, and they're free. Full sweeps and partitions need website data, which " +
+  'only the paid Enterprise search returns — set PLACES_MODE to enterprise in Vercel and ' +
+  'redeploy to enable them.';
+
+export const PRESET_LAST_RUN_LINK = 'Open the run report';
+export const PRESET_RECENT_RUNS_FOOTER = 'See all runs on the spend view';
+
+/** One recent-run row; the status badge renders beside it. All four parts pre-rendered: the
+ *  time through `formatLocal`, the kind through `RUN_KIND_LABEL`. */
+export function PRESET_RECENT_RUN_ROW(
+  started: string,
+  kind: string,
+  version: number,
+  cost: MicroUsd,
+) {
+  return `${started} · ${kind} · version ${version} · ${formatUsd(cost)}`;
+}
+
+export const PRESET_RECENT_RUNS_EMPTY_HEADING = 'No runs yet';
+export const PRESET_RECENT_RUNS_EMPTY_BODY =
+  'Runs of every version of this preset appear here with their cost and status. Start one ' +
+  'with Run full sweep, or check for changes first — that one is free.';
+/** The `off`-mode body: the second sentence changes, because nothing can start. */
+export const PRESET_RECENT_RUNS_EMPTY_BODY_OFF =
+  'Runs of every version of this preset appear here with their cost and status. Google ' +
+  'Places is switched off, so nothing can start — the note at the top says how to turn it on.';
+
+/* --- Run drawer (§ Screen 2) -------------------------------------------------------------- */
+
+export function RUN_DRAWER_TITLE_FULL(name: string, version: number) {
+  return `Run ${name} · version ${version} · full sweep`;
+}
+
+export function RUN_DRAWER_TITLE_PARTITION(name: string, version: number, week: number) {
+  return `Run ${name} · version ${version} · week ${week} partition`;
+}
+
+export function RUN_DRAWER_TITLE_CHECK(name: string) {
+  return `Check ${name} for changes`;
+}
+
+export const RUN_DRAWER_CELLS_LABEL = 'Cells';
+
+/** `range` is the week's pre-formatted date range ("Sep 21–27"). */
+export function RUN_DRAWER_CELLS(cells: number, totalCells: number, week: number, range: string) {
+  return `${formatCount(cells)} of ${formatCount(totalCells)} (week ${week}, ${range})`;
+}
+
+export const RUN_DRAWER_COST_LABEL = 'Cost';
+export const RUN_DRAWER_CHECK_COST = '$0.00 — IDs-only searches are free';
+export const RUN_DRAWER_CHECK_NOTE =
+  'Nothing is reserved; each request is still written to the ledger.';
+
+export const RUN_DRAWER_CONFIRM_FULL = 'Reserve budget & start the sweep';
+
+export function RUN_DRAWER_CONFIRM_PARTITION(week: number) {
+  return `Reserve budget & run week ${week}`;
+}
+
+export const RUN_DRAWER_CONFIRM_CHECK = 'Start the free change check';
+export const RUN_DRAWER_STARTING = 'Starting…';
+/** Inherited dismiss word — never "Cancel". */
+export const RUN_DRAWER_DISMISS = 'Not now';
+
+/** The value of `PLACES_MODE` (src/env.ts). Restated as a literal union so this module never
+ *  imports `env` — reading the environment at import time would make copy server-only. */
+export type PlacesModeName = 'off' | 'ids_only' | 'enterprise';
+
+const PLACES_MODE_SWITCHED: Record<PlacesModeName, string> = {
+  off: 'switched off',
+  ids_only: 'switched to IDs-only mode',
+  enterprise: 'switched to Enterprise mode',
+};
+
+/**
+ * Refused by mode — a race: the mode changed between render and click. The mode renders as
+ * words, never as its env value ("switched to ids_only" would be a machine key on screen).
+ * Action: `PLACES_ACTION.reloadPreset`.
+ */
+export function RUN_MODE_REFUSED(mode: PlacesModeName) {
+  return (
+    `Google Places was ${PLACES_MODE_SWITCHED[mode]} after this page loaded, so this run ` +
+    `can't start. Nothing was reserved and nothing was charged. Reload the preset to see which ` +
+    `runs are available.`
+  );
+}
+
+export const RUN_START_FAILED =
+  "The run didn't start. Nothing was reserved and nothing was charged. Try again — if it keeps " +
+  'failing, the spend view shows whether a run was created.';
+
+/** Amendment 1: a second active run for the org (one at a time — two sweeps must not race for
+ *  one budget). Action: `RUN_OPEN_RUNNING` → `/runs/{runningRunId}`. */
+export const RUN_ALREADY_IN_PROGRESS =
+  'Another run is already in progress for this organization. Siteless runs one at a time so ' +
+  "two sweeps can't race for the same budget. Nothing was reserved and nothing was charged.";
+
+export const RUN_OPEN_RUNNING = 'Open the running run';
+
+/**
+ * Amendment 1: a geography unit with no tileable outline (a Texas-wide county, say). `units`
+ * are the unit display names; several are joined "A, B and C" and the pronoun follows.
+ */
+export function RUN_NO_GEOMETRY(units: string | readonly string[]) {
+  const list = typeof units === 'string' ? [units] : [...units];
+  const names =
+    list.length <= 1
+      ? (list[0] ?? '')
+      : `${list.slice(0, -1).join(', ')} and ${list[list.length - 1]}`;
+  const pronoun = list.length > 1 ? 'them' : 'it';
+  return (
+    `Siteless has no map outline for ${names}, so it can't tile ${pronoun} for Google Places. ` +
+    `The 17 seeded RGV cities, the four RGV counties and radius searches can run. Nothing was ` +
+    `reserved and nothing was charged.`
+  );
+}
+
+/* --- /review — Google listings (§ Screen 3) ----------------------------------------------- */
+
+export const REVIEW_FILTER = {
+  all: 'All',
+  duplicates: 'Duplicates',
+  google: 'Google',
+} as const;
+
+/** The "Google" toggle's accessible name. */
+export const REVIEW_FILTER_GOOGLE_NAME = 'Google listings';
+
+/** "{n} left to review · {d} duplicate pairs, {g} Google listings". */
+export function REVIEW_REMAINING_ALL(n: number, pairs: number, listings: number) {
+  return (
+    `${formatCount(n)} left to review · ${counted(pairs, 'duplicate pair', 'duplicate pairs')}, ` +
+    `${counted(listings, 'Google listing', 'Google listings')}`
+  );
+}
+
+export function REVIEW_REMAINING_GOOGLE(n: number) {
+  return `${counted(n, 'Google listing', 'Google listings')} left to review`;
+}
+
+export const REVIEW_GOOGLE_CARD_TITLE = 'Google Maps listing';
+export const REVIEW_GOOGLE_CARD_BODY =
+  "Siteless keeps only this listing's id, so Google's name, address and phone aren't shown " +
+  'here. Open it on Google Maps to compare.';
+export const REVIEW_GOOGLE_OPEN_MAPS = OPEN_LISTING_ON_GOOGLE_MAPS;
+export const REVIEW_GOOGLE_COMPARED = 'How it compared';
+
+/** The four Google-kind chips. The inherited ones are `REVIEW_CHIP` above. */
+export const PLACES_CHIP = {
+  cityMatch: 'city match',
+  sab: 'service-area business',
+  noListingPhone: 'no phone on the listing',
+  noListingLocation: 'no location on the listing',
+} as const;
+
+export function REVIEW_GOOGLE_REASON_SCORE(score: number) {
+  return (
+    `Tentative — scored ${score}. Siteless attaches a Google listing on its own only at 95 and ` +
+    `above.`
+  );
+}
+
+/** `other` is the OTHER spine business's display name (rendered as a link by the caller). */
+export function REVIEW_GOOGLE_REASON_TIE(score: number, other: string, otherScore: number) {
+  return (
+    `Tentative — this listing scored ${score} against two businesses: this one and “${other}” ` +
+    `(${otherScore}). Siteless never picks between them on its own.`
+  );
+}
+
+export const REVIEW_ACTION_NOT_THIS = 'Not this business';
+
+export const REVIEW_GOOGLE_HELPER_NOT_THIS =
+  'Not this business asks before it records anything — a rejected listing never attaches to ' +
+  'this business again.';
+export const REVIEW_GOOGLE_HELPER_SKIP = 'Skip leaves this listing pending and moves on.';
+
+export const REVIEW_GOOGLE_EMPTY_HEADING = 'No Google listings to review';
+export function REVIEW_GOOGLE_EMPTY_BODY(pairs: number) {
+  return (
+    `Every tentative Google listing has a decision. ` +
+    `${counted(pairs, 'duplicate pair is', 'duplicate pairs are')} still waiting.`
+  );
+}
+
+export const REVIEW_DUPLICATES_EMPTY_HEADING = 'No duplicate pairs to review';
+export function REVIEW_DUPLICATES_EMPTY_BODY(listings: number) {
+  return (
+    `Every duplicate pair has a decision. ` +
+    `${counted(listings, 'Google listing is', 'Google listings are')} still waiting.`
+  );
+}
+
+/** The "Queue clear" body once both kinds exist. `REVIEW_CLEAR_BODY` (Phase 3) is left in
+ *  place for the screen plan that switches over (04-24). */
+export const REVIEW_CLEAR_BODY_WITH_GOOGLE =
+  'Every duplicate pair and every Google listing in the 80–95 band has a decision. New items ' +
+  'appear after the next ingest or the next Places run. Anything at 95 and above merges or ' +
+  'attaches on its own, and anything under 80 never reaches this queue.';
+
+export const REVIEW_GOOGLE_DECISION_FAILED =
+  "That decision didn't reach the server. Nothing was recorded and this listing is still " +
+  "pending, so you haven't lost your place in the queue. Try again, or reload if it keeps " +
+  'happening.';
+
+export const REVIEW_GOOGLE_ALREADY_DECIDED =
+  'Someone already decided this listing while it was open here. Their decision stands. Reload ' +
+  "the queue to see what's next.";
+
+/* --- Reject dialog (the irreversible "Not this business", Rule 42) ------------------------ */
+
+export function REJECT_TITLE(name: string) {
+  return `Never attach this Google listing to “${name}”?`;
+}
+
+export function REJECT_BODY(name: string) {
+  return (
+    `Siteless will record that this Google Maps listing is not “${name}” and will never attach ` +
+    `it to this business again — not on this run and not on any later one. The listing keeps ` +
+    `only its id and counts as “matched nothing” in run reports. Nothing about “${name}” ` +
+    `itself changes. There's no undo for this in the app, so if you're unsure, keep it pending ` +
+    `and open the listing on Google Maps first. This is recorded with your name and the time.`
+  );
+}
+
+export const REJECT_CONFIRM = 'Never attach this listing';
+export const REJECT_BUSY = 'Recording…';
+/** Never "Cancel". */
+export const REJECT_DISMISS = 'Keep it pending';
+
+export const REJECT_FAILED =
+  "That didn't record. The listing is still pending — nothing was marked, and it can still be " +
+  'attached. Try again, or keep it pending and come back to it.';
+
+/* --- Business detail — "Google Maps check" (§ Screen 5) ----------------------------------- */
+
+export const BUSINESS_GOOGLE_TITLE = 'Google Maps check';
+export const BUSINESS_GOOGLE_SIGNAL_LABEL = 'Website on Google';
+export const BUSINESS_GOOGLE_ONLY_TENTATIVE = 'No confirmed listing yet — one is pending review.';
+
+export function BUSINESS_GOOGLE_LISTING(i: number) {
+  return `Listing ${i}`;
+}
+
+export function BUSINESS_GOOGLE_LISTING_ATTACHED(i: number, score: number) {
+  return `Listing ${i} · attached at ${score}`;
+}
+
+export const BUSINESS_GOOGLE_TENTATIVE_BADGE = 'Tentative';
+
+export function BUSINESS_GOOGLE_TENTATIVE_ROW(score: number) {
+  return `Pending review — scored ${score}. It isn't used for anything until someone confirms it.`;
+}
+
+export const BUSINESS_GOOGLE_REVIEW_LINK = 'Review it in the queue';
+
+export function BUSINESS_GOOGLE_LISTING_NOT_THIS(i: number) {
+  return `Listing ${i} · not this business`;
+}
+
+/** `date` pre-formatted. */
+export function BUSINESS_GOOGLE_REJECTED_BY(actor: string, date: string) {
+  return `Rejected by ${actor} on ${date} — never attached again`;
+}
+
+export function BUSINESS_GOOGLE_DETACHED_BY(actor: string, date: string) {
+  return `Detached by ${actor} on ${date} — never attached again`;
+}
+
+export const BUSINESS_GOOGLE_OPEN_MAPS = OPEN_LISTING_ON_GOOGLE_MAPS;
+export const BUSINESS_GOOGLE_DETACH = 'Detach this listing';
+
+export function BUSINESS_GOOGLE_HISTORY_SHOW(n: number) {
+  return `Show ${counted(n, 'earlier check', 'earlier checks')}`;
+}
+
+export const BUSINESS_GOOGLE_HISTORY_HIDE = 'Hide earlier checks';
+
+/** The history row's run link text — "run Sep 23". The row is date · signal sentence · this. */
+export function BUSINESS_GOOGLE_HISTORY_RUN(date: string) {
+  return `run ${date}`;
+}
+
+export const BUSINESS_GOOGLE_EMPTY_HEADING = 'Not checked on Google yet';
+
+/** `city` and `cluster` are the spine's own city and cluster label. */
+export function BUSINESS_GOOGLE_EMPTY_BODY(city: string, cluster: string) {
+  return (
+    `No Google Maps listing is attached to this business. It's checked the next time a run ` +
+    `covers ${city} for ${cluster}. Until then Siteless has no Google signal for it — and ` +
+    `doesn't assume one.`
+  );
+}
+
+export const BUSINESS_GOOGLE_EMPTY_ACTION = PLACES_ACTION.openPresets;
+
+export const BUSINESS_GOOGLE_LOAD_FAILED =
+  "We couldn't load this business's Google check. Nothing about the business or its listings " +
+  'changed. Try again.';
+
+/* --- Detach dialog ---------------------------------------------------------------------- */
+
+export function DETACH_TITLE(name: string) {
+  return `Detach this Google listing from “${name}”?`;
+}
+
+export function DETACH_BODY(name: string) {
+  return (
+    `Siteless stops using this listing's website signal for “${name}” and never attaches it to ` +
+    `this business again. Its past checks stay in the history, marked detached. If “${name}” ` +
+    `has no other attached listing, it goes back to “Not checked on Google yet” until a run ` +
+    `finds another one. This is recorded with your name and the time.`
+  );
+}
+
+export const DETACH_CONFIRM = 'Detach this listing';
+export const DETACH_BUSY = 'Detaching…';
+/** Never "Cancel". */
+export const DETACH_DISMISS = 'Keep it attached';
+
+export const DETACH_FAILED =
+  "The detach didn't complete. The listing is still attached exactly as it was, and its " +
+  'signal still counts for this business. Try again, or reload the business.';
+
+/* --- /sources — the transient card (§ Screen 4) ------------------------------------------ */
+
+export const SOURCES_TRANSIENT_TITLE = 'Google Places (transient)';
+export const SOURCES_TRANSIENT_SUBTITLE =
+  "A verifier, not a source. Siteless keeps a listing's id, a derived website signal, and the " +
+  "listing's coordinates for at most 30 days — a daily purge removes them.";
+
+export const SOURCES_TRANSIENT_LABEL = {
+  placeIds: 'Place ids held',
+  coordinates: 'Coordinates held',
+  oldest: 'Oldest coordinates',
+  lastPurge: 'Last purge',
+  purged: 'Rows purged',
+} as const;
+
+export function SOURCES_TRANSIENT_OLDEST(days: number) {
+  return `${counted(days, 'day', 'days')} old · limit 30`;
+}
+
+export const SOURCES_TRANSIENT_NONE_HELD = 'None held';
+export const SOURCES_TRANSIENT_NEVER_RUN = 'Never run';
+
+/** `date` pre-formatted; `hours` and `count` are numbers. */
+export function SOURCES_TRANSIENT_PURGE_OVERDUE(date: string, hours: number, count: number) {
+  return (
+    `The daily purge last ran ${date} — ${counted(hours, 'hour', 'hours')} ago. ` +
+    `${counted(count, 'coordinate is', 'coordinates are')} past 30 days. The database already ` +
+    `refuses to read them, so nothing shows them, but they're still on disk until the purge ` +
+    `runs. Check the Vercel cron log for the purge job, or run it by hand at the desk.`
+  );
+}
+
+export const SOURCES_TRANSIENT_PURGE_COPY = 'Copy the purge command';
+
+export const SOURCES_TRANSIENT_EMPTY_HEADING = 'No Google Places call yet';
+export const SOURCES_TRANSIENT_EMPTY_BODY =
+  'Nothing from Google is held. Once a run searches Places, this shows the place ids and ' +
+  'coordinates Siteless keeps, and the daily purge that removes coordinates after 30 days.';
+export const SOURCES_TRANSIENT_EMPTY_ACTION = PLACES_ACTION.openPresets;
+
+export const SOURCES_TRANSIENT_LOAD_FAILED =
+  "We couldn't read what Siteless holds from Google Places. Nothing was purged or changed by " +
+  'this — the daily purge runs on its own schedule. Try again.';
+
+/* --- Settings → Budget — the second-wall card (§ Screen 6; Rule 41) ----------------------
+ *
+ * The "not set yet" state's plain strings, lifted from `second-wall-card.tsx` as they stand;
+ * its two derivation paragraphs carry inline <strong> runs and stay with the component's own
+ * markup plan (04-31). The "set" state is the checkpoint's static copy — the app cannot read
+ * GCP and never claims to. */
+
+export const SECOND_WALL_TITLE = 'Google Cloud daily quota — not set yet';
+export const SECOND_WALL_NEEDS_BADGE = 'Needs danlo';
+export const SECOND_WALL_CONSOLE_LINK = 'Open the Google Cloud quotas console';
+
+export const SECOND_WALL_SET_TITLE = 'Google Cloud daily quota — set';
+export const SECOND_WALL_SET_BADGE = 'Set';
+
+/** `date` is the day danlo set it, pre-formatted. */
+export function SECOND_WALL_SET_BODY(date: string) {
+  return (
+    `Places API (New) → Requests per day = 100, set on ${date}. This is the second wall: even ` +
+    `if Siteless's own meter failed, Google stops Places requests after 100 a day — about $3.50 ` +
+    `of paid requests. The meter above is still the wall that matters.`
+  );
+}
+
+/* --- Toasts (success only — a refusal is a persistent Alert) ----------------------------- */
+
+export function TOAST_ATTACHED(name: string) {
+  return `Attached to “${name}”`;
+}
+
+export function TOAST_REJECTED(name: string) {
+  return `Listing won't be attached to “${name}” again`;
+}
+
+export function TOAST_DETACHED(name: string) {
+  return `Listing detached from “${name}”`;
+}
+
+export const TOAST_TILE_LIST_COPIED = 'Tile list copied';
+export const TOAST_PURGE_COMMAND_COPIED = 'Purge command copied';

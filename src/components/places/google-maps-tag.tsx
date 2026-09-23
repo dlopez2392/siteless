@@ -1,3 +1,5 @@
+import { GOOGLE_MAPS_TAG } from '@/lib/ui/copy';
+
 /**
  * D-11 / PLACE-06. Google's text attribution, exactly "Google Maps" (policy page, 2026-09-23).
  *
@@ -13,8 +15,7 @@
 export function GoogleMapsTag() {
   return (
     <span translate="no" className="google-maps-attribution" data-testid="google-maps-attribution">
-      {/* 04-07 moves this literal into copy.ts as GOOGLE_MAPS_TAG */}
-      {'Google Maps'}
+      {GOOGLE_MAPS_TAG}
     </span>
   );
 }
