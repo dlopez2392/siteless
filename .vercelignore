@@ -23,3 +23,8 @@ vitest.db.config.ts
 # developer machine by `pnpm db:migrate:prod` against the session pooler, never at build
 # time and never at runtime. Shipping the migration files would put a build-time or
 # preview-deploy migration one line of config away from running against production.
+
+# coverage/ is gitignored, but the Vercel CLI uploads from the working tree, not from git,
+# so a local `vitest --coverage` run shipped it anyway and `next build` then type-checked
+# the coverage/*.ts files it found (Phase 2 debt, 03-CONTEXT § Deferred Ideas).
+coverage/

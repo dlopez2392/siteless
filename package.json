@@ -25,7 +25,10 @@
     "db:seed": "tsx scripts/seed.ts --target=test",
     "db:seed:prod": "tsx scripts/seed.ts --target=prod",
     "refresh:outlet-counts": "tsx scripts/refresh-outlet-counts.ts",
-    "db:check": "tsx scripts/check-test-db.ts"
+    "db:check": "tsx scripts/check-test-db.ts",
+    "ingest:comptroller": "tsx scripts/ingest-comptroller.ts",
+    "ingest:overture": "tsx scripts/ingest-overture.ts",
+    "resolve": "tsx scripts/resolve.ts"
   },
   "dependencies": {
     "@clerk/nextjs": "7.9.4",
@@ -36,6 +39,7 @@
     "cn": "0.3.2",
     "date-fns": "4.4.0",
     "drizzle-orm": "0.45.2",
+    "libphonenumber-js": "1.13.13",
     "lucide-react": "1.47.0",
     "motion": "13.4.0",
     "next": "16.3.5",
@@ -55,6 +59,7 @@
   },
   "devDependencies": {
     "@clerk/testing": "2.2.36",
+    "@duckdb/node-api": "1.5.5-r.5",
     "@playwright/test": "1.63.0",
     "@testing-library/jest-dom": "7.0.1",
     "@testing-library/react": "16.3.3",
