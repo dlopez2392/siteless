@@ -23,6 +23,7 @@ import {
   type PlacesField,
 } from '@/lib/budget/field-mask-tier';
 import type { TextSearchSku } from '@/lib/budget/price-book';
+import { walk } from './_walk';
 
 /** The four Enterprise fields on their own — the mask minus everything cheaper. */
 const ENTERPRISE_MASK = [
@@ -58,13 +59,12 @@ const SRC_DIR = 'src';
 const FIELD_MASK_HEADER = 'X-Goog-FieldMask';
 const HEADER_MAY_BE_NAMED_IN = new Set(['src/lib/budget/field-mask-tier.ts']);
 
-/** Posix-relative paths so the assertion reads the same on Windows and in CI. */
-function walk(dir: string): string[] {
-  return nodeFs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
-    const full = nodePath.posix.join(dir.split(nodePath.sep).join('/'), entry.name);
-    return entry.isDirectory() ? walk(full) : [full];
-  });
-}
+/** Posix-relative paths so the assertion reads the same on Windows and in CI. Every file,
+ *  whatever its extension (no `exts`), through the shared walker that skips the generated
+ *  workflow tree (04-RESEARCH Pitfall 6) — those bundles inline the Places client and would
+ *  spell the header a second time from generated output. */
+const walkPosix = (dir: string): string[] =>
+  walk(dir).map((file) => file.split(nodePath.sep).join('/'));
 
 describe('field mask tiering (BUDG-01)', () => {
   it('fieldMaskTier maps every known field to its tier', () => {
@@ -117,12 +117,14 @@ describe('field mask tiering (BUDG-01)', () => {
   });
 
   it('X-Goog-FieldMask is named in at most one module under src', () => {
-    const files = walk(SRC_DIR);
+    const files = walkPosix(SRC_DIR);
 
     // A wrong cwd throws; a right-but-empty walk would pass vacuously. Pin a file that
     // is known to be there so only a real absence can make this green.
     expect(files.length).toBeGreaterThan(0);
     expect(files).toContain('src/lib/budget/field-mask-tier.ts');
+    // The exclusion is real, not merely declared (posix paths, so a posix probe).
+    expect(files.some((f) => f.includes('.well-known/workflow'))).toBe(false);
 
     const contents = files.map((file) => ({ file, text: nodeFs.readFileSync(file, 'utf8') }));
     // Prove the reads actually returned source, not empty strings — otherwise the

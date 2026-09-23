@@ -24,6 +24,7 @@
 import * as nodeFs from 'node:fs';
 import * as nodePath from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { walk } from './_walk';
 
 const ROOT = 'src';
 const EXTENSIONS = new Set(['.ts', '.tsx', '.css', '.json']);
@@ -38,24 +39,19 @@ const FORBIDDEN: Array<{ label: string; re: RegExp }> = [
   { label: 'maps.googleapis.com', re: /maps\.googleapis\.com/i },
 ];
 
-function walk(dir: string, found: string[] = []): string[] {
-  for (const entry of nodeFs.readdirSync(dir, { withFileTypes: true })) {
-    const full = nodePath.join(dir, entry.name);
-    if (entry.isDirectory()) walk(full, found);
-    else if (EXTENSIONS.has(nodePath.extname(entry.name))) found.push(full);
-  }
-  return found;
-}
-
 describe('no Google credential in the source tree', () => {
   it('no google credential is read anywhere in src', () => {
-    const scanned = walk(ROOT);
+    // The shared walker skips the generated workflow tree (04-RESEARCH Pitfall 6): it
+    // bundles the Places client and would report the one sanctioned reader twice.
+    const scanned = walk(ROOT, { exts: EXTENSIONS });
 
     // The two-sided half. A broken path glob, a wrong cwd, or an extension set that no
     // longer matches the repo would all otherwise pass by scanning an empty list.
     expect(scanned.length).toBeGreaterThan(15);
     expect(scanned).toContain(nodePath.join('src', 'env.ts'));
     expect(scanned).toContain(nodePath.join('src', 'lib', 'time.ts'));
+    // ...and the exclusion is real, not merely declared.
+    expect(scanned.some((f) => f.includes(nodePath.join('.well-known', 'workflow')))).toBe(false);
 
     const offences: string[] = [];
     for (const file of scanned) {
