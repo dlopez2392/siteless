@@ -161,7 +161,7 @@ Plans:
 - [ ] 03-10-PLAN.md — Blocking (the `cross join lateral` shape), the 25 km gate, the block cap, chain detection
 - [ ] 03-11-PLAN.md — Survivorship, merge and unmerge, with the three SECURITY DEFINER writers
 - [ ] 03-12-PLAN.md — `scripts/ingest-comptroller.ts`: permits, closures, the inline Census geocode, statewide chain names
-- [ ] 03-13-PLAN.md — `scripts/ingest-overture.ts`: the DuckDB bbox range-read, the pure transform, the committed fixture
+- [x] 03-13-PLAN.md — `scripts/ingest-overture.ts`: the DuckDB bbox range-read, the pure transform, the committed fixture
 
 **Wave 5** *(blocked on Wave 4)*
 - [ ] 03-14-PLAN.md — `scripts/resolve.ts`: block → score → auto-merge → enqueue, cluster-aware
