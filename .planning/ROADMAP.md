@@ -189,7 +189,7 @@ Plans:
 **Requirements**: PLACE-01, PLACE-02, PLACE-03, PLACE-04, PLACE-05, PLACE-06, BUDG-03 (carried from Phase 2)
 **Success Criteria** (what must be TRUE):
   1. A Text Search runs against a hard-coded field-mask allow-list; `fieldMaskTier()` refuses an unknown field, and Place Details is unreachable per candidate.
-  2. After a run, the only Places-derived data on disk is `place_id`, lat/lng younger than 30 days, and a derived `had_website_uri` boolean — the TTL purge is observable — and wherever a Places-derived signal is displayed, Google attribution is displayed with it.
+  2. After a run, the only Places-derived data on disk is `place_id`, lat/lng younger than 30 days, and derived signals — the `had_website_uri` boolean, its host class (the URL itself discarded at call time), and the service-area flag — the TTL purge is observable — and wherever a Places-derived signal is displayed, Google attribution is displayed with it.
   3. A search that saturates the 60-result ceiling is detected, its tile subdivided, and the run reports truncation rather than returning a silent partial.
   4. Pure service-area businesses (trades with no storefront) appear in results, and Enterprise sweeps run over rotating weekly partitions of the (cluster × city × type) cell list while change detection uses the free IDs-Only SKU.
   5. Every outbound Places call is reserved against the budget before it leaves and lands in the ledger with its SKU; with the cap reached, the run stops instead of calling.
