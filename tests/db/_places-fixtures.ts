@@ -256,7 +256,9 @@ export async function seedAttachmentWithObservation(
       args.status,
       reason,
       score,
-      JSON.stringify({ rule: 'fixture', nameSim: 1 }),
+      // Numbers only: pa_features_numeric (drizzle/0029) refuses any key outside the matcher's
+      // allow-list and any non-numeric value — a `rule: 'fixture'` string is 23514 since 04-15.
+      JSON.stringify({ name: 30, nameSim: 1 }),
       args.runId,
     ],
   );
