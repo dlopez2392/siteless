@@ -41,6 +41,45 @@ function actionFiles(): string[] {
     .sort();
 }
 
+/**
+ * The floor for the two-sided walk: six from plan 02-09, plus plan 03-15's two. A lower
+ * count means the walk lost files, not that the codebase lost actions.
+ */
+const MIN_ACTIONS = 8;
+
+/**
+ * Named, not just counted: the two spine actions plan 03-15 adds. A count alone would stay
+ * green if one of these were renamed away and some unrelated action were added in its place.
+ */
+const PHASE3_ACTIONS = ['record-review-decision.ts', 'unmerge-business.ts'];
+
+/**
+ * The text just inside the opening brace of `export async function name(...): Promise<...> {`.
+ * Scans characters rather than lines because the return type spans lines in some actions and
+ * contains its own braces (`Promise<ActionResult<{ remaining: number }>>`): the body brace is
+ * the first `{` at paren depth 0 AND angle depth 0 (`=>` is an arrow, not a closing angle).
+ */
+function bodiesOf(source: string): Array<{ name: string; body: string }> {
+  const out: Array<{ name: string; body: string }> = [];
+  const head = /export\s+async\s+function\s+(\w+)/g;
+  for (let m = head.exec(source); m !== null; m = head.exec(source)) {
+    let paren = 0;
+    let angle = 0;
+    for (let i = m.index + m[0].length; i < source.length; i += 1) {
+      const ch = source[i];
+      if (ch === '(') paren += 1;
+      else if (ch === ')') paren -= 1;
+      else if (ch === '<') angle += 1;
+      else if (ch === '>' && source[i - 1] !== '=') angle -= 1;
+      else if (ch === '{' && paren === 0 && angle === 0) {
+        out.push({ name: m[1] ?? '', body: source.slice(i + 1) });
+        break;
+      }
+    }
+  }
+  return out;
+}
+
 function read(file: string): string {
   return nodeFs.readFileSync(nodePath.join(ACTIONS_DIR, file), 'utf8');
 }
@@ -70,8 +109,8 @@ describe('server actions', () => {
 
     // 🔴 TWO-SIDED. A wrong glob, a renamed directory or a future move to `src/actions/`
     // would leave this walking nothing, and a loop over an empty list passes every
-    // assertion inside it. Six is what plan 02-09 ships.
-    expect(files.length, `walked ${ACTIONS_DIR} and found ${files.join(', ')}`).toBeGreaterThanOrEqual(6);
+    // assertion inside it. Six shipped in plan 02-09; 03-15 adds two.
+    expect(files.length, `walked ${ACTIONS_DIR} and found ${files.join(', ')}`).toBeGreaterThanOrEqual(MIN_ACTIONS);
 
     const offenders = files.filter((file) => {
       const first = firstCodeLine(read(file));
@@ -82,7 +121,7 @@ describe('server actions', () => {
 
   it('every server action calls requireOrg', () => {
     const files = actionFiles();
-    expect(files.length).toBeGreaterThanOrEqual(6);
+    expect(files.length).toBeGreaterThanOrEqual(MIN_ACTIONS);
 
     const missing: string[] = [];
     const outOfOrder: string[] = [];
@@ -103,11 +142,38 @@ describe('server actions', () => {
 
     expect(missing, 'these actions never authenticate (T-2-01)').toEqual([]);
     expect(outOfOrder, 'these actions query before they authenticate (T-2-01)').toEqual([]);
+    for (const named of PHASE3_ACTIONS) expect(files).toContain(named);
+  });
+
+  it('every server action calls requireOrg as its first statement', () => {
+    // 🔴 T-2-01 / T-3-10, the stricter half. "Before withOrg" (above) still lets an action
+    // parse input, read a cookie or call a third party before it knows who is calling. The
+    // first statement of every exported action body is the auth call, with or without a
+    // destructuring binding — nothing else, not even a validation.
+    const files = actionFiles();
+    expect(files.length).toBeGreaterThanOrEqual(MIN_ACTIONS);
+
+    const offenders: string[] = [];
+    let checked = 0;
+    for (const file of files) {
+      const bodies = bodiesOf(read(file));
+      if (bodies.length === 0) offenders.push(`${file}: no exported async function found`);
+      for (const { name, body } of bodies) {
+        checked += 1;
+        const first = firstCodeLine(body);
+        if (!/^(const \{[^}]*\} = )?await requireOrg\(\);$/.test(first)) {
+          offenders.push(`${file} ${name}: first statement is ${JSON.stringify(first)}`);
+        }
+      }
+    }
+    // Two-sided: every file contributes at least one function body.
+    expect(checked).toBeGreaterThanOrEqual(MIN_ACTIONS);
+    expect(offenders, 'these actions do something before they authenticate').toEqual([]);
   });
 
   it('every server action exports only async functions', () => {
     const files = actionFiles();
-    expect(files.length).toBeGreaterThanOrEqual(6);
+    expect(files.length).toBeGreaterThanOrEqual(MIN_ACTIONS);
 
     const offenders: string[] = [];
     for (const file of files) {
@@ -125,7 +191,7 @@ describe('server actions', () => {
 
   it('no server action takes a price from the client', () => {
     const files = actionFiles();
-    expect(files.length).toBeGreaterThanOrEqual(6);
+    expect(files.length).toBeGreaterThanOrEqual(MIN_ACTIONS);
 
     // 🔴 WR-05. `savePresetVersion` accepted `estimateSnapshot` in its input schema and
     // stored it verbatim as "what the estimator quoted for this version". Two defects in one
@@ -165,7 +231,7 @@ describe('server actions', () => {
 
   it('no server action reads a Google credential', () => {
     const files = actionFiles();
-    expect(files.length).toBeGreaterThanOrEqual(6);
+    expect(files.length).toBeGreaterThanOrEqual(MIN_ACTIONS);
 
     // Redundant with `tests/unit/no-google-credential.test.ts`'s repo-wide walk ON PURPOSE:
     // this one names the directory a Places caller will be written in, in Phase 4, by
