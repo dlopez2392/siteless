@@ -204,6 +204,13 @@
       "when": 1790193284621,
       "tag": "0028_places_meter_retention",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1790195198325,
+      "tag": "0029_places_writers",
+      "breakpoints": true
     }
   ]
 }
