@@ -66,12 +66,27 @@ import { unmergeBusiness } from '@/server/actions/unmerge-business';
  * `result.message` — the action picks the true sentence: `UNMERGE_LATER_MERGE_FIRST` (a later
  * merge into the winner must be undone first), `UNMERGE_ALREADY_UNDONE`, or `UNMERGE_FAILED`
  * ("still merged exactly as they were — nothing was half-undone"). Every one ends with a way
- * out: "Try again" and "Open sources".
+ * out: "Try again" and "Open sources" when a retry can succeed; "Reload the merge history"
+ * (close + `router.refresh()`) when it never can — already undone, a later merge first — so the
+ * stale Unmerge button does not invite the same refusal forever (C-WR-05).
  *
  * 🔴 NO ANIMATION-LIBRARY WRAPPER on the Dialog or the Drawer — Radix and vaul own those
  * animations, and two animation systems on one element is how a drawer ends up fighting
  * itself. (The acceptance grep for the gesture library's name over this file must stay empty.)
  */
+type Refusal = { message: string; retryable: boolean };
+
+/**
+ * Whether sending the same request again can succeed (C-WR-05). Only a bug (`unexpected`) or a
+ * serialization loss (`concurrent_merge`) can; `already_undone`, `later_merge_first`,
+ * `lead_key_in_use` and `not_found` meet the same refusal every time — for those the way out is
+ * to re-read the page, as `review-actions.tsx`'s `isRetryable` does for the queue.
+ */
+function isRetryable(code: string, reason: string | number | undefined): boolean {
+  if (code === 'unexpected') return true;
+  return code === 'conflict' && reason === 'concurrent_merge';
+}
+
 export function UnmergeDialog({
   mergeId,
   loserName,
@@ -96,7 +111,7 @@ export function UnmergeDialog({
   const router = useRouter();
   const isDesk = useIsDesk();
   const [open, setOpen] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<Refusal | null>(null);
   const [isPending, startTransition] = useTransition();
 
   const onOpenChange = useCallback(
@@ -105,8 +120,12 @@ export function UnmergeDialog({
       if (!next && isPending) return;
       setOpen(next);
       if (next) setError(null);
+      // 🔴 C-WR-05: closing after a refusal no retry can fix re-reads the page, whichever way
+      // the dialog was closed — otherwise the row keeps its stale, live Unmerge button and the
+      // reader can walk the same loop forever.
+      if (!next && error !== null && !error.retryable) router.refresh();
     },
-    [isPending],
+    [isPending, error, router],
   );
 
   const confirm = useCallback(() => {
@@ -121,12 +140,17 @@ export function UnmergeDialog({
         // the error boundary and takes the page with it. `app.undo_merge` runs in one
         // transaction, so the records are exactly as they were: the dialog stays open and says
         // so, and nothing closes or refreshes.
-        setError(UNMERGE_FAILED);
+        setError({ message: UNMERGE_FAILED, retryable: true });
         return;
       }
       if (!result.ok) {
-        // The dialog stays open, with the sentence the action chose.
-        setError(result.message);
+        // The dialog stays open, with the sentence the action chose. It does NOT refresh yet:
+        // re-reading now could unmount this very row (an already-undone merge has no button)
+        // before the sentence is read.
+        setError({
+          message: result.message,
+          retryable: isRetryable(result.code, result.detail?.reason),
+        });
         return;
       }
       toast(TOAST_UNMERGED(loserName, loserKey));
@@ -160,23 +184,39 @@ export function UnmergeDialog({
           className="border-destructive/40 bg-destructive-surface text-destructive-surface-foreground"
         >
           <OctagonX aria-hidden="true" className="size-5" />
-          <AlertTitle className="text-base font-semibold text-balance">{error}</AlertTitle>
+          <AlertTitle className="text-base font-semibold text-balance">{error.message}</AlertTitle>
           <AlertDescription className="mt-2 flex flex-wrap gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              className="h-11 sm:h-9"
-              onClick={confirm}
-              disabled={isPending}
-              data-testid="business-unmerge-retry"
-            >
-              {ERROR_ACTION.tryAgain}
-            </Button>
-            <Button asChild variant="ghost" className="h-11 sm:h-9">
-              <Link href="/sources" data-testid="business-unmerge-open-sources">
-                {ERROR_ACTION.openSources}
-              </Link>
-            </Button>
+            {error.retryable ? (
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-11 sm:h-9"
+                  onClick={confirm}
+                  disabled={isPending}
+                  data-testid="business-unmerge-retry"
+                >
+                  {ERROR_ACTION.tryAgain}
+                </Button>
+                <Button asChild variant="ghost" className="h-11 sm:h-9">
+                  <Link href="/sources" data-testid="business-unmerge-open-sources">
+                    {ERROR_ACTION.openSources}
+                  </Link>
+                </Button>
+              </>
+            ) : (
+              // A retry would meet the same refusal: close and re-read, so the row shows the
+              // merge as it really stands and the stale Unmerge button goes (C-WR-05).
+              <Button
+                type="button"
+                variant="outline"
+                className="h-11 sm:h-9"
+                onClick={() => onOpenChange(false)}
+                data-testid="business-unmerge-reload"
+              >
+                {ERROR_ACTION.reloadHistory}
+              </Button>
+            )}
           </AlertDescription>
         </Alert>
       ) : null}

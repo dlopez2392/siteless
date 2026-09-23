@@ -745,6 +745,9 @@ export const ERROR_ACTION = {
   openBusinesses: 'Open businesses',
   clearFilters: 'Clear filters',
   copyCommand: 'Copy the command',
+  /** An unmerge refusal a retry can never fix (already undone, a later merge first): close
+   *  the dialog and re-read the page, so the stale Unmerge button goes away (C-WR-05). */
+  reloadHistory: 'Reload the merge history',
 } as const;
 
 export const REVIEW_DECISION_FAILED =
