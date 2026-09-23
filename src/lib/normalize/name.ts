@@ -134,10 +134,36 @@ function stripLegalForms(tokens: readonly string[]): string[] {
 /** Bilingual (es/en) stopwords. */
 const STOP = new Set(['el', 'la', 'los', 'las', 'de', 'del', 'y', 'and', 'the', 'of']);
 
-/** D-12's generic trade words — present in so many RGV names they carry no identity. */
+/**
+ * D-12's generic trade words — present in so many RGV names they carry no identity ON THEIR
+ * OWN, so they are dropped to lift similarity ("Taqueria Jalisco Express" ~ "Jalisco Express").
+ *
+ * 🔴 B-WR-05: but NOT when exactly one identity token would be left. Surname-plus-trade is the
+ * dominant RGV naming pattern, and "Taqueria Garcia", "Panaderia Garcia" and "Carniceria
+ * Garcia" all collapsed to `garcia`, one key that chain detection (name_norm equality, >= 3)
+ * counted as a chain and that the scorer read as a perfect name match. With one surname left,
+ * the trade word IS the identity. See `dropTradeWords`.
+ */
 const TRADE = new Set(['taqueria', 'carniceria', 'panaderia']);
 
 const ALL_DIGITS = /^[0-9]+$/;
+
+/**
+ * A token that identifies a business on its own: a word of two or more letters, or a number
+ * ("3 Torres"). A lone letter is not — a possessive leaves one (`garcia s`).
+ */
+const isIdentityToken = (t: string): boolean => t.length >= 2 || ALL_DIGITS.test(t);
+
+/**
+ * Drop the trade words unless that would leave exactly ONE identity token (B-WR-05). With none
+ * left the name was only trade words and stripping keeps the prior behaviour (no key); with
+ * two or more left the name still carries its own identity.
+ */
+function dropTradeWords(tokens: readonly string[]): string[] {
+  const rest = tokens.filter((t) => !TRADE.has(t));
+  if (rest.length === tokens.length) return rest;
+  return rest.filter(isIdentityToken).length === 1 ? [...tokens] : rest;
+}
 
 export interface NameNormDetail {
   norm: string | null;
@@ -189,15 +215,17 @@ export function nameNormDetail(raw: string | null | undefined): NameNormDetail {
     stripped
       .split(' ')
       .filter((t) => t.length > 0)
-      .filter((t) => !STOP.has(t) && !TRADE.has(t)),
+      .filter((t) => !STOP.has(t)),
   );
 
   const phoneRun = trailingPhoneRun(tokens);
   // A legal form ahead of the phone run ("Smith LLC 956-263-1462") is trailing once the
   // phone goes, so the tail is stripped again.
-  const kept =
+  const withTrade =
     phoneRun > 0 ? stripTrailingLegal(tokens.slice(0, tokens.length - phoneRun)) : tokens;
-  const last = kept.at(-1);
+  const kept = dropTradeWords(withTrade);
+  // Read from the trade-free tokens, so a kept trade word never hides a trailing number.
+  const last = withTrade.filter((t) => !TRADE.has(t)).at(-1);
   const hadStoreNumber = phoneRun > 0 || (last !== undefined && ALL_DIGITS.test(last));
 
   // 🔴 trim() is defect 1's fix, and it has a TWIN: the empty-token filter above. Mutation-

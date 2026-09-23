@@ -43,15 +43,16 @@ describe('nameNorm', () => {
     ['Sun Plumbing, LLC DBA Sun Pros', 'sun plumbing sun pros'],
     // Accents (Spanish — unaccent and NFD agree here).
     ['Ñandú Café', 'nandu cafe'],
-    ['Panadería Méndez', 'mendez'],
-    ['Carnicería El Güero', 'guero'],
+    // B-WR-05: one surname left, so the trade word stays (it is the identity).
+    ['Panadería Méndez', 'panaderia mendez'],
+    ['Carnicería El Güero', 'carniceria guero'],
     // Ligatures and strokes (unaccent and NFD DISAGREE here; the table follows unaccent).
     ['Ølsen Straße', 'olsen strasse'],
     ['Æsop Œuvre', 'aesop oeuvre'],
     ['Łódź Đinh', 'lodz dinh'],
     ['İstanbul Kebab', 'istanbul kebab'],
     // Bilingual stopwords and trade words.
-    ['La Taqueria De Guanajuato', 'guanajuato'],
+    ['La Taqueria De Guanajuato', 'taqueria guanajuato'],
     ['The House of Pies', 'house pies'],
     ['Los Arcos y Las Palmas', 'arcos palmas'],
     // Digits.
@@ -75,9 +76,10 @@ describe('nameNorm', () => {
 
   it('nameNorm defect 1: no leading or trailing space', () => {
     // The SQL prototype produced " taqueria guanajuato" here — a leading space shifts every
-    // leading trigram and silently lowers similarity.
+    // leading trigram and silently lowers similarity. (Since B-WR-05 the trade word stays
+    // here, one identity token being left; the leading "La" still goes, which is the edge.)
     const out = nameNorm('La Taqueria De Guanajuato');
-    expect(out).toBe('guanajuato');
+    expect(out).toBe('taqueria guanajuato');
     expect(out).not.toMatch(/^\s|\s$/);
     expect(nameNorm('  The  Donut   Hole  ')).toBe('donut hole');
   });
@@ -160,6 +162,23 @@ describe('nameNorm', () => {
     expect(nameNorm('Smith LLC 956-263-1462')).toBe('smith');
     // DBA separates two names; each keeps its own trailing-only strip.
     expect(nameNorm('Smith Co LLC DBA C & L Plumbing')).toBe('smith c l plumbing');
+  });
+
+  it('nameNorm B-WR-05: a trade word stays when it is all that tells two family businesses apart', () => {
+    // Surname-plus-trade is the dominant RGV naming pattern. Stripping the trade word from
+    // all three left one key, `garcia`, which chain detection counts as a 3-member chain.
+    const keys = ['Taqueria Garcia', 'Panaderia Garcia', 'Carniceria Garcia', 'Garcia'].map((n) =>
+      nameNorm(n),
+    );
+    expect(keys).toEqual(['taqueria garcia', 'panaderia garcia', 'carniceria garcia', 'garcia']);
+    expect(new Set(keys).size).toBe(4);
+    // A possessive leaves a lone `s`, which is not identity either.
+    expect(nameNorm("Garcia's Taqueria")).toBe('garcia s taqueria');
+    expect(nameNorm("Garcia's Taqueria")).not.toBe(nameNorm("Garcia's Panaderia"));
+    // With two or more identity tokens left, the trade word still goes (D-12 similarity).
+    expect(nameNorm('Taqueria Las 3 Torres')).toBe('3 torres');
+    expect(nameNorm('Taqueria Jalisco Express')).toBe('jalisco express');
+    expect(nameNorm('Taqueria Jalisco Express')).toBe(nameNorm('Jalisco Express'));
   });
 
   it('nameNorm folds ligatures and strokes the way unaccent does', () => {
