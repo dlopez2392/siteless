@@ -28,7 +28,8 @@
     "db:check": "tsx scripts/check-test-db.ts",
     "ingest:comptroller": "tsx scripts/ingest-comptroller.ts",
     "ingest:overture": "tsx scripts/ingest-overture.ts",
-    "resolve": "tsx scripts/resolve.ts"
+    "resolve": "tsx scripts/resolve.ts",
+    "rederive": "tsx scripts/rederive.ts"
   },
   "dependencies": {
     "@clerk/nextjs": "7.9.4",

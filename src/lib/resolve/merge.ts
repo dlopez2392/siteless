@@ -231,10 +231,20 @@ async function readParents(
       order by sr.id`,
     params,
   );
-  // 🔴 A-WR-07: a Census record keyed by a permit whose CURRENT outlet address is not the one it
-  // answered is not a parent. The permit moved; the point describes where the business used to
-  // be. Without this, a re-derivation (a merge, an unmerge, a re-ingest, the rederive pass)
-  // would put the stale point straight back after the census pass cleared it.
+  return parentViews(rows, context);
+}
+
+type ParentRow = { id: string; source_key: string; external_id: string | null; payload: unknown };
+
+/**
+ * One cluster's stored parent rows → the views survive() reads.
+ *
+ * 🔴 A-WR-07: a Census record keyed by a permit whose CURRENT outlet address is not the one it
+ * answered is not a parent. The permit moved; the point describes where the business used to
+ * be. Without this, a re-derivation (a merge, an unmerge, a re-ingest, the rederive pass) would
+ * put the stale point straight back after the census pass cleared it.
+ */
+function parentViews(rows: readonly ParentRow[], ctx: DerivationContext): SourceRecordView[] {
   const permitByKey = new Map<string, unknown>();
   for (const r of rows) {
     if (r.source_key === 'tx_comptroller' && r.external_id !== null) {
@@ -253,10 +263,60 @@ async function readParents(
         continue;
       }
     }
-    const v = sourceRecordView(r, context);
+    const v = sourceRecordView(r, ctx);
     if (v) views.push(v);
   }
   return views;
+}
+
+/**
+ * The parents of MANY cluster roots in one statement — the rederive pass's reader
+ * (scripts/rederive.ts), the same membership rule and the same `parentViews` as
+ * `readRootParents`, so a batch re-derivation and a one-root re-derivation cannot disagree.
+ * The ids travel as ONE jsonb parameter (never an interpolated JS array).
+ */
+export async function readParentsForRoots(
+  tx: EtlExecutor,
+  rootIds: readonly string[],
+  ctx: DerivationContext,
+): Promise<Map<string, SourceRecordView[]>> {
+  const out = new Map<string, SourceRecordView[]>();
+  if (rootIds.length === 0) return out;
+  const { rows } = await tx.query<ParentRow & { root: string }>(
+    `with roots as (
+       select value::uuid as root from jsonb_array_elements_text($1::jsonb)
+     ),
+     members as (
+       select r.root, b.id, b.comptroller_key
+         from roots r
+         join businesses b
+           on b.org_id = app.current_org_id() and (b.id = r.root or b.merged_into_id = r.root)
+     )
+     select m.root, sr.id, sr.source_key, sr.external_id, sr.payload
+       from members m
+       join source_records sr
+         on sr.org_id = app.current_org_id()
+        and sr.retention_class = 'durable'
+        and sr.source_key in ('tx_comptroller','tx_comptroller_closures','overture','census_geocoder')
+        and (sr.business_id = m.id
+             or (sr.source_key in ('census_geocoder','tx_comptroller_closures')
+                 and m.comptroller_key is not null and sr.external_id = m.comptroller_key))
+      order by m.root, sr.id`,
+    [JSON.stringify(rootIds)],
+  );
+  const byRoot = new Map<string, ParentRow[]>();
+  const seen = new Set<string>();
+  for (const r of rows) {
+    // One record can reach a root through two members only in a malformed spine; never twice.
+    const k = `${r.root}|${r.id}`;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    const list = byRoot.get(r.root);
+    if (list) list.push(r);
+    else byRoot.set(r.root, [r]);
+  }
+  for (const root of rootIds) out.set(root, parentViews(byRoot.get(root) ?? [], ctx));
+  return out;
 }
 
 /**

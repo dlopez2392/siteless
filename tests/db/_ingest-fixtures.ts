@@ -403,8 +403,17 @@ export async function seedComptrollerFixture(
   c: Client,
   orgId: string,
   rows: readonly ComptrollerFixtureRow[] = COMPTROLLER_FIXTURE,
+  /** Pass `await fixtureDerivationContext(c)` when the test compares a re-derivation. */
+  ctx: DerivationContext = STATIC_DERIVATION_CONTEXT,
 ): Promise<SeededBusiness[]> {
-  return writeAll(c, orgId, 'tx_comptroller', rows.map((r) => comptrollerIngestInput(r)), new Date(), '2026-09-20T00:00:00.000Z');
+  return writeAll(
+    c,
+    orgId,
+    'tx_comptroller',
+    rows.map((r) => comptrollerIngestInput(r, ctx)),
+    new Date(),
+    '2026-09-20T00:00:00.000Z',
+  );
 }
 
 /**
