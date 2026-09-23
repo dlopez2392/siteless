@@ -157,8 +157,9 @@ begin
     end if;
     v_place := pl->>'placeId';
     -- A Places id is URL-safe base64-ish. Anything else — a space, a comma — is not an id, and
-    -- this column is the one Google value kept indefinitely (PLACE-02).
-    if v_place !~ '^[A-Za-z0-9_-]{1,512}$' then
+    -- this column is the one Google value kept indefinitely (PLACE-02). The length is its own
+    -- test: a regex repetition bound above 255 is itself an error (2201B) in Postgres.
+    if length(v_place) > 512 or v_place !~ '^[A-Za-z0-9_-]+$' then
       raise exception 'record_places_page: placeId is not a place id' using errcode = '22023';
     end if;
     v_host := pl->>'hostClass';
@@ -348,7 +349,8 @@ begin
   end if;
   if exists (select 1 from jsonb_array_elements(p_added || p_gone) e
               where jsonb_typeof(e.value) <> 'string'
-                 or (e.value #>> '{}') !~ '^[A-Za-z0-9_-]{1,512}$') then
+                 or length(e.value #>> '{}') > 512
+                 or (e.value #>> '{}') !~ '^[A-Za-z0-9_-]+$') then
     raise exception 'record_change_check: an id is not a place id' using errcode = '22023';
   end if;
 
