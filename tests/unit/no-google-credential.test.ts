@@ -73,17 +73,24 @@ describe('no Google credential in the source tree', () => {
     expect(offences, offences.join('\n')).toEqual([]);
   });
 
-  it('src/env.ts declares no Google variable', () => {
+  it('src/env.ts declares no Google variable and only the PLACES_MODE switch', () => {
     // env.ts is where a server-side key would be declared, so it gets its own named
     // assertion: the walk above would catch a KEY-shaped name, but `GOOGLE_PROJECT_ID` or
     // a bare `PLACES_*` would slip through it and still mean the app had started to depend
     // on a credential that does not exist.
+    //
+    // Amended in 04-02 (never deleted): D-02 declares the Places kill switch here, and D-03
+    // keeps the key OUT of this file — src/lib/places/client.ts is its one sanctioned reader.
     const source = nodeFs.readFileSync(nodePath.join('src', 'env.ts'), 'utf8');
 
-    // Positive control: prove we read the real module and not an empty string.
+    // Positive controls: prove we read the real module and not an empty string, and that the
+    // switch the strip below removes is actually there to remove.
     expect(source).toContain('CLERK_SECRET_KEY');
+    expect(source).toContain('PLACES_MODE');
 
     expect(source).not.toContain('GOOGLE');
-    expect(source).not.toContain('PLACES');
+    // D-02 puts exactly one Places-shaped name here: the kill switch. Strip it, then nothing
+    // Places-shaped may remain — a PLACES_KEY or PLACES_API_* would still trip this.
+    expect(source.replaceAll('PLACES_MODE', '')).not.toContain('PLACES');
   });
 });

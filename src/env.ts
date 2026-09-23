@@ -26,6 +26,24 @@ const serverSchema = z.object({
    * `X-App-Token` only when present.
    */
   SOCRATA_APP_TOKEN: z.string().min(1).optional(),
+  /**
+   * D-02. The Places kill switch. `off` refuses before any reservation; `ids_only` permits only
+   * the free Essentials mask (change detection); `enterprise` permits the full mask. Changing it
+   * is a Vercel env edit plus a redeploy — deliberately; there is no in-app toggle. An unknown
+   * value fails this parse, loudly. Read on the server only and passed to components as a prop
+   * (UI-SPEC Rule 33).
+   */
+  PLACES_MODE: z.enum(['off', 'ids_only', 'enterprise']).default('off'),
+  /** Vercel Cron's bearer secret for /api/cron/purge-places. Optional here because the route
+   *  refuses when it is unset — "open when unset" is the failure mode this avoids. */
+  CRON_SECRET: z.string().min(16).optional(),
+  /*
+   * Deliberately ABSENT: the places provider's API key (D-03). Like SOCRATA_APP_TOKEN above,
+   * it is read directly by the one module that sends it — src/lib/places/client.ts — and by
+   * nothing else, so there is exactly one sanctioned reader to audit. Declaring it here would
+   * make every importer of `env` a potential reader. Its name is not spelled in this file on
+   * purpose: tests/unit/no-google-credential.test.ts scans this source and refuses it.
+   */
 });
 
 /**
@@ -49,6 +67,9 @@ const parsed = serverSchema.safeParse({
   // Same `||` reasoning: an absent GitHub Actions secret arrives as '', which `.optional()`
   // would treat as present and `.min(1)` would then refuse at boot.
   SOCRATA_APP_TOKEN: process.env.SOCRATA_APP_TOKEN || undefined,
+  // Same again: '' must mean "unset" → `off`, not an enum refusal about an empty string.
+  PLACES_MODE: process.env.PLACES_MODE || undefined,
+  CRON_SECRET: process.env.CRON_SECRET || undefined,
 });
 
 if (!parsed.success) {
