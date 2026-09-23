@@ -10,6 +10,7 @@ import {
   useState,
   useSyncExternalStore,
   useTransition,
+  type ComponentProps,
   type ReactNode,
 } from 'react';
 import { toast } from 'sonner';
@@ -20,16 +21,23 @@ import { cn } from '@/lib/utils';
 import {
   ERROR_ACTION,
   REVIEW_ACTION_DIFFERENT,
+  REVIEW_ACTION_NOT_THIS,
   REVIEW_ACTION_SAME,
   REVIEW_ACTION_SKIP,
   REVIEW_BUSY,
   REVIEW_DECISION_FAILED,
   REVIEW_DIFFERENT_HELPER,
+  REVIEW_GOOGLE_DECISION_FAILED,
+  REVIEW_GOOGLE_HELPER_NOT_THIS,
+  REVIEW_GOOGLE_HELPER_SKIP,
   REVIEW_SKIP_HELPER,
+  TOAST_ATTACHED,
   TOAST_DISTINCT,
   TOAST_MERGED,
 } from '@/lib/ui/copy';
+import { recordListingDecision } from '@/server/actions/record-listing-decision';
 import { recordReviewDecision } from '@/server/actions/record-review-decision';
+import { RejectDialog } from './reject-dialog';
 
 /**
  * `/review`'s action bar and the stage the pair advances on (03-UI-SPEC § 1, § States →
@@ -56,11 +64,22 @@ import { recordReviewDecision } from '@/server/actions/record-review-decision';
  * from a phone would double every tap.
  *
  * 🔴 NO SWIPE. MOB-02's gesture layer is Phase 7's; `motion` here only fades the advance.
+ *
+ * THE GOOGLE KIND (04-UI-SPEC § Screen 3, `kind="google"`): the same bar, busy states, refusal
+ * Alert and focus move, over `recordListingDecision`:
+ * - "Same business" confirms the listing (`attached`) with no confirmation — Detach on the
+ *   business reverses it.
+ * - "Not this business" is IRREVERSIBLE, so it only OPENS `RejectDialog` (Rule 42); the queue
+ *   advances after the dialog's write lands.
+ * - "Skip" records nothing (04-21), so a refresh would re-read the very same listing. After the
+ *   server confirms the listing is still pending, the bar navigates to `skipHref` — the URL that
+ *   carries this listing as skipped this session — and the queue sinks it (`readReviewQueue`).
  */
 
 export type ReviewDecision = 'merged' | 'distinct' | 'skip';
+type ListingDecision = 'attached' | 'skip';
 
-type Refusal = { message: string; retryable: boolean; decision: ReviewDecision };
+type Refusal<D> = { message: string; retryable: boolean; decision: D };
 
 /** A pair that is gone or already decided cannot be retried — only the queue can be reloaded. */
 function isRetryable(code: string, reason: string | number | undefined): boolean {
@@ -75,6 +94,7 @@ const BUTTON_TEXT = 'text-base font-normal';
  *  only — Rule 5). `ReviewHelpers` owns the elements; the buttons point at them. */
 const HELPER_ID = {
   distinct: 'review-helper-different',
+  notThis: 'review-helper-not-this',
   skip: 'review-helper-skip',
 } as const;
 
@@ -89,23 +109,63 @@ const HELPER_ID = {
  * just above the bar's spacer (so it sits directly above the buttons at the end of the pair),
  * and from 640px up `sm:order-last` moves it beneath the action row.
  */
-export function ReviewHelpers({ className }: { className?: string }) {
+export function ReviewHelpers({
+  kind = 'pair',
+  className,
+}: {
+  /** The Google kind has its own two sentences (§ Screen 3 → Helpers). */
+  kind?: 'pair' | 'google';
+  className?: string;
+}) {
   return (
     <div
       data-testid="review-helpers"
       className={cn('flex flex-col gap-1 text-sm font-normal text-muted-foreground', className)}
     >
-      <p id={HELPER_ID.distinct}>{REVIEW_DIFFERENT_HELPER}</p>
-      <p id={HELPER_ID.skip}>{REVIEW_SKIP_HELPER}</p>
+      {kind === 'google' ? (
+        <>
+          <p id={HELPER_ID.notThis}>{REVIEW_GOOGLE_HELPER_NOT_THIS}</p>
+          <p id={HELPER_ID.skip}>{REVIEW_GOOGLE_HELPER_SKIP}</p>
+        </>
+      ) : (
+        <>
+          <p id={HELPER_ID.distinct}>{REVIEW_DIFFERENT_HELPER}</p>
+          <p id={HELPER_ID.skip}>{REVIEW_SKIP_HELPER}</p>
+        </>
+      )}
     </div>
   );
 }
 
-export function ReviewActions({ candidateId }: { candidateId: string | null }) {
+type PairActionsProps = { kind?: 'pair'; candidateId: string | null };
+type GoogleActionsProps = {
+  kind: 'google';
+  attachmentId: string;
+  /** The spine business's display name, for the reject dialog's title and body. */
+  businessName: string;
+  /** Where "Skip" goes: this `/review` URL with the listing added to the session's skipped ids. */
+  skipHref: string;
+};
+
+/** The action bar for the item on screen — a duplicate pair (default) or a Google listing. */
+export function ReviewActions(props: PairActionsProps | GoogleActionsProps) {
+  if (props.kind === 'google') {
+    return (
+      <GoogleActions
+        attachmentId={props.attachmentId}
+        businessName={props.businessName}
+        skipHref={props.skipHref}
+      />
+    );
+  }
+  return <PairActions candidateId={props.candidateId} />;
+}
+
+function PairActions({ candidateId }: { candidateId: string | null }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [pressed, setPressed] = useState<ReviewDecision | null>(null);
-  const [refusal, setRefusal] = useState<Refusal | null>(null);
+  const [refusal, setRefusal] = useState<Refusal<ReviewDecision> | null>(null);
 
   // A new pair on screen clears the last pair's refusal — it was about a different pair.
   const [shownFor, setShownFor] = useState(candidateId);
@@ -168,36 +228,11 @@ export function ReviewActions({ candidateId }: { candidateId: string | null }) {
     // 640px up it is an ordinary row beneath the chip band.
     <div data-testid="review-actions" className="flex flex-col gap-2 sm:gap-4">
       {refusal ? (
-        <Alert
-          role="alert"
-          data-testid="review-error"
-          className="border-destructive/40 bg-destructive-surface text-destructive-surface-foreground"
-        >
-          <OctagonX data-icon="octagon-x" aria-hidden="true" className="size-5" />
-          <AlertTitle className="text-base font-normal text-balance">{refusal.message}</AlertTitle>
-          <div className="col-start-2 mt-2 flex flex-wrap gap-2">
-            {refusal.retryable ? (
-              <Button
-                type="button"
-                variant="outline"
-                data-testid="review-error-retry"
-                className={cn('h-11', BUTTON_TEXT)}
-                onClick={() => decide(refusal.decision)}
-              >
-                {ERROR_ACTION.tryAgain}
-              </Button>
-            ) : null}
-            <Button
-              type="button"
-              variant="ghost"
-              data-testid="review-error-reload"
-              className={cn('h-11', BUTTON_TEXT)}
-              onClick={reload}
-            >
-              {ERROR_ACTION.reloadQueue}
-            </Button>
-          </div>
-        </Alert>
+        <RefusalAlert
+          refusal={refusal}
+          onRetry={() => decide(refusal.decision)}
+          onReload={reload}
+        />
       ) : null}
 
       {/* Phone: row 1 is "Same business" full width; row 2 is "Different" and "Skip", equal
@@ -234,7 +269,207 @@ export function ReviewActions({ candidateId }: { candidateId: string | null }) {
   );
 }
 
-function DecisionButton({
+/**
+ * The Google listing's bar (04-UI-SPEC § Screen 3). Same rows, busy states and refusal Alert as
+ * the pair's; Rule 20 holds for all three actions — nothing advances before the server answers.
+ */
+function GoogleActions({
+  attachmentId,
+  businessName,
+  skipHref,
+}: {
+  attachmentId: string;
+  businessName: string;
+  skipHref: string;
+}) {
+  const router = useRouter();
+  const [isPending, startTransition] = useTransition();
+  const [pressed, setPressed] = useState<ListingDecision | null>(null);
+  const [refusal, setRefusal] = useState<Refusal<ListingDecision> | null>(null);
+
+  // A new listing on screen clears the last one's refusal — it was about a different item.
+  const [shownFor, setShownFor] = useState(attachmentId);
+  if (shownFor !== attachmentId) {
+    setShownFor(attachmentId);
+    setRefusal(null);
+  }
+
+  const decide = useCallback(
+    (decision: ListingDecision) => {
+      setRefusal(null);
+      setPressed(decision);
+      startTransition(async () => {
+        let result: Awaited<ReturnType<typeof recordListingDecision>>;
+        try {
+          result = await recordListingDecision({ attachmentId, decision });
+        } catch {
+          // The REQUEST failed, so nothing was recorded and the listing is still pending: the
+          // same retryable refusal, the listing still on screen (Rule 20).
+          setRefusal({ message: REVIEW_GOOGLE_DECISION_FAILED, retryable: true, decision });
+          return;
+        }
+        if (!result.ok) {
+          setRefusal({
+            message: result.message,
+            retryable: isRetryable(result.code, result.detail?.reason),
+            decision,
+          });
+          return;
+        }
+        if (decision === 'attached') {
+          toast(TOAST_ATTACHED(result.data.businessName));
+          router.refresh();
+          return;
+        }
+        // Skip wrote nothing: a refresh would return this same listing (04-21). Move to the URL
+        // that carries it as skipped; the queue sinks it and shows the next item.
+        router.push(skipHref);
+      });
+    },
+    [attachmentId, router, skipHref],
+  );
+
+  const reload = useCallback(() => {
+    setRefusal(null);
+    startTransition(() => {
+      router.refresh();
+    });
+  }, [router]);
+
+  /** The reject dialog recorded its write and closed: now the queue may move on. */
+  const onRejected = useCallback(() => {
+    router.refresh();
+  }, [router]);
+
+  const busy = isPending;
+  const shared = { busy, isPending, pressed, onDecide: decide };
+
+  return (
+    <div data-testid="review-actions" className="flex flex-col gap-2 sm:gap-4">
+      {refusal ? (
+        <RefusalAlert
+          refusal={refusal}
+          onRetry={() => decide(refusal.decision)}
+          onReload={reload}
+        />
+      ) : null}
+
+      {/* The pair's geometry: "Same business" full width on phone, then the other two. */}
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-2">
+        <DecisionButton
+          {...shared}
+          decision="attached"
+          label={REVIEW_ACTION_SAME}
+          variant="default"
+          data-testid="review-action-same"
+        />
+        <div className="grid grid-cols-2 gap-2 sm:contents">
+          {/* Rule 42: this trigger ONLY opens the confirmation; the dialog records. */}
+          <RejectDialog
+            attachmentId={attachmentId}
+            businessName={businessName}
+            disabled={busy}
+            onRecorded={onRejected}
+          >
+            <TriggerButton
+              busy={busy}
+              describedBy={HELPER_ID.notThis}
+              data-testid="review-action-not-this"
+            >
+              {REVIEW_ACTION_NOT_THIS}
+            </TriggerButton>
+          </RejectDialog>
+          <DecisionButton
+            {...shared}
+            decision="skip"
+            label={REVIEW_ACTION_SKIP}
+            variant="ghost"
+            describedBy={HELPER_ID.skip}
+            data-testid="review-action-skip"
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** The persistent refusal (a toast is for success only). "Try again" only when it can work. */
+function RefusalAlert({
+  refusal,
+  onRetry,
+  onReload,
+}: {
+  refusal: { message: string; retryable: boolean };
+  onRetry: () => void;
+  onReload: () => void;
+}) {
+  return (
+    <Alert
+      role="alert"
+      data-testid="review-error"
+      className="border-destructive/40 bg-destructive-surface text-destructive-surface-foreground"
+    >
+      <OctagonX data-icon="octagon-x" aria-hidden="true" className="size-5" />
+      <AlertTitle className="text-base font-normal text-balance">{refusal.message}</AlertTitle>
+      <div className="col-start-2 mt-2 flex flex-wrap gap-2">
+        {refusal.retryable ? (
+          <Button
+            type="button"
+            variant="outline"
+            data-testid="review-error-retry"
+            className={cn('h-11', BUTTON_TEXT)}
+            onClick={onRetry}
+          >
+            {ERROR_ACTION.tryAgain}
+          </Button>
+        ) : null}
+        <Button
+          type="button"
+          variant="ghost"
+          data-testid="review-error-reload"
+          className={cn('h-11', BUTTON_TEXT)}
+          onClick={onReload}
+        >
+          {ERROR_ACTION.reloadQueue}
+        </Button>
+      </div>
+    </Alert>
+  );
+}
+
+/**
+ * "Not this business": an outline bar button that only OPENS the reject dialog. The dialog's
+ * trigger clones it (`asChild`) with its own `onClick` / `aria-expanded` / ref, so every prop
+ * it is given is passed on to the `Button`. Busy, it is `aria-disabled` like its neighbours,
+ * and the dialog refuses to open.
+ */
+function TriggerButton({
+  busy,
+  describedBy,
+  className,
+  children,
+  ...props
+}: ComponentProps<'button'> & { busy: boolean; describedBy: string; 'data-testid': string }) {
+  return (
+    <Button
+      type="button"
+      variant="outline"
+      {...props}
+      aria-disabled={busy || undefined}
+      aria-describedby={describedBy}
+      className={cn(
+        'h-12 w-full sm:h-11 sm:w-auto',
+        BUTTON_TEXT,
+        busy && 'cursor-not-allowed opacity-50',
+        className,
+      )}
+    >
+      {children}
+    </Button>
+  );
+}
+
+function DecisionButton<D extends string>({
   decision,
   label,
   variant,
@@ -245,7 +480,7 @@ function DecisionButton({
   onDecide,
   describedBy,
 }: {
-  decision: ReviewDecision;
+  decision: D;
   label: string;
   variant: 'default' | 'outline' | 'ghost';
   /** The id of the helper sentence this action is described by (C-WR-06). */
@@ -253,8 +488,8 @@ function DecisionButton({
   'data-testid': string;
   busy: boolean;
   isPending: boolean;
-  pressed: ReviewDecision | null;
-  onDecide: (decision: ReviewDecision) => void;
+  pressed: D | null;
+  onDecide: (decision: D) => void;
 }) {
   const recording = isPending && pressed === decision;
   return (

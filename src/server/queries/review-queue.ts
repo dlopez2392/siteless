@@ -242,6 +242,8 @@ async function readTopPair(tx: Tx): Promise<PairTopRow | undefined> {
 
 type ListingTopRow = {
   id: string;
+  /** Skipped by this reviewer this session (`?skip=`, 04-24) — sinks, never hidden. */
+  skipped: boolean;
   place_id: string;
   score: number;
   reason: string;
@@ -259,11 +261,23 @@ type ListingTopRow = {
  * partner's detail, which must be a business a person can open. Its score is the partner's own
  * attachment row for the same place (0029 writes both tie rows). Only spine columns and the
  * numeric row are selected — never an observation, never a coordinate.
+ *
+ * 🔴 SKIPPED LISTINGS SINK, THEY ARE NOT HIDDEN (04-24). "Skip" on a listing writes nothing —
+ * 0029 has no skip column — so the screen carries the ids it skipped this session and they sort
+ * after every unskipped listing: D-13's rule for a skipped pair. Hiding them instead would show
+ * "No Google listings to review" while listings are still pending. The ids travel as ONE text
+ * parameter split in SQL (never a JS array in a drizzle template — it expands into N
+ * placeholders), and an id that is not one of this org's listings simply matches nothing.
  */
-async function readTopListing(tx: Tx): Promise<ListingTopRow | undefined> {
+async function readTopListing(
+  tx: Tx,
+  skipped: readonly string[],
+): Promise<ListingTopRow | undefined> {
+  const skippedCsv = skipped.join(',');
   return rowsOf<ListingTopRow>(
     await tx.execute(sql`
       select a.id,
+             a.id::text = any(string_to_array(${skippedCsv}, ',')) as skipped,
              a.place_id,
              a.score,
              a.reason,
@@ -283,7 +297,7 @@ async function readTopListing(tx: Tx): Promise<ListingTopRow | undefined> {
          and a.status = 'tentative'
          and a.score >= ${REVIEW_BAND_FLOOR}
          and b.merged_into_id is null
-       order by a.score desc, a.id
+       order by skipped, a.score desc, a.id
        limit 1`),
   )[0];
 }
@@ -291,12 +305,15 @@ async function readTopListing(tx: Tx): Promise<ListingTopRow | undefined> {
 /**
  * ONE queue, two kinds, one ordering (04-UI-SPEC § Screen 3, OQ 3): the higher of the best
  * pending pair and the best tentative listing by score; on equal scores the PAIR first, so two
- * loads never swap. A SKIPPED pair sinks below every undecided item of either kind (D-13 — a
- * Google listing has no skip state: "Skip" writes nothing). A filtered-out kind is not read.
+ * loads never swap. A SKIPPED item of either kind sinks below every undecided item of either
+ * kind (D-13): a pair by its stored `skipped_at`, a listing by `skippedListings` — the ids the
+ * screen skipped this session, because a listing has no stored skip state ("Skip" writes
+ * nothing). Two skipped items compare by score. A filtered-out kind is not read.
  */
 export async function readReviewQueue(
   tx: Tx,
   filter: ReviewFilter = 'all',
+  skippedListings: readonly string[] = [],
 ): Promise<ReviewQueue> {
   const counts = {
     pairs: await readReviewRemaining(tx),
@@ -310,9 +327,16 @@ export async function readReviewQueue(
         : counts.pairs + counts.google;
 
   const pair = filter === 'google' ? undefined : await readTopPair(tx);
-  const listing = filter === 'duplicates' ? undefined : await readTopListing(tx);
+  const listing =
+    filter === 'duplicates' ? undefined : await readTopListing(tx, skippedListings);
 
-  if (listing && (!pair || pair.skipped || listing.score > pair.score)) {
+  const listingFirst =
+    listing !== undefined &&
+    (pair === undefined ||
+      (pair.skipped && !listing.skipped) ||
+      (pair.skipped === listing.skipped && listing.score > pair.score));
+
+  if (listing && listingFirst) {
     const [side] = await readSides(tx, listing.business_id, listing.business_id);
     if (!side) throw new Error('readReviewQueue: a listing business is not readable');
     return {
@@ -440,10 +464,12 @@ async function readIngested(tx: Tx): Promise<boolean> {
   return row?.ingested === true;
 }
 
-/** `/review`'s one read — ONE `withOrg` for both kinds, the counts and the empty-state flag. */
+/** `/review`'s one read — ONE `withOrg` for both kinds, the counts and the empty-state flag.
+ *  `skippedListings` are uuids the page has already validated (`parseSkipped`). */
 export async function listReviewQueue(
   claims: OrgClaims,
   filter: ReviewFilter = 'all',
+  skippedListings: readonly string[] = [],
 ): Promise<ReviewQueue> {
-  return withOrg(claims, (tx) => readReviewQueue(tx, filter));
+  return withOrg(claims, (tx) => readReviewQueue(tx, filter, skippedListings));
 }
