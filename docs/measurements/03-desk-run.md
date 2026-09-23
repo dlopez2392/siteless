@@ -449,6 +449,90 @@ count as a chain today, so they are capped at 94 and never auto-merge.
 
 ---
 
+## Answers (danlo, 2026-09-23) and what changed
+
+| Question | Answer | Change |
+|---|---|---|
+| 1. Confidence cutoff | **`cutoff 0.3`** | `OVERTURE_CONFIDENCE_CUTOFF` 0.5 → **0.3** (`b0c6000`) |
+| 2. Fixture pairs | **`pairs ok`** | no expectation change for any real pair |
+| 3. Blocking threshold | **`threshold 0.45` plus the phone rule** | `BLOCK_SIMILARITY_THRESHOLD` confirmed at 0.45; new `PHONE_LIFT_MIN_NAME_SIM = 0.3` (`12a66ec` red, `b0c6000` green) |
+| 4. D-11 triplicates | **`D-11 keep`** | none; follow-up recorded in `deferred-items.md` |
+
+**Why each answer:**
+
+1. **Cutoff 0.3.** The 0.3–0.4 and 0.4–0.5 bands read as real RGV businesses in the 20-row
+   samples below. Their junk proxy (3.4 % / 3.3 %) is lower than 0.5–0.6's (6.8 %). About half
+   of each band has no website, which makes them exactly the product's target. 0.3 drops 2,680 rows (4.7 %),
+   the bands below it where junk climbs (6.0 %, 25 %, 58 %). The old comment's "8.3 %" was the
+   share **below 0.4**; the shipped 0.5 actually dropped 6,163 rows (10.8 %). The comment now
+   says so.
+2. **Pairs ok.** The fixture tests the scorer's arithmetic on the inputs it models, and every
+   real-pair expectation holds. The `known_miss` flags stay (P02, P03, P10). What the real spine
+   showed is recorded, not re-pinned:
+   - **P03's real pair is Comptroller ↔ Overture at 84 review.** The modelled
+     Overture ↔ Overture "Martket ↔ Market" pair does not exist in `2026-08-19.0`. So the recall
+     gap the fixture models is not in this data: the real La Colmena duplicate reaches review.
+   - P01 is chain-capped at 94 in reality (5 local `zorba` rows). P02's Comptroller row was
+     never geocoded (64). P05's two businesses are at different addresses and never pair.
+3. **Threshold 0.45, plus a phone-lift floor.** The threshold never drove the queue. R4 did:
+   it lifted every shared-phone + same-ZIP pair with name sim < 0.6 to 80. Now R4 lifts only at
+   name sim ≥ **0.3**. Below that, the pair keeps its raw score. A shared phone with a dissimilar
+   name tops out at raw 80, so it can never merge either way.
+4. **D-11 kept for Phase 3.** The 67 co-located same-name groups (205 rows, 66 pairs held at 94,
+   Rio Stone Products among them) wait in review. Follow-up: **"a chain needs ≥ 3 members more
+   than 500 m apart"**, with its own fixture and red test (`deferred-items.md`).
+
+### The fixture after the phone rule
+
+Only **P07** changed, and it is **synthetic** (name sim 0.05, a fictional 555 number): **80
+review → 29 ignore**, signals `[phone]`, geo gate false, no rule. The lift itself is now pinned
+at the boundary by `phone lift needs name sim 0.30` (0.29 → 29 ignore, no rule; 0.30 → 80 review,
+`phone_locality_review`). `phone locality — sim < 0.60 is clamped to the review band` moved its
+lower edge from P07 as stored to P07's records at sim 0.30. No real pair changed, because none
+of the six real pairs carries a phone. Exact integers, bands and signals throughout; no range
+anywhere.
+
+Mutation: deleting the floor (`nameSim >= w.phoneLiftMinNameSim &&`) turned
+`phone lift needs name sim 0.30` and `merge-pairs fixture P07` red, and nothing else (2 of 228).
+Reverted, then byte-identical by `cmp`.
+
+### Resolve `--dry-run` with the tuned scorer (2026-09-23T04:45Z, event `1445587`)
+
+Run on the same spine, **after** the real pass had merged 1,077 pairs. Not a re-ingest.
+
+| | before (dry run 1, 03:51Z) | after (tuned, 04:51Z) |
+|---|---|---|
+| new candidates (stage 2) | 79,484 | 539 (phone 54 · address 3 · trigram 482: pairs the merge winners' new fields now match) |
+| blocks over the cap | 171 | 168 |
+| 25 km gate | 1,487 | 8 |
+| pending scored | 77,997 | 77,451 (7,724 rewritten) |
+| **≥ 95** | 1,077 | **0** (all 1,077 already merged) |
+| **80–94 (review queue)** | **12,591** | **7,975** |
+| < 80 | 64,329 | 69,476 |
+| wall clock | 742.5 s | 360.3 s |
+
+🔴 **The queue fell by 4,616, not the predicted ~6,247.** The accounting closes, with a
+30-pair remainder:
+
+| | Pairs |
+|---|---|
+| review queue before | 12,591 |
+| − shared phone + same ZIP + sim < 0.3, raw < 80: no longer lifted | **− 4,667** |
+| + new candidates from post-merge re-blocking that land in review | + 21 |
+| + pairs re-scored because a side is now a merge winner with survivorship fields | + 30 |
+| **review queue after** | **7,975** |
+
+**Why the prediction was high:** the ~6,247 were phone pairs sitting at exactly 80 with
+sim < 0.3. **1,622 of them are at 80 on their raw score, not because of the lift:** same phone
++ same full street address (30) + ≤ 100 m (15) + same cluster (5) = 80 at name 0. The floor
+cannot touch them, and it should not. Same phone and same street address with a different name
+is the likeliest real duplicate in the set: a renamed listing, or one owner's two listings at one
+storefront. They stay in review on their own evidence. Now: 6,289 pending pairs share a phone
+and a ZIP at sim < 0.3; **4,667** fall out of review; **1,622** stay (all of them at the same
+street address).
+
+---
+
 ## Confidence sample — 20 rows per 0.1 band
 
 Deterministic (`order by md5(id)`), Texas-side Overture rows. Public fields only: the name shown
