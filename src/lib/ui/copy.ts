@@ -1373,6 +1373,38 @@ export function PRESET_COST_CHECK(requests: number) {
   return `$0.00 · IDs only, no website data · ~${counted(requests, 'request', 'requests')}`;
 }
 
+/** A cost line the estimator could not compute (inherited wording, 04-UI-SPEC § Loading). */
+export const PRESET_COST_NOT_PRICED = 'Not priced';
+
+/** The partition row's week, named with its calendar range: "Week 39 · Sep 21–27". `range` is
+ *  pre-formatted through `formatWeekRange`. */
+export function PRESET_PARTITION_WEEK(week: number, range: string) {
+  return `Week ${week} · ${range}`;
+}
+
+/**
+ * 04-27 decision (recorded for danlo): this week's partition covers ZERO of the preset's cells.
+ * `queueRun` would admit it, hold one micro-dollar and complete having searched nothing, so the
+ * action is `aria-disabled` and described by this sentence instead. It names the number, says
+ * nothing would run or be charged, and ends with a way out.
+ */
+export function PRESET_PARTITION_EMPTY(totalCells: number, week: number) {
+  const subject =
+    totalCells === 1
+      ? "This preset's only cell is assigned to another week"
+      : `All ${formatCount(totalCells)} of this preset's cells are assigned to other weeks`;
+  return (
+    `${subject}, so week ${week}'s partition has nothing to search and nothing to charge. Run ` +
+    'the full sweep instead, or run the partition in a week one of its cells comes up.'
+  );
+}
+
+/** The summary card's cost line for the primary action: "Full sweep · ~$1.90–$2.90 · …". Both
+ *  parts arrive pre-rendered — the kind through `RUN_KIND_LABEL`, the line from `PRESET_COST_*`. */
+export function PRESET_SUMMARY_RUN_COST(kindLabel: string, costLine: string) {
+  return `${kindLabel} · ${costLine}`;
+}
+
 export const PRESET_OFF_STICKY_NOTE = 'Places is switched off — see the note at the top.';
 
 /** The Places-mode notice (muted Alert). `PLACES_MODE` is named on purpose (Open Question 8). */

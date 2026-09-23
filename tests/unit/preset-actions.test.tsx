@@ -70,7 +70,14 @@ function props(mode: PlacesModeName, cells = 4): Omit<RunActionsProps, 'slot'> {
       partition: PRESET_COST_PARTITION(0, 0, 12, cells, 17, 39),
       check: PRESET_COST_CHECK(54),
     },
-    partition: { index: 1, isoWeek: 39, mondayIso: '2026-09-21', sundayIso: '2026-09-27', cells, totalCells: 17 },
+    partition: {
+      index: 1,
+      isoWeek: 39,
+      mondayIso: '2026-09-21',
+      sundayIso: '2026-09-27',
+      cells,
+      totalCells: 17,
+    },
     drawer: {
       presetName: 'McAllen trades',
       initialVersionId: VERSION_ID,
@@ -117,9 +124,17 @@ beforeAll(() => {
 beforeEach(() => action.mockReset());
 afterEach(cleanup);
 
-/** Filled accent buttons anywhere in the tree (the shadcn Button stamps its variant). */
+/**
+ * Filled accent buttons anywhere in the tree. The shadcn Button stamps `data-variant`; its
+ * `data-slot` is NOT a usable hook, because a Radix `asChild` trigger spreads its own
+ * `data-slot="dialog-trigger"` over it.
+ */
 function accentButtons(container: HTMLElement): HTMLElement[] {
-  return [...container.querySelectorAll<HTMLElement>('[data-slot="button"][data-variant="default"]')];
+  return [
+    ...container.querySelectorAll<HTMLElement>(
+      'button[data-variant="default"], a[data-variant="default"]',
+    ),
+  ];
 }
 
 describe('preset run actions (04-UI-SPEC § Screen 2)', () => {
@@ -148,10 +163,9 @@ describe('preset run actions (04-UI-SPEC § Screen 2)', () => {
     for (const mode of MODES) {
       const { container, unmount } = renderBoth(mode);
       for (const id of ACTION_IDS) {
-        expect(
-          container.querySelectorAll(`[data-testid="${id}"]`),
-          `${mode}: ${id}`,
-        ).toHaveLength(1);
+        expect(container.querySelectorAll(`[data-testid="${id}"]`), `${mode}: ${id}`).toHaveLength(
+          1,
+        );
       }
       // The card holds the other two, never the primary's action.
       const card = screen.getByTestId('preset-other-runs');
