@@ -454,3 +454,300 @@ describe('run report — header and alerts (04-23 Task 2)', () => {
     expect(stop.textContent).toContain('1 tile was still subdividing when it stopped');
   });
 });
+
+/** Any colour class other than the foreground / muted pair. */
+const COLOUR_CLASS =
+  /\b(?:text|bg|border|fill)-(?:primary|warning|destructive|accent|chart|success|red|green|blue|amber|yellow|teal|orange)/;
+
+function isBefore(a: Element, b: Element): boolean {
+  return Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+}
+
+describe('run report — cards (04-23 Task 3)', () => {
+  it('the requests card renders both SKUs even at zero', () => {
+    const { unmount } = renderReport(reportOf());
+    const card = screen.getByTestId('run-requests');
+    const ent = within(card).getByTestId('run-sku-row-ts_enterprise');
+    const ess = within(card).getByTestId('run-sku-row-ts_essentials');
+    expect(ent).toHaveAttribute('data-requests', '68');
+    expect(ess).toHaveAttribute('data-requests', '0');
+    expect(ess.textContent).toContain('Text Search Essentials (IDs only)');
+    expect(within(card).queryByTestId('run-sku-row-refused')).toBeNull();
+    expect(within(card).getByTestId('run-sku-row-total')).toHaveAttribute('data-requests', '68');
+    // The phone twins exist with their OWN testids — never one testid on two elements.
+    expect(within(card).getByTestId('run-sku-card-ts_essentials')).toBeInTheDocument();
+    unmount();
+
+    renderReport(
+      reportOf({
+        run: { status: 'partial', stoppedReason: 'budget_cap_reached' },
+        requests: { refusedByMeter: 1, totalRequests: 69 },
+      }),
+    );
+    const refused = screen.getByTestId('run-sku-row-refused');
+    expect(refused).toHaveAttribute('data-requests', '1');
+    expect(refused.textContent).toContain('Refused by the meter');
+    expect(refused.textContent).toContain('—');
+    expect(screen.getByTestId('run-sku-row-total')).toHaveAttribute('data-requests', '69');
+    expect(screen.getByTestId('run-sku-row-total').textContent).toContain('69');
+  });
+
+  it('the tiles card warns on still truncated', () => {
+    const { unmount } = renderReport(
+      reportOf({
+        tiles: { stillTruncated: 2, truncated: THREE_TRUNCATED.slice(0, 2) },
+      }),
+    );
+    const cell = screen.getByTestId('run-tiles-truncated');
+    expect(cell).toHaveAttribute('data-count', '2');
+    expect(cell.querySelector('[data-icon="triangle-alert"]')).not.toBeNull();
+    expect(cell.className).toContain('text-warning');
+    expect(screen.getByTestId('run-tiles-searched')).toHaveAttribute('data-count', '68');
+    expect(screen.getByTestId('run-tiles-saturated')).toHaveAttribute('data-count', '5');
+    expect(screen.getByTestId('run-tiles-subdivided')).toHaveAttribute('data-count', '4');
+    unmount();
+
+    renderReport(reportOf());
+    const plain = screen.getByTestId('run-tiles-truncated');
+    expect(plain).toHaveAttribute('data-count', '0');
+    expect(plain.querySelector('[data-icon="triangle-alert"]')).toBeNull();
+    expect(plain.className).not.toMatch(COLOUR_CLASS);
+  });
+
+  it('the tiles card lists the tiles still subdividing on an exceeded-estimate run', () => {
+    renderReport(
+      reportOf({
+        run: { status: 'partial', stoppedReason: 'exceeded_estimate' },
+        tiles: {
+          stillSubdividing: [
+            {
+              tileKey: 'city:4845384|roofing_contractor|r0',
+              cellKey: 'home_services/4845384',
+              placesType: 'roofing_contractor',
+            },
+          ],
+        },
+      }),
+    );
+    const list = screen.getByTestId('run-tiles-subdividing');
+    // The stop alert's "Show the tiles still subdividing" is an in-page link to this list.
+    expect(screen.getByTestId('run-stop-show-subdividing')).toHaveAttribute('href', `#${list.id}`);
+    expect(list.textContent).toContain('Tiles still subdividing when the run stopped (1)');
+    expect(list.textContent).toContain('city:4845384 · roofing_contractor · tile r0');
+  });
+
+  it('the outcomes card links tentative listings to the Google review filter', () => {
+    const { unmount } = renderReport(reportOf());
+    const link = screen.getByTestId('run-review-link');
+    expect(link).toHaveAttribute('href', '/review?kind=google');
+    expect(link.textContent).toBe('Review 18 in the queue');
+    expect(screen.getByTestId('run-outcome-found')).toHaveAttribute('data-count', '428');
+    expect(screen.getByTestId('run-outcome-attached')).toHaveAttribute('data-count', '262');
+    expect(screen.getByTestId('run-outcome-tentative')).toHaveAttribute('data-count', '18');
+    expect(screen.getByTestId('run-outcome-unmatched')).toHaveAttribute('data-count', '148');
+    unmount();
+
+    renderReport(reportOf({ outcomes: { tentative: 0, found: 410 } }));
+    expect(screen.queryByTestId('run-review-link')).toBeNull();
+  });
+
+  it('the outcomes card lists every cluster including zero rows', () => {
+    renderReport(reportOf());
+    const home = screen.getByTestId('run-cluster-row-home_services');
+    const auto = screen.getByTestId('run-cluster-row-auto_retail');
+    expect(home.textContent).toContain('Home services & trades');
+    expect(auto.textContent).toContain('Auto & retail');
+    // Zeros render as zeros — the coverage gap is measured per cluster (D-06).
+    expect(auto).toHaveAttribute('data-found', '0');
+    expect(auto.textContent).toContain('0');
+    expect(home).toHaveAttribute('data-unmatched', '148');
+    expect(isBefore(home, auto)).toBe(true);
+    // Phone twins, own testids.
+    expect(screen.getByTestId('run-cluster-card-auto_retail')).toHaveAttribute('data-found', '0');
+  });
+
+  it('the website block keeps its fixed order and one colour', () => {
+    renderReport(reportOf());
+    const ids = [
+      'run-website-listed',
+      'run-host-class-other',
+      'run-host-class-social',
+      'run-host-class-directory',
+      'run-host-class-platform_subdomain',
+      'run-host-class-business_site_dead',
+      'run-website-none',
+    ];
+    const rows = ids.map((id) => screen.getByTestId(id));
+    for (let i = 1; i < rows.length; i++) {
+      expect(isBefore(rows[i - 1]!, rows[i]!), `${ids[i - 1]} before ${ids[i]}`).toBe(true);
+    }
+    expect(rows.map((r) => r.getAttribute('data-count'))).toEqual([
+      '204',
+      '121',
+      '41',
+      '17',
+      '14',
+      '11',
+      '108',
+    ]);
+    expect(rows[1]!.textContent).toContain('Own website (not yet checked)');
+    expect(rows[5]!.textContent).toContain('Dead Google site (business.site)');
+    for (const [i, row] of rows.entries()) {
+      for (const el of [row, ...row.querySelectorAll('*')]) {
+        expect(el.getAttribute('class') ?? '', ids[i]).not.toMatch(COLOUR_CLASS);
+      }
+    }
+  });
+
+  it('a change check shows changes instead of matching', () => {
+    renderReport(
+      reportOf({
+        run: {
+          kind: 'change_check',
+          costMicroUsd: 0,
+          estimateMicroUsdLo: null,
+          estimateMicroUsdHi: null,
+        },
+        changes: {
+          checked: 64,
+          unchanged: 58,
+          withNew: 4,
+          withGone: 3,
+          newIds: 9,
+          goneIds: 5,
+          changedTiles: 6,
+        },
+      }),
+    );
+    expect(screen.getByTestId('run-changes-checked')).toHaveAttribute('data-count', '64');
+    expect(screen.getByTestId('run-changes-unchanged')).toHaveAttribute('data-count', '58');
+    expect(screen.getByTestId('run-changes-new')).toHaveAttribute('data-count', '4');
+    expect(screen.getByTestId('run-changes-gone')).toHaveAttribute('data-count', '3');
+    const card = screen.getByTestId('run-changes');
+    expect(card.textContent).toContain('New place ids 9 · Gone place ids 5');
+    expect(card.textContent).toContain(
+      'The 6 changed tiles are candidates for the next paid sweep.',
+    );
+    expect(document.querySelector('[data-testid^="run-outcome-"]')).toBeNull();
+    expect(screen.queryByTestId('run-outcomes')).toBeNull();
+    // The header's free-search note replaces the estimate line.
+    expect(screen.getByTestId('run-change-check-note')).toBeInTheDocument();
+    expect(screen.queryByTestId('run-estimate-line')).toBeNull();
+  });
+
+  it('places-derived cards carry the Google Maps tag', () => {
+    const { unmount } = renderReport(reportOf());
+    const containers = [...document.querySelectorAll('[data-places-content]')];
+    expect(containers.map((c) => c.getAttribute('data-testid'))).toEqual([
+      'run-tiles',
+      'run-outcomes',
+    ]);
+    for (const c of containers) {
+      expect(
+        c.querySelectorAll('[data-testid="google-maps-attribution"]'),
+        c.getAttribute('data-testid') ?? '',
+      ).toHaveLength(1);
+    }
+    // Our own ledger is not Places content (D-11): no tag on it.
+    expect(
+      screen
+        .getByTestId('run-requests')
+        .querySelectorAll('[data-testid="google-maps-attribution"]'),
+    ).toHaveLength(0);
+    // Exactly one tag per Places-derived card, none loose on the page.
+    expect(document.querySelectorAll('[data-testid="google-maps-attribution"]')).toHaveLength(2);
+    unmount();
+
+    renderReport(
+      reportOf({
+        run: { kind: 'change_check' },
+        changes: {
+          checked: 1,
+          unchanged: 1,
+          withNew: 0,
+          withGone: 0,
+          newIds: 0,
+          goneIds: 0,
+          changedTiles: 0,
+        },
+      }),
+    );
+    const checkContainers = [...document.querySelectorAll('[data-places-content]')];
+    expect(checkContainers.map((c) => c.getAttribute('data-testid'))).toEqual([
+      'run-tiles',
+      'run-changes',
+    ]);
+    for (const c of checkContainers) {
+      expect(c.querySelectorAll('[data-testid="google-maps-attribution"]')).toHaveLength(1);
+    }
+  });
+
+  it('the outcomes card says no places yet while live', () => {
+    renderReport(
+      reportOf({
+        run: { status: 'running', finishedMs: null },
+        outcomes: { found: 0, attached: 0, tentative: 0, unmatched: 0 },
+      }),
+    );
+    const pending = screen.getByTestId('run-outcomes-pending');
+    expect(pending.textContent).toContain('No Google places yet');
+    expect(pending.textContent).toContain('Results appear here as each tile finishes.');
+    expect(screen.queryByTestId('run-outcomes-empty')).toBeNull();
+    expect(screen.queryByTestId('run-outcome-found')).toBeNull();
+  });
+
+  it('the outcomes card says Google returned none when finished empty', () => {
+    renderReport(
+      reportOf({
+        outcomes: {
+          found: 0,
+          attached: 0,
+          tentative: 0,
+          unmatched: 0,
+          website: {
+            listed: 0,
+            none: 0,
+            byHostClass: {
+              other: 0,
+              social: 0,
+              directory: 0,
+              platform_subdomain: 0,
+              business_site_dead: 0,
+            },
+          },
+        },
+      }),
+    );
+    const empty = screen.getByTestId('run-outcomes-empty');
+    expect(empty.textContent).toContain('Google returned no places for this run');
+    const open = within(empty).getByTestId('run-outcomes-open-preset');
+    expect(open).toHaveAttribute('href', `/presets/${PRESET_ID}`);
+    expect(open.textContent).toBe('Open McAllen roofers');
+    expect(screen.queryByTestId('run-outcomes-pending')).toBeNull();
+  });
+
+  it('every testid on the report is on one element only', () => {
+    // Desk and phone layouts both live in the DOM (CSS hides one), so a shared testid would
+    // make every e2e `getByTestId` ambiguous. Repeating list rows are the only exception.
+    const REPEATING = new Set([
+      'run-truncation-tile',
+      'google-maps-attribution',
+      'run-tiles-subdividing-tile',
+    ]);
+    renderReport(
+      reportOf({
+        run: { status: 'partial', stoppedReason: 'budget_cap_reached' },
+        requests: { refusedByMeter: 1, totalRequests: 69 },
+        tiles: { stillTruncated: 3, truncated: THREE_TRUNCATED },
+      }),
+    );
+    const counts = new Map<string, number>();
+    for (const el of document.querySelectorAll('[data-testid]')) {
+      const id = el.getAttribute('data-testid')!;
+      counts.set(id, (counts.get(id) ?? 0) + 1);
+    }
+    const dupes = [...counts].filter(([id, n]) => n > 1 && !REPEATING.has(id));
+    expect(dupes).toEqual([]);
+    expect(counts.size).toBeGreaterThan(30);
+  });
+});
