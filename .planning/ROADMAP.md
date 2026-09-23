@@ -214,10 +214,10 @@ Plans:
 - [x] 04-13-PLAN.md — Run planning: one pure function for full sweep / this week's partition / change check
 
 **Wave 3** *(blocked on Wave 2)*
-- [ ] 04-14-PLAN.md — Shared run chrome: RunStatusBadge, RunAutoRefresh, /spend stopped-reason fix and run links, nav
-- [ ] 04-15-PLAN.md — 0029: page-record contract, numeric-only features CHECK, record_places_page / record_change_check / decide_place_attachment
-- [ ] 04-16-PLAN.md — The per-page meter (reserve + ceiling in one txn, per-attempt settlement) and withWorkerOrg
-- [ ] 04-17-PLAN.md — Daily cron purge route, desk purge, /sources transient card, Places runbook
+- [x] 04-14-PLAN.md — Shared run chrome: RunStatusBadge, RunAutoRefresh, /spend stopped-reason fix and run links, nav
+- [x] 04-15-PLAN.md — 0029: page-record contract, numeric-only features CHECK, record_places_page / record_change_check / decide_place_attachment
+- [x] 04-16-PLAN.md — The per-page meter (reserve + ceiling in one txn, per-attempt settlement) and withWorkerOrg
+- [x] 04-17-PLAN.md — Daily cron purge route, desk purge, /sources transient card, Places runbook
 
 **Wave 4** *(blocked on Wave 3)*
 - [ ] 04-18-PLAN.md — The Enterprise tile search body, proven against msw and the real writer
