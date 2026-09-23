@@ -1,10 +1,25 @@
+import { SearchX } from 'lucide-react';
+import Link from 'next/link';
 import { ChangesCard } from '@/components/runs/changes-card';
 import { OutcomesCard } from '@/components/runs/outcomes-card';
 import { RequestsCard } from '@/components/runs/requests-card';
 import { RunAlerts } from '@/components/runs/run-alerts';
 import { RunHeader } from '@/components/runs/run-header';
 import { TilesCard } from '@/components/runs/tiles-card';
-import { RUN_REPORT_FOOTNOTE, RUN_REPORT_SUBTITLE, RUN_REPORT_TITLE } from '@/lib/ui/copy';
+import { Button } from '@/components/ui/button';
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+} from '@/components/ui/empty';
+import {
+  PLACES_ACTION,
+  RUN_REPORT_FOOTNOTE,
+  RUN_REPORT_SUBTITLE,
+  RUN_REPORT_TITLE,
+} from '@/lib/ui/copy';
 import type { RunReport } from '@/server/queries/run-report';
 
 /**
@@ -75,5 +90,35 @@ export function RunReportView({
         {RUN_REPORT_FOOTNOTE}
       </p>
     </div>
+  );
+}
+
+/**
+ * The body for a run that cannot be shown: a malformed id (`RUN_REPORT_BAD_ID`, rendered inline
+ * by the page) or an unknown / foreign one (`RUN_REPORT_NOT_FOUND`, via `not-found.tsx`). Each
+ * error names the problem and ends with a way out (§ States → Error).
+ *
+ * 🔴 UNKNOWN AND FOREIGN ARE ONE ANSWER (T-4-06). The read is RLS-scoped, so another org's run
+ * is simply absent; both render the same words, and nothing confirms a row exists elsewhere.
+ */
+export function RunReportUnavailable({ message, testId }: { message: string; testId: string }) {
+  return (
+    <Empty data-testid={testId} className="py-12">
+      <EmptyHeader>
+        <EmptyMedia variant="icon" className="size-12 rounded-full bg-muted text-muted-foreground">
+          <SearchX aria-hidden="true" className="size-6" />
+        </EmptyMedia>
+        <EmptyDescription className="max-w-[60ch] text-base font-normal">
+          {message}
+        </EmptyDescription>
+      </EmptyHeader>
+      <EmptyContent>
+        <Button asChild variant="outline" className="h-11 px-4 text-base font-normal">
+          <Link href="/spend" data-testid={`${testId}-open-spend`}>
+            {PLACES_ACTION.openSpend}
+          </Link>
+        </Button>
+      </EmptyContent>
+    </Empty>
   );
 }
