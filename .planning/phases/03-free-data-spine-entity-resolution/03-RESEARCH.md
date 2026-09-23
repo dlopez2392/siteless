@@ -1613,26 +1613,45 @@ const band = (s: number) => (s >= 95 ? 'merge' : s >= 80 ? 'review' : 'ignore');
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Does `postgres:18` carry contrib?** (A1)
+🔴 **All five are RESOLVED — every Recommendation below was adopted verbatim by the phase plan set,
+and the clause after each heading names the plan that carries it.** Nothing here is still open; a
+reader who needs to reopen one must change the named plan, not this document.
+
+1. **Does `postgres:18` carry contrib?** (A1) — **RESOLVED by 03-01**, which makes `CREATE EXTENSION`
+   the phase's first migration (`drizzle/0021_extensions.sql`) so the first CI run answers it before
+   any dependent work exists.
    - *Known:* local EDB and Supabase both list `pg_trgm`, `unaccent`, `cube`, `earthdistance`, `fuzzystrmatch`, `btree_gin`, `btree_gist` as available; the image installs the Debian PGDG `postgresql-18` package.
    - *Unclear:* not executed — Docker is absent here.
    - *Recommendation:* make the `CREATE EXTENSION` migration the **first** Phase 3 migration, so the first CI run answers it before any dependent work exists.
 
-2. **What is the correct `confidence` cutoff (D-04)?**
+2. **What is the correct `confidence` cutoff (D-04)?** — **RESOLVED by 03-02 and 03-20**: 03-02
+   commits the constant at `0.5` behind a `// TUNED BY THE DESK RUN` marker in
+   `src/lib/resolve/score.ts`; 03-20 samples 20 rows per band during the desk run and Task 2's
+   human checkpoint confirms or changes the value.
    - *Known:* the distribution is now measured (61.9 % ≥ 0.9; 8.2 % ≤ 0.3). Overture already drops ≤ 0.2 upstream.
    - *Unclear:* the *junk rate* per band — whether a 0.4-confidence RGV row is a real business — is a human judgement needing eyes on rows.
    - *Recommendation:* ship the committed constant at **0.5** (excludes 8.3 % of rows) with a `// TUNED BY THE DESK RUN` marker, and have the desk run sample 20 rows per band. D-04 already promises the number comes from the run report.
 
-3. **Should `operating_status = 'permanently_closed'` (863 rows) do anything here?**
+3. **Should `operating_status = 'permanently_closed'` (863 rows) do anything here?** — **RESOLVED by
+   03-13 and 03-12**: 03-13 stores it on the Overture source record and reports the count in
+   `stats`; 03-12 states explicitly that those rows never write `closed_at`, leaving `3kx8-uryv` the
+   only `closed_at` source (D-03, D-14). The decision itself stays deferred to Phase 6.
    - *Known:* D-03 and D-14 make `3kx8-uryv` the only `closed_at` source.
    - *Recommendation:* store it on the source record, surface the count in `/sources`, leave the decision to Phase 6. Do not write `closed_at` from it.
 
-4. **D-11 says "across Texas" but the spine is four counties.**
+4. **D-11 says "across Texas" but the spine is four counties.** — **RESOLVED by 03-12 Task 3**,
+   which ships `src/lib/socrata/statewide-names.ts` with the one statewide
+   `$group=outlet_name&$having=count(1)>=3` request, and pins the badge-copy fallback
+   (`Chain · {n} in the RGV`) in the same task if that request proves impractical.
    - *Recommendation:* add one statewide `$select=outlet_name,count(1)&$group=outlet_name&$having=count(1)>=3` request to `scripts/ingest-comptroller.ts` and seed a statewide name-frequency table. One request closes the gap properly; otherwise change the badge copy to "in the RGV" and record the limitation.
 
-5. **Which screens get e2e specs, given the `preset-detail.spec.ts` two-databases trap?**
+5. **Which screens get e2e specs, given the `preset-detail.spec.ts` two-databases trap?** —
+   **RESOLVED by 03-21**, which carries `tests/e2e/sources.spec.ts` and
+   `tests/e2e/businesses.spec.ts` as chrome-only specs against the deployed app, while `/review`
+   and `/businesses/[id]` are covered by DB tests only (03-15, 03-11) — stated in the plan rather
+   than left to a spec that self-skips forever.
    - *Known:* Phase 2 resolved it by self-skipping unless `E2E_BASE_URL` is local, carrying SRCH-03 in `tests/db` instead.
    - *Recommendation:* `/sources` and `/businesses` get **DB tests plus a Playwright spec that asserts chrome only** (nav, empty state, headings) against the deployed app — no fixture. `/review` and `/businesses/[id]` get **DB tests only** in this phase, because both need seeded rows the deployed database will not have. State this in the plan rather than letting a spec quietly self-skip forever.
 
