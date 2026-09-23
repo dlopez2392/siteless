@@ -122,6 +122,16 @@ export const CLUSTER_DIFFERENT = -10;
 /** D-07: an exact phone + same ZIP auto-merges only at or above this name similarity. */
 export const PHONE_LOCALITY_NAME_SIM = 0.6;
 
+/** R4's floor: an exact phone + same ZIP is LIFTED to the review band (80) only at or above
+ *  this name similarity. Below it the pair keeps its raw score. Confirmed by danlo 2026-09-23
+ *  on the 03-20 desk run: 7,099 phone pairs were lifted to exactly 80, and 6,247 of them had
+ *  name sim < 0.3, which means two listings sharing one number (an owner, a franchise line, a
+ *  switchboard), not one business. Expected effect: the review queue drops from ~12.6k to
+ *  ~6.3k. A shared phone with a dissimilar name tops out at raw 80, so no such pair can reach
+ *  the review band without the lift, and none could ever merge.
+ *  // TUNED BY THE DESK RUN */
+export const PHONE_LIFT_MIN_NAME_SIM = 0.3;
+
 /**
  * The weight table as one value, so `score()` can take it as a parameter.
  *
@@ -149,6 +159,7 @@ export type Weights = {
   clusterUnmapped: number;
   clusterDifferent: number;
   phoneLocalityNameSim: number;
+  phoneLiftMinNameSim: number;
 };
 
 export const DEFAULT_WEIGHTS: Readonly<Weights> = Object.freeze({
@@ -165,6 +176,7 @@ export const DEFAULT_WEIGHTS: Readonly<Weights> = Object.freeze({
   clusterUnmapped: CLUSTER_UNMAPPED,
   clusterDifferent: CLUSTER_DIFFERENT,
   phoneLocalityNameSim: PHONE_LOCALITY_NAME_SIM,
+  phoneLiftMinNameSim: PHONE_LIFT_MIN_NAME_SIM,
 });
 
 /** D-09 / D-10: the geo gate — both locations known, promotable, and within this distance. */
@@ -323,7 +335,12 @@ export function score(pair: CandidatePair, w: Weights = DEFAULT_WEIGHTS): ScoreR
   // construction. Short-circuits: nothing below can revive it. The literal is spelled here,
   // in the clause, so the one grep that finds the rule finds its number too.
   if (distanceM !== null && distanceM > 25_000) {
-    return { score: 0, band: 'distinct', signals: f.signals, features: { ...f, rule: 'over_25km' } };
+    return {
+      score: 0,
+      band: 'distinct',
+      signals: f.signals,
+      features: { ...f, rule: 'over_25km' },
+    };
   }
 
   let s = clamp(f.name + f.phone + f.address + f.distance + f.cluster, 0, 100);
