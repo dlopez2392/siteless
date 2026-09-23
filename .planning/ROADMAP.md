@@ -232,7 +232,7 @@ Plans:
 - [x] 04-25-PLAN.md — Business detail Google Maps check and detach confirmation
 
 **Wave 6** *(blocked on Wave 5)*
-- [ ] 04-26-PLAN.md — queueRun starts the workflow (mode refusal, kinds, ceiling, one active run); notice retired; e2e can never start a run
+- [x] 04-26-PLAN.md — queueRun starts the workflow (mode refusal, kinds, ceiling, one active run); notice retired; e2e can never start a run
 
 **Wave 7** *(blocked on Wave 6)*
 - [ ] 04-27-PLAN.md — Preset detail: three ways to run, the Places-mode notice, recent runs
