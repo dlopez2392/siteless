@@ -1,11 +1,24 @@
-import Link from 'next/link';
 import { unstable_rethrow } from 'next/navigation';
 import { Suspense } from 'react';
+import { BusinessCards } from '@/components/business-list/business-cards';
 import { BusinessFilters } from '@/components/business-list/business-filters';
+import { BusinessesShowMore, BusinessTable } from '@/components/business-list/business-table';
+import {
+  BusinessesEmpty,
+  BusinessesNoMatch,
+  BusinessesSearchFailed,
+} from '@/components/business-list/businesses-empty';
 import { BusinessesSkeleton } from '@/components/business-list/businesses-skeleton';
 import { orgClaims } from '@/lib/auth/require-org';
 import { APP_LOCALE } from '@/lib/time';
-import { BUSINESSES_COUNT_LINE, BUSINESSES_TITLE } from '@/lib/ui/copy';
+import {
+  BUSINESSES_COUNT_LINE,
+  BUSINESSES_FILTER_LABEL,
+  BUSINESSES_FILTER_OPTION,
+  BUSINESSES_NO_MATCH_ACTION,
+  BUSINESSES_TITLE,
+  ERROR_ACTION,
+} from '@/lib/ui/copy';
 import {
   BUSINESS_PAGE_SIZE,
   listBusinesses,
@@ -113,16 +126,87 @@ function PageHeading() {
   return <h1 className="text-xl font-semibold leading-tight">{BUSINESSES_TITLE}</h1>;
 }
 
-async function BusinessRows({ listing }: { listing: Promise<Listing> }) {
+/** The URL value of a cluster filter — `none` for "No cluster mapped", else the key. */
+function clusterParam(cluster: ClusterFilter): string | null {
+  if (cluster.kind === 'none') return 'none';
+  if (cluster.kind === 'key') return cluster.key;
+  return null;
+}
+
+/** `/businesses` with only the given parameters; "any" and empty values are left out. */
+function listHref(parts: { q?: string; cluster?: string | null; status?: StatusFilter }): string {
+  const sp = new URLSearchParams();
+  if (parts.q) sp.set('q', parts.q);
+  if (parts.cluster) sp.set('cluster', parts.cluster);
+  if (parts.status && parts.status !== 'any') sp.set('status', parts.status);
+  const qs = sp.toString();
+  return qs === '' ? '/businesses' : `/businesses?${qs}`;
+}
+
+/** The filters' own words, for the no-match heading when no text was typed — the cluster's
+ *  display name, never its key (CONVENTIONS § Naming). */
+function filterSummary(params: ListParams, clusters: ClusterOption[]): string {
+  const parts: string[] = [];
+  if (params.cluster.kind === 'none') parts.push(BUSINESSES_FILTER_OPTION.noClusterMapped);
+  else if (params.cluster.kind === 'key') {
+    const key = params.cluster.key;
+    parts.push(clusters.find((c) => c.key === key)?.displayName ?? BUSINESSES_FILTER_LABEL.cluster);
+  }
+  if (params.status === 'active') parts.push(BUSINESSES_FILTER_OPTION.active);
+  else if (params.status === 'closed') parts.push(BUSINESSES_FILTER_OPTION.closed);
+  else if (params.status === 'merged_away') parts.push(BUSINESSES_FILTER_OPTION.mergedAway);
+  return parts.join(' · ');
+}
+
+async function BusinessRows({
+  listing,
+  params,
+}: {
+  listing: Promise<Listing>;
+  params: ListParams;
+}) {
   const result = await listing;
-  if (!result.ok) return null;
-  const { rows, total } = result.list;
+  const cluster = clusterParam(params.cluster);
+
+  if (!result.ok) {
+    // Keep the typed query, drop the filters — "clear the filters and search the name on
+    // its own" (03-UI-SPEC § Error).
+    return <BusinessesSearchFailed clearFiltersHref={listHref({ q: params.query })} />;
+  }
+
+  const { rows, total, clusters } = result.list;
+
+  if (total === 0) {
+    const filtered = cluster !== null || params.status !== 'any';
+    if (params.query !== '') {
+      return (
+        <BusinessesNoMatch
+          quoted={params.query}
+          actionHref={listHref({ cluster, status: params.status })}
+          actionLabel={BUSINESSES_NO_MATCH_ACTION}
+        />
+      );
+    }
+    if (filtered) {
+      return (
+        <BusinessesNoMatch
+          quoted={filterSummary(params, clusters)}
+          actionHref={listHref({})}
+          actionLabel={ERROR_ACTION.clearFilters}
+        />
+      );
+    }
+    return <BusinessesEmpty />;
+  }
+
+  // Another 50 exist and the request was not already clamped by the query module.
+  const canShowMore =
+    rows.length < total && rows.length === params.limit && rows.length < MAX_ROWS;
 
   return (
     <div className="flex flex-col gap-4">
       <p
         data-testid="businesses-count"
-        aria-live="polite"
         className="text-sm font-normal tabular-nums text-muted-foreground"
       >
         {BUSINESSES_COUNT_LINE(
@@ -132,13 +216,15 @@ async function BusinessRows({ listing }: { listing: Promise<Listing> }) {
           counts.format(rows.length),
         )}
       </p>
-      <ul className="flex flex-col gap-2">
-        {rows.map((row) => (
-          <li key={row.id} data-testid={`businesses-row-${row.id}`}>
-            <Link href={`/businesses/${row.id}`}>{row.displayName}</Link>
-          </li>
-        ))}
-      </ul>
+
+      <BusinessTable rows={rows} />
+      <BusinessCards rows={rows} />
+
+      {canShowMore ? (
+        <div className="flex justify-center sm:justify-start">
+          <BusinessesShowMore nextLimit={Math.min(MAX_ROWS, rows.length + BUSINESS_PAGE_SIZE)} />
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -167,7 +253,7 @@ export default async function BusinessesPage({
       <PageHeading />
       <BusinessFilters clusters={clusters} />
       <Suspense key={rowsKey} fallback={<BusinessesSkeleton />}>
-        <BusinessRows listing={listing} />
+        <BusinessRows listing={listing} params={params} />
       </Suspense>
     </div>
   );
