@@ -7,8 +7,10 @@
  * Probed live 2026-09-22 against real RGV Comptroller addresses (03-RESEARCH.md § The
  * Census Batch Geocoder); the five recorded bodies live in tests/unit/msw/fixtures/.
  *
- * 🔴 THE RESPONSE IS RAGGED. A `Match` line has 8 fields, a `No_Match` line 4 and a `Tie`
- * line 3. `parseBatchLine` branches on the status field BEFORE it reads anything past it;
+ * 🔴 THE RESPONSE IS RAGGED. A `Match` line has 8 fields; a `Tie` line has 3, and so does
+ * a `No_Match` line as recorded on 2026-09-22 (03-RESEARCH had written 4 for it — the
+ * parser accepts either, since neither has a position 6). `parseBatchLine` branches on
+ * the status field BEFORE it reads anything past it;
  * a parser that indexed the coordinate field unconditionally would read `undefined` on
  * ~29 % of rows, and one that asserted a column count would reject them.
  *
@@ -171,8 +173,8 @@ export function parseBatchLine(line: string): { id: string } & BatchOutcome {
   const id = f?.[0] ?? '';
   if (!f || f.length < 3 || !ID_SHAPE.test(id)) return badShape(id);
 
-  // 🔴 Branch on the status BEFORE reading any later position. A `Tie` line has 3 fields
-  // and a `No_Match` line 4; neither has a position 6 to read.
+  // 🔴 Branch on the status BEFORE reading any later position. A `Tie` or `No_Match` line
+  // has 3 fields (4 by the research's count); neither has a position 6 to read.
   if (f[2] === 'No_Match') return { id, kind: 'No_Match' };
   if (f[2] === 'Tie') return { id, kind: 'Tie' };
   if (f[2] !== 'Match') return badShape(id);

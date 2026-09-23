@@ -197,9 +197,12 @@ that encoding (including a hyphenated Comptroller key as the ID).
 Every file is a **verbatim response body**: `text/plain`, LF-terminated, no CR, no NUL, no
 BOM (checked at load by `tests/unit/msw/server.ts`).
 
-🔴 **The body is ragged.** `Match` lines have 8 fields, `No_Match` lines **4**, `Tie` lines
-**3**. 🔴 **Line order is not input order** (see `census-batch-shuffled.txt`). 🔴 **Field 6 is
-`"longitude,latitude"`** — longitude first.
+🔴 **The body is ragged.** `Match` lines have 8 fields; `Tie` lines **3**; and `No_Match`
+lines, as recorded here, **also 3**. 03-RESEARCH wrote 4 for `No_Match`; every `No_Match` in
+these recordings (three lines across two files) is 3 fields. The parser accepts either — the
+property that matters is that neither short shape has a field 6. 🔴 **Line order is not input
+order** (see `census-batch-shuffled.txt`). 🔴 **Field 6 is `"longitude,latitude"`** —
+longitude first.
 
 The msw handler dispatches on the request's CSV, matched against each file's own echo:
 every response line begins with the submitted ID and the input address echoed as
@@ -212,7 +215,7 @@ that echo; nothing restates an address by hand.
 | `census-batch-match.txt`     | 1    | 165   | 8,617 ms   | `Match`/`Exact` → `"-97.672649743751,26.189604634647"` (Harlingen)                       |
 | `census-batch-non_exact.txt` | 1    | 148   | 7,850 ms   | `Match`/`Non_Exact` — **direction flipped**: `100 E CANO ST` → `100 W CANO ST`           |
 | `census-batch-tie.txt`       | 1    | 56    | 655 ms     | `Tie` — **3 fields**                                                                     |
-| `census-batch-no_match.txt`  | 2    | 97    | 299 ms     | `No_Match` ×2 — **4 fields** each; one is a Mexican-side (Reynosa, `TM`) address         |
+| `census-batch-no_match.txt`  | 2    | 97    | 299 ms     | `No_Match` ×2 — **3 fields** each; one is a Mexican-side (Reynosa, `TM`) address         |
 | `census-batch-shuffled.txt`  | 40   | 6,074 | 543 ms     | 39 `Match` (25 Exact / 14 Non_Exact) · 1 `No_Match` · first line is ID `"22"`, not `"1"` |
 
 The first two calls were the cold ones (~8 s); the same endpoint answered the next three in
