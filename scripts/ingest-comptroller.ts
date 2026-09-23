@@ -636,8 +636,15 @@ export type Geocoder = (rows: ReadonlyArray<BatchRow>) => Promise<Map<string, Ba
 /**
  * Writes a Match onto its business: `lat`/`lng`, the census source record as
  * `location_source_id` (durable — `businesses_location_src_fk` would refuse an ephemeral one,
- * T-3-06) and `location_match_type`. The `is distinct from` guard makes an unchanged re-run
- * write nothing, so `app.log_event` on `businesses` records no event for it.
+ * T-3-06) and `location_match_type`. The `is distinct from` guard skips a write that would
+ * change nothing.
+ *
+ * 🔴 CALLED ONLY FOR A NEW OR CHANGED census record (`runGeocodePass`), the same gate
+ * `upsertBusinessFromSource` applies to every other derived column. `is distinct from` alone
+ * is NOT enough: once a merge's survivorship has moved a winner's location to the Overture
+ * point (survivorship.ts: Overture, then Census Exact, then Non_Exact), an unchanged Census
+ * answer is "distinct" and would be written back over it — measured on the 03-20 desk run as
+ * 908 `businesses` events on a re-run where every source row was unchanged.
  */
 const WRITE_LOCATION = `
   update businesses
@@ -661,8 +668,8 @@ const WRITE_LOCATION = `
  * (NULL on a first run) and the business falls back to text matching (D-08). No location is
  * ever invented, and a transient chunk failure never erases a location an earlier run found.
  *
- * 🔴 Expect ≈10,100 of 34,928 to end unlocated — the measured 70.9 % match rate, not a
- * failure. The review queue will be dominated by unlocated Comptroller rows.
+ * 🔴 Expect ≈7,000 of 34,928 to end unlocated (03-20 desk run: 79.9 % matched, 6,889 no match,
+ * 136 tie; research had 70.9 %). Not a failure: those rows fall back to text matching.
  *
  * `gone` for this run = previously-matched records that did not match this time.
  */
@@ -745,6 +752,8 @@ export async function runGeocodePass(
               seenAt: run.startedAt,
             });
             recordOutcome(tally, sr);
+            // The gate: an unchanged census record writes nothing (see WRITE_LOCATION).
+            if (!sr.inserted && !sr.changed) continue;
             const { rows } = await tx.query<{ id: string }>(WRITE_LOCATION, [
               w.businessId,
               orgId,
