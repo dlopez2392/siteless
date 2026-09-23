@@ -23,11 +23,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import type { OrgClaims } from '@/db/with-org';
 import { RUN_CEILING_MULTIPLIER } from '@/lib/estimate/assumptions';
 import { currentPartition } from '@/lib/places/partition';
-import {
-  RUN_ALREADY_IN_PROGRESS,
-  RUN_MODE_REFUSED,
-  RUN_START_FAILED,
-} from '@/lib/ui/copy';
+import { RUN_ALREADY_IN_PROGRESS, RUN_MODE_REFUSED, RUN_START_FAILED } from '@/lib/ui/copy';
 import { rowsOf, type Tx } from '@/server/queries/budget';
 import { seedTwoOrgs } from './_fixtures';
 import { asPg, closeDrizzleTx, withTxRollback } from './_drizzle-tx';
@@ -349,7 +345,13 @@ describe('queueRun', () => {
       // The admission hold names the run; it is open until beginRun releases it.
       const holds = await reservationsOf(tx, r.data.runId);
       expect(holds).toEqual([
-        { id: r.data.reservationId, sku: 'ts_enterprise', est: '1', released: false, settled: false },
+        {
+          id: r.data.reservationId,
+          sku: 'ts_enterprise',
+          est: '1',
+          released: false,
+          settled: false,
+        },
       ]);
 
       // start() ran once, with the Clerk org id, AFTER the admission transaction closed and
@@ -396,7 +398,13 @@ describe('queueRun', () => {
       expect(row.estimate_micro_usd_lo).toBe('0');
       expect(row.estimate_micro_usd_hi).toBe('0');
       expect(await reservationsOf(tx, r.data.runId)).toEqual([
-        { id: r.data.reservationId, sku: 'ts_essentials', est: '1', released: false, settled: false },
+        {
+          id: r.data.reservationId,
+          sku: 'ts_essentials',
+          est: '1',
+          released: false,
+          settled: false,
+        },
       ]);
     }));
 
