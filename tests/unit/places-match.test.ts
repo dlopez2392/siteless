@@ -97,14 +97,25 @@ describe('places match', () => {
     const d = decide(p, [s]);
     expect(d.outcome).toBe('attached');
     expect(d.matches).toEqual([
-      { businessId: 'b-1', score: 100, status: 'attached', reason: 'score', tieBusinessId: null, features: s.features },
+      {
+        businessId: 'b-1',
+        score: 100,
+        status: 'attached',
+        reason: 'score',
+        tieBusinessId: null,
+        features: s.features,
+      },
     ]);
   });
 
   it('places match: 80 to 94 is tentative', () => {
     const p = located();
     // No phone on the business: name round(45 × 0.75) 34 + address 30 + distance 15 + cluster 5 = 84.
-    const b = business({ phoneE164: null, phoneBlockable: false, streetNorm: p.address.streetNorm });
+    const b = business({
+      phoneE164: null,
+      phoneBlockable: false,
+      streetNorm: p.address.streetNorm,
+    });
     const s = scoreLocated(p, b, 0.85);
     expect(s.score).toBe(84);
     expect(s.score).toBeGreaterThanOrEqual(REVIEW_SCORE);
@@ -112,7 +123,14 @@ describe('places match', () => {
     const d = decide(p, [s]);
     expect(d.outcome).toBe('tentative');
     expect(d.matches).toEqual([
-      { businessId: 'b-1', score: 84, status: 'tentative', reason: 'score', tieBusinessId: null, features: s.features },
+      {
+        businessId: 'b-1',
+        score: 84,
+        status: 'tentative',
+        reason: 'score',
+        tieBusinessId: null,
+        features: s.features,
+      },
     ]);
   });
 
@@ -153,7 +171,12 @@ describe('places match collisions (D-08)', () => {
     const b1 = business({ id: 'b-1', streetNorm: p.address.streetNorm });
     const b2 = business({ id: 'b-2', streetNorm: p.address.streetNorm });
     // A third, weaker candidate proves the tie is between the top two only.
-    const b3 = business({ id: 'b-0', phoneE164: null, phoneBlockable: false, streetNorm: p.address.streetNorm });
+    const b3 = business({
+      id: 'b-0',
+      phoneE164: null,
+      phoneBlockable: false,
+      streetNorm: p.address.streetNorm,
+    });
     const s1 = scoreLocated(p, b1, 0.9);
     const s2 = scoreLocated(p, b2, 0.8);
     const s3 = scoreLocated(p, b3, 0.85);
@@ -165,8 +188,22 @@ describe('places match collisions (D-08)', () => {
     const d = decide(p, [s3, s2, s1]);
     expect(d.outcome).toBe('tentative');
     expect(d.matches).toEqual([
-      { businessId: 'b-1', score: 100, status: 'tentative', reason: 'tie', tieBusinessId: 'b-2', features: s1.features },
-      { businessId: 'b-2', score: 100, status: 'tentative', reason: 'tie', tieBusinessId: 'b-1', features: s2.features },
+      {
+        businessId: 'b-1',
+        score: 100,
+        status: 'tentative',
+        reason: 'tie',
+        tieBusinessId: 'b-2',
+        features: s1.features,
+      },
+      {
+        businessId: 'b-2',
+        score: 100,
+        status: 'tentative',
+        reason: 'tie',
+        tieBusinessId: 'b-1',
+        features: s2.features,
+      },
     ]);
     // Neither side of a tie is ever attached — not even the one that sorts first.
     expect(d.matches.some((m) => m.status === 'attached')).toBe(false);
@@ -233,7 +270,11 @@ describe('places match: service-area listings (D-07)', () => {
     // The same number on both sides, but toll-free: never a key, so never a lift.
     const tf = toPlaceForMatch({ ...SAB, nationalPhoneNumber: '(800) 631-0002' }, CITY_CTX);
     expect(tf.phone).toEqual({ e164: '+18006310002', blockable: false });
-    const shared = scoreSab(tf, business({ phoneE164: '+18006310002', phoneBlockable: false }), 0.95);
+    const shared = scoreSab(
+      tf,
+      business({ phoneE164: '+18006310002', phoneBlockable: false }),
+      0.95,
+    );
     expect(shared.score).toBe(51);
 
     for (const s of [other, none, shared]) {
@@ -242,7 +283,10 @@ describe('places match: service-area listings (D-07)', () => {
   });
 
   it('a service-area listing with a location still takes the service-area branch', () => {
-    const p = toPlaceForMatch({ ...SAB, location: { latitude: 26.2034, longitude: -98.23 } }, CITY_CTX);
+    const p = toPlaceForMatch(
+      { ...SAB, location: { latitude: 26.2034, longitude: -98.23 } },
+      CITY_CTX,
+    );
     // A service area's pin is not a storefront: the location is dropped, the SAB flag kept.
     expect(p.pureSab).toBe(true);
     expect(p.lat).toBeNull();
@@ -276,11 +320,21 @@ describe('places match: area and chains', () => {
     );
     expect(p.outOfArea).toBe(true);
     // Even a candidate that would attach is not an outcome for a listing outside the area.
-    const s: ScoredCandidate = { businessId: 'b-1', score: 100, features: scoreLocated(p, business(), 0.9).features };
-    expect(decide(p, [s])).toEqual({ placeId: 'places/ChIJ-located', outcome: 'outside', matches: [] });
+    const s: ScoredCandidate = {
+      businessId: 'b-1',
+      score: 100,
+      features: scoreLocated(p, business(), 0.9).features,
+    };
+    expect(decide(p, [s])).toEqual({
+      placeId: 'places/ChIJ-located',
+      outcome: 'outside',
+      matches: [],
+    });
 
     // A listing with no address at all is not "outside": absence is not evidence.
-    expect(toPlaceForMatch({ ...LOCATED, formattedAddress: undefined }, CITY_CTX).outOfArea).toBe(false);
+    expect(toPlaceForMatch({ ...LOCATED, formattedAddress: undefined }, CITY_CTX).outOfArea).toBe(
+      false,
+    );
   });
 
   it('chain keys are ignored for Places pairs', () => {
@@ -303,18 +357,37 @@ describe('places match: what may be persisted (T-4-05)', () => {
 
     const b1 = business({ streetNorm: p.address.streetNorm });
     const b2 = business({ id: 'b-2', streetNorm: p.address.streetNorm });
-    const b3 = business({ id: 'b-3', phoneE164: null, phoneBlockable: false, streetNorm: p.address.streetNorm });
+    const b3 = business({
+      id: 'b-3',
+      phoneE164: null,
+      phoneBlockable: false,
+      streetNorm: p.address.streetNorm,
+    });
     const decisions = [
       decide(p, [scoreLocated(p, b1, 0.9)]),
       decide(p, [scoreLocated(p, b1, 0.9), scoreLocated(p, b2, 0.9)]),
       decide(p, [scoreLocated(p, b3, 0.85)]),
       decide(sab(), [scoreSab(sab(), business({ phoneE164: '+19566310002' }), 0.6)]),
     ];
-    expect(decisions.map((d) => d.outcome)).toEqual(['attached', 'tentative', 'tentative', 'attached']);
+    expect(decisions.map((d) => d.outcome)).toEqual([
+      'attached',
+      'tentative',
+      'tentative',
+      'attached',
+    ]);
 
     for (const d of decisions) {
       const json = JSON.stringify(d);
-      for (const forbidden of ['SENTINEL', 'sentinel', '10th', '631-0001', '6310001', 'McAllen', 'mcallen', 'ortiz']) {
+      for (const forbidden of [
+        'SENTINEL',
+        'sentinel',
+        '10th',
+        '631-0001',
+        '6310001',
+        'McAllen',
+        'mcallen',
+        'ortiz',
+      ]) {
         expect(json).not.toContain(forbidden);
       }
       // Every feature value is a number, null, or one of the scorer's enum strings.
@@ -322,9 +395,15 @@ describe('places match: what may be persisted (T-4-05)', () => {
         for (const [k, v] of Object.entries(m.features)) {
           if (k === 'signals') {
             expect(Array.isArray(v)).toBe(true);
-            for (const sig of v as unknown[]) expect(['name', 'phone', 'address', 'distance']).toContain(sig);
+            for (const sig of v as unknown[])
+              expect(['name', 'phone', 'address', 'distance']).toContain(sig);
           } else if (k === 'rule') {
-            expect(['phone_locality_name', 'phone_locality_review', 'over_25km', 'sab_phone_city']).toContain(v);
+            expect([
+              'phone_locality_name',
+              'phone_locality_review',
+              'over_25km',
+              'sab_phone_city',
+            ]).toContain(v);
           } else {
             expect(v === null || typeof v === 'number').toBe(true);
           }
