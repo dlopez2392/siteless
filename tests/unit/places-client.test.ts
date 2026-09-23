@@ -304,7 +304,8 @@ describe('the Places client (criterion 1, D-03)', () => {
         f !== 'src/lib/places/reserved-call.ts' &&
         nodeFs.readFileSync(f, 'utf8').includes('mintReservedCall'),
     );
-    // 04-16 adds src/lib/places/meter.ts and turns this into an equality.
-    expect(minters.filter((f) => f !== 'src/lib/places/meter.ts')).toEqual([]);
+    // An EQUALITY (04-16): the meter is the one minter, and it really does mint. Zero minters
+    // would mean no Places call could ever be made; a second one is a path around the meter.
+    expect(minters).toEqual(['src/lib/places/meter.ts']);
   });
 });
