@@ -8,11 +8,19 @@
  * 🔴 `@/db/client` is mocked because importing it parses src/env.ts, which throws without the
  * server environment — and this lane must run with none (CI's unit job has no database).
  */
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+const seams = vi.hoisted(() => ({ withWorkerOrg: vi.fn() }));
 
 vi.mock('@/db/client', () => ({ db: {} }));
+vi.mock('@/db/with-worker-org', () => ({ withWorkerOrg: seams.withWorkerOrg }));
 
-import { modeAllows, type PlacesMode } from '@/lib/places/meter';
+import { modeAllows, reservePage, type PlacesMode } from '@/lib/places/meter';
+
+beforeEach(() => {
+  seams.withWorkerOrg.mockReset();
+  seams.withWorkerOrg.mockRejectedValue(new Error('the database was reached'));
+});
 
 describe('the Places mode gate', () => {
   it('ids_only refuses an Enterprise mask', () => {
@@ -49,5 +57,27 @@ describe('the Places mode gate', () => {
   it('an unknown mode refuses rather than defaulting open', () => {
     // A value that slipped past env parsing (a cast, a stale deployment) must not read as on.
     expect(modeAllows('Enterprise' as PlacesMode, 'ts_enterprise', true)).toBe('places_off');
+  });
+
+  it('a refused mode never reaches the database', async () => {
+    const ctx = { clerkOrgId: 'org_A', runId: '00000000-0000-4000-8000-000000000001' };
+    const base = { searchId: '00000000-0000-4000-8000-000000000002', page: 1 as const };
+    await expect(
+      reservePage(ctx, { ...base, sku: 'ts_enterprise', mode: 'off', keyConfigured: true }),
+    ).resolves.toEqual({ kind: 'refused', reason: 'places_off' });
+    await expect(
+      reservePage(ctx, { ...base, sku: 'ts_enterprise', mode: 'ids_only', keyConfigured: true }),
+    ).resolves.toEqual({ kind: 'refused', reason: 'mode_forbids_sku' });
+    await expect(
+      reservePage(ctx, { ...base, sku: 'ts_enterprise', mode: 'enterprise', keyConfigured: false }),
+    ).resolves.toEqual({ kind: 'refused', reason: 'places_key_missing' });
+    expect(seams.withWorkerOrg).not.toHaveBeenCalled();
+
+    // The control: a permitted mode DOES reach the (here: refusing) database seam, so the
+    // assertion above is about the gate and not about a seam that is never wired.
+    await expect(
+      reservePage(ctx, { ...base, sku: 'ts_enterprise', mode: 'enterprise', keyConfigured: true }),
+    ).rejects.toThrow('the database was reached');
+    expect(seams.withWorkerOrg).toHaveBeenCalledTimes(1);
   });
 });
