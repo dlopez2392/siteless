@@ -4,6 +4,8 @@ import { pickPhone } from '@/lib/overture/transform';
 import { closureRowToSourceRecord, type ClosureRow } from '@/lib/socrata/closures';
 import type { PermitRow } from '@/lib/socrata/permits';
 import {
+  censusInputForPermit,
+  censusInputIsStale,
   comptrollerDerived,
   loadDerivationContext,
   overtureClusterKey,
@@ -210,9 +212,14 @@ async function readParents(
   ctx?: DerivationContext,
 ): Promise<SourceRecordView[]> {
   const context = ctx ?? (await loadDerivationContext(tx));
-  const { rows } = await tx.query<{ id: string; source_key: string; payload: unknown }>(
+  const { rows } = await tx.query<{
+    id: string;
+    source_key: string;
+    external_id: string | null;
+    payload: unknown;
+  }>(
     `with members as (${memberSql})
-     select sr.id, sr.source_key, sr.payload
+     select sr.id, sr.source_key, sr.external_id, sr.payload
        from source_records sr
       where sr.org_id = app.current_org_id()
         and sr.retention_class = 'durable'
@@ -224,8 +231,28 @@ async function readParents(
       order by sr.id`,
     params,
   );
+  // 🔴 A-WR-07: a Census record keyed by a permit whose CURRENT outlet address is not the one it
+  // answered is not a parent. The permit moved; the point describes where the business used to
+  // be. Without this, a re-derivation (a merge, an unmerge, a re-ingest, the rederive pass)
+  // would put the stale point straight back after the census pass cleared it.
+  const permitByKey = new Map<string, unknown>();
+  for (const r of rows) {
+    if (r.source_key === 'tx_comptroller' && r.external_id !== null) {
+      permitByKey.set(r.external_id, r.payload);
+    }
+  }
   const views: SourceRecordView[] = [];
   for (const r of rows) {
+    if (r.source_key === 'census_geocoder' && r.external_id !== null) {
+      const permit = permitByKey.get(r.external_id);
+      const stored = (r.payload as Record<string, unknown> | null)?.input;
+      if (
+        permit !== undefined &&
+        censusInputIsStale(stored, censusInputForPermit(permit as Record<string, unknown>))
+      ) {
+        continue;
+      }
+    }
     const v = sourceRecordView(r, context);
     if (v) views.push(v);
   }

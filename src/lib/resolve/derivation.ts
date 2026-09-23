@@ -126,6 +126,58 @@ export function overtureClusterKey(
 const nonBlank = (s: string | null | undefined): string | null =>
   typeof s === 'string' && s.trim() !== '' ? s : null;
 
+/**
+ * The address a Census batch geocode is asked about, EXACTLY as the census pass stores it in
+ * `payload.input` (scripts/ingest-comptroller.ts `runGeocodePass`: `{street, city ?? '',
+ * state: 'TX', zip ?? ''}` from the permit's OUTLET address).
+ */
+export interface CensusInput {
+  street: string;
+  city: string;
+  state: 'TX';
+  zip: string;
+}
+
+export function censusInput(geocode: {
+  street: string;
+  city: string | null;
+  zip: string | null;
+}): CensusInput {
+  return { street: geocode.street, city: geocode.city ?? '', state: 'TX', zip: geocode.zip ?? '' };
+}
+
+/** The census input a permit's CURRENT outlet address produces, or null when it has no street. */
+export function censusInputForPermit(p: {
+  outlet_address?: unknown;
+  outlet_city?: unknown;
+  outlet_zip_code?: unknown;
+}): CensusInput | null {
+  const street = typeof p.outlet_address === 'string' ? p.outlet_address : null;
+  if (street === null || street.trim() === '') return null;
+  return censusInput({
+    street,
+    city: typeof p.outlet_city === 'string' ? p.outlet_city : null,
+    zip: typeof p.outlet_zip_code === 'string' ? p.outlet_zip_code : null,
+  });
+}
+
+/**
+ * A-WR-07 (review 03). Is a stored census record's answer about an address the permit no longer
+ * has? `stored` is the record's `payload.input`. A record with no stored input (never written by
+ * the census pass) is not judged stale — there is nothing to compare.
+ */
+export function censusInputIsStale(stored: unknown, current: CensusInput | null): boolean {
+  if (stored === null || typeof stored !== 'object') return false;
+  if (current === null) return true;
+  const s = stored as Record<string, unknown>;
+  return (
+    s.street !== current.street ||
+    s.city !== current.city ||
+    s.zip !== current.zip ||
+    (s.state !== undefined && s.state !== current.state)
+  );
+}
+
 export interface ComptrollerDerived {
   legalName: string;
   displayName: string;

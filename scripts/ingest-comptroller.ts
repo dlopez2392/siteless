@@ -79,6 +79,8 @@ import {
 } from '@/lib/geocode/census-batch';
 import { nameNorm } from '@/lib/normalize';
 import {
+  censusInput,
+  censusInputIsStale,
   cityFoldKey,
   comptrollerDerived,
   loadCityFold,
@@ -659,6 +661,9 @@ const WRITE_LOCATION = `
  * 🔴 A `No_Match`, a `Tie` or a `ChunkFailed` writes NOTHING: `lat`/`lng` stay as they are
  * (NULL on a first run) and the business falls back to text matching (D-08). No location is
  * ever invented, and a transient chunk failure never erases a location an earlier run found.
+ * ONE exception (A-WR-07): a `No_Match` or `Tie` for an address the stored census record did
+ * NOT answer — the permit moved — clears the location that record supplied, counted as
+ * `stats.location_cleared`. A `ChunkFailed` never clears anything.
  *
  * 🔴 Expect ≈7,000 of 34,928 to end unlocated (03-20 desk run: 79.9 % matched, 6,889 no match,
  * 136 tie; research had 70.9 %). Not a failure: those rows fall back to text matching.
@@ -695,6 +700,9 @@ export async function runGeocodePass(
       const failureReasons: Record<string, number> = {};
       let failedRows = 0;
       const matches: Array<{ w: PermitWritten; row: BatchRow; o: BatchMatch }> = [];
+      // A-WR-07: No_Match / Tie answers — candidates for clearing a location that describes an
+      // address the permit no longer has. Never a ChunkFailed: that is transient by definition.
+      const unmatched: Array<{ w: PermitWritten; row: BatchRow }> = [];
       submit.forEach((row, index) => {
         const o = outcomes.get(row.id);
         const w = byId.get(row.id);
@@ -705,9 +713,13 @@ export async function runGeocodePass(
           failedChunks.add(Math.floor(index / CENSUS_BATCH_CHUNK));
           const reason = o?.kind === 'ChunkFailed' ? o.reason : 'missing_outcome';
           failureReasons[reason] = (failureReasons[reason] ?? 0) + 1;
-        } else if (o.kind === 'Tie') counts.tie += 1;
-        else if (o.kind === 'No_Match') counts.no_match += 1;
-        else {
+        } else if (o.kind === 'Tie') {
+          counts.tie += 1;
+          unmatched.push({ w, row });
+        } else if (o.kind === 'No_Match') {
+          counts.no_match += 1;
+          unmatched.push({ w, row });
+        } else {
           counts.matched += 1;
           if (o.matchType === 'Exact') counts.exact += 1;
           else counts.non_exact += 1;
@@ -733,7 +745,7 @@ export async function runGeocodePass(
               sourceKey: 'census_geocoder',
               externalId: w.externalId,
               payload: {
-                input: { street: row.street, city: row.city, state: 'TX', zip: row.zip },
+                input: censusInput({ street: row.street, city: row.city, zip: row.zip }),
                 match_type: o.matchType,
                 // Display the service's resolved address, never the input (census-batch.ts).
                 matched_address: o.matchedAddress,
@@ -770,9 +782,62 @@ export async function runGeocodePass(
         });
       }
       stats.locations_written = locationsWritten;
+
+      // 🔴 A-WR-07. A No_Match or Tie is normally "write nothing" — a transient miss must never
+      // erase a location an earlier run found. But when the STORED census record answered a
+      // DIFFERENT address than the one just submitted, the permit has moved and that answer
+      // describes a place the business no longer is: the old point would keep scoring the new
+      // address (distance tiers, the 500 m geo gate, the 25 km rule). So the location it
+      // supplied is cleared — on a single business only while it still cites that record, and
+      // on a merge cluster by re-deriving the root, where readParents drops the stale census
+      // parent (merge.ts) and the location falls to the next parent or to NULL.
+      let locationCleared = 0;
+      for (const batch of chunks(unmatched, INGEST_BATCH_SIZE)) {
+        await db.run(async ({ tx, orgId }) => {
+          const { rows: stored } = await tx.query<{ id: string; external_id: string; input: unknown }>(
+            `select sr.id, sr.external_id, sr.payload -> 'input' as input
+               from source_records sr
+              where sr.org_id = $1::uuid and sr.source_key = 'census_geocoder'
+                and sr.external_id in (select jsonb_array_elements_text($2::jsonb))`,
+            [orgId, JSON.stringify(batch.map((u) => u.w.externalId))],
+          );
+          const byKey = new Map(stored.map((s) => [s.external_id, s]));
+          for (const { w, row } of batch) {
+            const prior = byKey.get(w.externalId);
+            if (!prior) continue;
+            const now = censusInput({ street: row.street, city: row.city, zip: row.zip });
+            if (!censusInputIsStale(prior.input, now)) continue;
+            const position = await clusterOf(tx, orgId, w.businessId);
+            if (position.clustered) {
+              if (await rederiveRoot(tx, orgId, position.root, { caller: 'census' })) {
+                locationCleared += 1;
+              }
+              continue;
+            }
+            const { rows } = await tx.query<{ id: string }>(CLEAR_LOCATION, [
+              w.businessId,
+              orgId,
+              prior.id,
+            ]);
+            locationCleared += rows.length;
+          }
+        });
+      }
+      stats.location_cleared = locationCleared;
     },
   );
 }
+
+/**
+ * A-WR-07: clears a location that a now-stale census record supplied. Only while the business
+ * still CITES that record — a location that has since come from anywhere else is not this
+ * record's to clear.
+ */
+const CLEAR_LOCATION = `
+  update businesses
+     set lat = null, lng = null, location_source_id = null, location_match_type = null
+   where id = $1 and org_id = $2 and location_source_id = $3::uuid
+  returning id`;
 
 type BatchMatch = Extract<BatchOutcome, { kind: 'Match' }>;
 
