@@ -40,7 +40,7 @@ import { recordReviewDecision } from '@/server/actions/record-review-decision';
  * toast is Phase 7's pattern (TRI-02) and is deliberately not here: a silently dropped
  * decision is invisible, and the whole value of this queue is that every pair got an answer.
  *
- * 🔴 `onClick` INSIDE `useTransition`, NEVER `<form action>`. React resets a form even when the
+ * 🔴 `onClick` INSIDE `useTransition`, NEVER A FORM ACTION. React resets a form even when the
  * action FAILED, and a Radix control driven by that reset walks its own state backwards.
  *
  * 🔴 A TOAST ON SUCCESS ONLY; A REFUSAL IS AN `Alert` THAT STAYS. A dismissed toast is
