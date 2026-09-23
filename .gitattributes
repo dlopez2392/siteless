@@ -1,0 +1,6 @@
+# Recorded third-party response bodies are replayed byte-for-byte by msw. With
+# core.autocrlf=true (this Windows dev machine) git would check the Census batch
+# `text/plain` fixtures out with CRLF, and they would no longer be the verbatim body the
+# service sent. `-text` turns end-of-line conversion off for them only.
+# tests/unit/msw/server.ts refuses a batch fixture carrying a CR at load.
+tests/unit/msw/fixtures/*.txt -text

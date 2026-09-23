@@ -172,3 +172,147 @@ Re-record both pages and the sidecar **in one run** so their `rowsUpdatedAt` and
 stay paired; never hand-edit `socrata-recordings.json`. Keep `loc_county` unpadded. Then
 re-read the assertions that name `32006170057-5`, the `RIO GRANDE CY` rows and the closure
 dates, because a re-recorded page that lost one of them makes its test vacuous.
+
+---
+
+## Census BATCH geocoder (plan 03-07, D-08)
+
+Recorded **2026-09-22** (America/Chicago; the run's UTC stamps read `2026-09-23T01:21Z`) by
+a throwaway `node --input-type=module -e` run from the worktree, output written to the OS
+temp dir and copied here byte-for-byte. Plain `fetch`, **no API key** (there is none).
+
+```
+POST https://geocoding.geo.census.gov/geocoder/locations/addressbatch
+multipart/form-data:
+  addressFile = <the CSV below>   (Blob, type text/csv, filename addresses.csv)
+  benchmark   = Public_AR_Current
+  (no vintage — it is required only for returntype=geographies)
+```
+
+The input CSV has **no header row** and exactly five columns, `Unique ID, Street address,
+City, State, ZIP`, **every field quoted**, LF line endings, one trailing LF — exactly what
+`src/lib/geocode/census-batch.ts` builds, so the recordings also prove the service accepts
+that encoding (including a hyphenated Comptroller key as the ID).
+
+Every file is a **verbatim response body**: `text/plain`, LF-terminated, no CR, no NUL, no
+BOM (checked at load by `tests/unit/msw/server.ts`).
+
+🔴 **The body is ragged.** `Match` lines have 8 fields, `No_Match` lines **4**, `Tie` lines
+**3**. 🔴 **Line order is not input order** (see `census-batch-shuffled.txt`). 🔴 **Field 6 is
+`"longitude,latitude"`** — longitude first.
+
+The msw handler dispatches on the request's CSV, matched against each file's own echo:
+every response line begins with the submitted ID and the input address echoed as
+`street, city, state, zip`, so each file carries its own request (the batch analogue of the
+one-line payload's `result.input.address`). `RECORDED_BATCH_ROWS` reads the rows back out of
+that echo; nothing restates an address by hand.
+
+| File                         | Rows | Bytes | Wall clock | Outcome                                                                                  |
+| ---------------------------- | ---- | ----- | ---------- | ---------------------------------------------------------------------------------------- |
+| `census-batch-match.txt`     | 1    | 165   | 8,617 ms   | `Match`/`Exact` → `"-97.672649743751,26.189604634647"` (Harlingen)                       |
+| `census-batch-non_exact.txt` | 1    | 148   | 7,850 ms   | `Match`/`Non_Exact` — **direction flipped**: `100 E CANO ST` → `100 W CANO ST`           |
+| `census-batch-tie.txt`       | 1    | 56    | 655 ms     | `Tie` — **3 fields**                                                                     |
+| `census-batch-no_match.txt`  | 2    | 97    | 299 ms     | `No_Match` ×2 — **4 fields** each; one is a Mexican-side (Reynosa, `TM`) address         |
+| `census-batch-shuffled.txt`  | 40   | 6,074 | 543 ms     | 39 `Match` (25 Exact / 14 Non_Exact) · 1 `No_Match` · first line is ID `"22"`, not `"1"` |
+
+The first two calls were the cold ones (~8 s); the same endpoint answered the next three in
+under a second. The research's throughput figure (~32 addr/s, linear, measured at n=1,000
+and n=3,000) is the planning number, not these.
+
+### `census-batch-match.txt` — input
+
+```
+"32006170057-5","2426 E TYLER AVE","HARLINGEN","TX","78550"
+```
+
+The ID is the verified Comptroller join key (`taxpayer_number-outlet_number`), street
+without its `STE 1C` suite.
+
+### `census-batch-non_exact.txt` — input
+
+```
+"1","100 E CANO ST","EDINBURG","TX","78539"
+```
+
+### `census-batch-tie.txt` — input
+
+```
+"1","2410 EAST EXPRESSWAY 84","MISSION","TX","78572"
+```
+
+### `census-batch-no_match.txt` — input
+
+```
+"1","PO BOX 764","POTH","TX","78147"
+"2","AV HIDALGO 100","REYNOSA","TM","88500"
+```
+
+The Reynosa row carries state `TM` (Tamaulipas), which `geocodeBatch` never sends — it
+hard-codes `TX`. So this file is reachable through the handler only by a caller that
+submits exactly these two rows; the tests read its lines directly with `parseBatchLine`.
+
+### `census-batch-shuffled.txt` — input
+
+The 40 real Comptroller rows of `socrata-jrea-page.json`, **in that file's order**, ID =
+1-based position, `street = outlet_address`, `city = outlet_city`, `zip =
+outlet_zip_code.slice(0, 5)`, state `TX`:
+
+```
+"1","2426 E TYLER AVE STE 1C","HARLINGEN","TX","78550"
+"2","35 SAN MIGUEL DR","BROWNSVILLE","TX","78521"
+"3","1300 S MAIN ST","MCALLEN","TX","78501"
+"4","1200 S 16TH ST","MCALLEN","TX","78501"
+"5","301 W WASHINGTON AVE","HARLINGEN","TX","78550"
+"6","935 W BUSINESS HIGHWAY 83","DONNA","TX","78537"
+"7","1701 W DOVE AVE STE E","MCALLEN","TX","78504"
+"8","4309 N RAUL LONGORIA RD","SAN JUAN","TX","78589"
+"9","518 S STANDARD AVE","SAN JUAN","TX","78589"
+"10","204 BEACH BLVD","LAGUNA VISTA","TX","78578"
+"11","115 S VIRGINIA AVE","MERCEDES","TX","78570"
+"12","2112 W UNIVERSITY DR","EDINBURG","TX","78539"
+"13","212 S MAIN ST","MCALLEN","TX","78501"
+"14","211 N CAGE BLVD","PHARR","TX","78577"
+"15","3049 E 23RD ST","WESLACO","TX","78596"
+"16","1 3/4 MI NO RAUL LONGORIA","SAN JUAN","TX","78589"
+"17","2310 ARTHUR AVE","EDINBURG","TX","78542"
+"18","116 S MAIN ST STE B3","DONNA","TX","78537"
+"19","2610 W MILE 10 N","WESLACO","TX","78599"
+"20","34389 OLD ALICE RD","LOS FRESNOS","TX","78566"
+"21","2202 SUGAR SWEET STE A","WESLACO","TX","78599"
+"22","6605 SIMON PL","BROWNSVILLE","TX","78526"
+"23","1418 N CONWAY AVE # B","MISSION","TX","78572"
+"24","922 N HOLLAND AVE","MISSION","TX","78572"
+"25","922A N HOLLAND AVE","MISSION","TX","78572"
+"26","2720 E MILE 14 N","MERCEDES","TX","78570"
+"27","417 S MAIN ST","MCALLEN","TX","78501"
+"28","420 N 10TH ST STE 3","MCALLEN","TX","78501"
+"29","105 W JACKSON ST","HARLINGEN","TX","78550"
+"30","602 N VICTORIA RD LOT 2102","DONNA","TX","78537"
+"31","104 W JACKSON ST","HARLINGEN","TX","78550"
+"32","2701 GUMWOOD AVE","MCALLEN","TX","78501"
+"33","407 S TEXAS BLVD STE B","WESLACO","TX","78596"
+"34","802 WEST DEL ORO LN","PHARR","TX","78577"
+"35","814 MAIN GROVE ST","DONNA","TX","78537"
+"36","503 W 16TH ST","WESLACO","TX","78596"
+"37","1901 BAYLOR AVE","MCALLEN","TX","78504"
+"38","3775 BOCA CHICA BLVD APT 1006","BROWNSVILLE","TX","78521"
+"39","3400 W US HIGHWAY 83 STE A","RIO GRANDE CY","TX","78582"
+"40","306 E 2ND ST","RIO GRANDE CY","TX","78582"
+```
+
+**Not hand-shuffled.** The live service returned these 40 lines in the order recorded —
+`22, 23, … 31, 10, 32, 11, …, 1, 2, …, 9, 40, 20, 21` — on the first and only submission;
+the file is untouched. Two more measured facts ride in it for free:
+
+- a **second direction flip** in the wild: ID 12, `2112 W UNIVERSITY DR` → `2112 E
+UNIVERSITY DR` (`Non_Exact`), beside the `E CANO` → `W CANO` fixture above;
+- suites and lots are **dropped** from the matched address even on `Exact` (ID 1 `STE 1C`,
+  ID 28 `STE 3`, ID 30 `LOT 2102`), which is why `matchedAddress` is for display and is not a
+  unit-level identity.
+
+### Re-recording (batch)
+
+Only if the upstream shape changes. Re-record all five in one sitting with the same CSV
+encoding, update the byte counts above, and re-read the assertions that pin the Harlingen
+coordinates, the `W CANO` flip and the shuffled first line — a re-recording that came back
+in input order would make the rejoin test vacuous (the test guards that at load).
