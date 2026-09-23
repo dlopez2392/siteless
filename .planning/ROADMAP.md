@@ -168,7 +168,7 @@ Plans:
 - [x] 03-15-PLAN.md — Three query modules and two server actions
 
 **Wave 6** *(blocked on Wave 5)*
-- [ ] 03-16-PLAN.md — `/review`: the candidate pair, the chip band, three actions, no optimistic advance
+- [x] 03-16-PLAN.md — `/review`: the candidate pair, the chip band, three actions, no optimistic advance
 - [x] 03-17-PLAN.md — `/sources`: the four-row ledger, the composed confidence distribution, the attribution block
 - [x] 03-18-PLAN.md — `/businesses`: search, filters, append paging
 - [x] 03-19-PLAN.md — `/businesses/[id]`: ten fields with inline source tags, merge history, unmerge
