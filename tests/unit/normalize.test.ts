@@ -128,10 +128,44 @@ describe('nameNorm', () => {
     });
   });
 
+  it('nameNorm B-CR-01: initials are identity, not legal suffixes', () => {
+    // `l`, `c` and `co` used to be stripped at EVERY position, so an initial-led trade name
+    // collapsed onto the bare trade: "C & L Plumbing" and "Plumbing" shared a key, which fed
+    // both a false auto-merge and a false chain badge.
+    expect(nameNorm('C & L Plumbing')).toBe('c l plumbing');
+    expect(nameNorm('C & L Plumbing')).not.toBe(nameNorm('Plumbing'));
+    expect(nameNorm('C&C Auto Repair')).toBe('c c auto repair');
+    expect(nameNorm('C&C Auto Repair')).not.toBe(nameNorm('Auto Repair'));
+    expect(nameNorm('L & C Tire Shop')).toBe('l c tire shop');
+    expect(nameNorm('The L Bar')).toBe('l bar');
+    // Two different initial pairs are two different businesses.
+    expect(nameNorm('L & C Auto Repair')).not.toBe(nameNorm('C & C Auto Repair'));
+  });
+
+  it('nameNorm B-CR-01: co is kept when it is not a trailing legal form', () => {
+    expect(nameNorm('Co-Op Feed')).toBe('co op feed');
+    expect(nameNorm('Acme Corp of Texas')).toBe('acme corp texas');
+  });
+
+  it('nameNorm B-CR-01: a trailing legal run still strips', () => {
+    expect(nameNorm('Smith Co')).toBe('smith');
+    expect(nameNorm('Smith Co Inc')).toBe('smith');
+    expect(nameNorm('Smith Co., Inc.')).toBe('smith');
+    expect(nameNorm('Smith L.L.C.')).toBe('smith');
+    expect(nameNorm('Smith L L C')).toBe('smith');
+    expect(nameNorm('Smith, LLC')).toBe('smith');
+    expect(nameNorm('Smith Partners L.P.')).toBe('smith partners');
+    expect(nameNorm('Smith Law P.L.L.C.')).toBe('smith law');
+    // A legal form ahead of a trailing phone run is still trailing once the phone goes.
+    expect(nameNorm('Smith LLC 956-263-1462')).toBe('smith');
+    // DBA separates two names; each keeps its own trailing-only strip.
+    expect(nameNorm('Smith Co LLC DBA C & L Plumbing')).toBe('smith c l plumbing');
+  });
+
   it('nameNorm folds ligatures and strokes the way unaccent does', () => {
     // NFD + strip-marks leaves every one of these unchanged; unaccent maps them. Each letter
-    // sits inside a word: a lone "Ł" folds to "l", which is a LEGAL token ("L.L.C.") and is
-    // filtered, so it would prove nothing about the fold.
+    // sits inside a word, so the assertion is about the fold alone and never about how a
+    // lone letter tokenises.
     expect(nameNorm('Ørn Ærø Weiß Œil Łuk Đan Ikra Tıp Øðin Þor')).toBe(
       'orn aero weiss oeil luk dan ikra tip odin thor',
     );
