@@ -37,7 +37,9 @@ import { cn } from '@/lib/utils';
 export function MobileTabBar() {
   const pathname = usePathname();
   const [moreOpen, setMoreOpen] = React.useState(false);
-  const operationsActive = OPERATIONS_NAV.some((i) => isNavActive(pathname, i.base));
+  const operationsActive = OPERATIONS_NAV.some((i) =>
+    isNavActive(pathname, i.base, i.alsoActiveUnder),
+  );
 
   return (
     <>
@@ -51,7 +53,7 @@ export function MobileTabBar() {
         )}
       >
         {LEADS_NAV.map((item) => {
-          const active = isNavActive(pathname, item.base);
+          const active = isNavActive(pathname, item.base, item.alsoActiveUnder);
           return (
             <Link
               key={item.testId}

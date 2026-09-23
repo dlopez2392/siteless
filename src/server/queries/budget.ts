@@ -5,6 +5,7 @@ import { withOrg, type OrgClaims } from '@/db/with-org';
 import { periodResetInstant, periodStart } from '@/lib/budget/period';
 import type { Provider, Sku } from '@/lib/budget/price-book';
 import { instantOf, requireInstant } from '@/lib/instant';
+import type { RunKind, StoppedReason } from '@/lib/ui/run-tone';
 
 /**
  * The meter, as an RSC page reads it. D-14.
@@ -254,7 +255,14 @@ export type RunSpend = {
   calls: number;
   microUsd: bigint;
   status: string;
-  stoppedReason: string | null;
+  /** `runs.kind` — `runs_kind_known` CHECK: full_sweep · partition · change_check. */
+  kind: RunKind;
+  /**
+   * A MACHINE KEY, never display text (04-UI-SPEC Rule 35). Typed as the known union so a
+   * consumer indexes `STOPPED_REASON` with it; the column itself is unconstrained text, so a
+   * consumer must still treat a miss in the map as "render nothing".
+   */
+  stoppedReason: StoppedReason | null;
 };
 
 /**
@@ -325,6 +333,7 @@ export async function readSpendByRun(
     calls: number;
     micro_usd: string;
     status: string;
+    kind: string;
     stopped_reason: string | null;
   }>(
     await tx.execute(sql`
@@ -334,6 +343,7 @@ export async function readSpendByRun(
              (extract(epoch from r.started_at)  * 1000)::bigint::text as started_ms,
              (extract(epoch from r.finished_at) * 1000)::bigint::text as finished_ms,
              r.status                             as status,
+             r.kind                               as kind,
              r.stopped_reason                     as stopped_reason,
              count(l.id)::int                     as calls,
              coalesce(sum(l.micro_usd), 0)::text  as micro_usd
@@ -344,7 +354,7 @@ export async function readSpendByRun(
        where r.created_at >= ${from.toISOString()}::timestamptz
          and r.created_at <  ${to.toISOString()}::timestamptz
        group by r.id, s.display_name, v.version, r.started_at, r.finished_at,
-                r.status, r.stopped_reason
+                r.status, r.kind, r.stopped_reason
        order by r.created_at desc`),
   );
   return rows.map((r) => ({
@@ -356,7 +366,8 @@ export async function readSpendByRun(
     calls: r.calls,
     microUsd: BigInt(r.micro_usd),
     status: r.status,
-    stoppedReason: r.stopped_reason,
+    kind: r.kind as RunKind,
+    stoppedReason: r.stopped_reason as StoppedReason | null,
   }));
 }
 
