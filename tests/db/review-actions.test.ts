@@ -239,6 +239,56 @@ describe('review decision core, as a Clerk user', () => {
       expect(distinct).toMatchObject({ kind: 'recorded', merged: null });
     }));
 
+  /**
+   * A-WR-03 (review 03). Between resolve passes a reviewer's merge makes other pending pairs
+   * stale: one whose side was just merged away showed that dead loser's stale single-record
+   * fields, and one whose two sides are now one cluster asked "Same business?" about a pair
+   * that already is one (a "Different" there wrote `distinct` INSIDE a cluster). The queue now
+   * renders each side's live ROOT and skips a pair whose roots coincide — and the remaining
+   * count agrees.
+   */
+  it('the queue shows live roots and skips a pair that is already one business', () =>
+    withTxRollback(async (tx) => {
+      const c = asPg(tx);
+      const { a } = await seedTwoOrgs(c);
+      const t = await seedTriple(c, a); // A (oldest) · B · C, three candidates
+      const edge = async (x: string, y: string) =>
+        (
+          await c.query<{ id: string }>(
+            `select id from merge_candidates
+              where org_id = $1 and left_id = least($2::uuid, $3::uuid)
+                and right_id = greatest($2::uuid, $3::uuid)`,
+            [a, x, y],
+          )
+        ).rows[0]!.id;
+      const ab = await edge(t.a.businessId, t.b.businessId);
+      const ac = await edge(t.a.businessId, t.c.businessId);
+      const bc = await edge(t.b.businessId, t.c.businessId);
+      // All three in the review band; B–C on top so it is the pair on screen.
+      await c.query('update merge_candidates set score = 86 where id = $1', [ab]);
+      await c.query('update merge_candidates set score = 85 where id = $1', [ac]);
+      await c.query('update merge_candidates set score = 90 where id = $1', [bc]);
+      await actAs(c, CLAIMS_A);
+
+      // A reviewer merges A–B: B is now A's.
+      expect(await decideCandidate(tx, { candidateId: ab, decision: 'merged' })).toMatchObject({
+        kind: 'recorded',
+      });
+      let queue = await readReviewQueue(tx);
+      expect(queue.top?.candidateId).toBe(bc);
+      // The B side renders as its live root, A — never the merged-away B.
+      expect(new Set([queue.top?.a.id, queue.top?.b.id])).toEqual(
+        new Set([t.a.businessId, t.c.businessId]),
+      );
+      expect(queue.remaining).toBe(2);
+
+      // Now A–C: every side is A's, so B–C is one business and leaves the queue.
+      await decideCandidate(tx, { candidateId: ac, decision: 'merged' });
+      queue = await readReviewQueue(tx);
+      expect(queue.top).toBeNull();
+      expect(queue.remaining).toBe(0);
+    }));
+
   it('the empty queue tells "nothing ingested" from "queue clear"', () =>
     withTxRollback(async (tx) => {
       const c = asPg(tx);

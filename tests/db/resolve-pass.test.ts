@@ -544,6 +544,64 @@ describe('the resolve pass (DEDUP-01, DEDUP-02)', () => {
 });
 
 /**
+ * A-WR-03 (review 03). The pass settled "both sides are one root" only for the >= 95 queue, and
+ * left a distinct-blocked >= 95 pair pending forever — so the review queue asked about pairs
+ * that were already one business, and ranked FIRST a pair between two clusters a person had
+ * just ruled apart. The pass now settles every pending pair of either kind.
+ */
+describe('the pass settles stale pending pairs (A-WR-03)', () => {
+  it('a pending pair inside one cluster is marked merged, and one across a distinct ruling distinct', () =>
+    withRollback(async (c) => {
+      const { a } = await seedTwoOrgs(c);
+      const far = { streetNum: '1', streetNorm: 'far rd', postal: '78599', cluster: null };
+      // Cluster one: x absorbs y and z by hand (the merges happened through other edges).
+      const x = await biz(c, a, { name: 'alpha one', ...far, ageHours: 3 });
+      const y = await biz(c, a, { name: 'bravo two', ...far });
+      const z = await biz(c, a, { name: 'charlie three', ...far });
+      // Two clusters a person ruled apart: p | q, with r merged into q.
+      const p = await biz(c, a, { name: 'delta four', ...far });
+      const q = await biz(c, a, { name: 'echo five', ...far, ageHours: 3 });
+      const r = await biz(c, a, { name: 'foxtrot six', ...far });
+      await c.query('update businesses set merged_into_id = $1, status = $2 where id = any($3::uuid[])', [
+        x,
+        'merged',
+        [y, z],
+      ]);
+      await c.query("update businesses set merged_into_id = $1, status = 'merged' where id = $2", [q, r]);
+      const cand = async (u: string, v: string, score: number, decision = 'pending') => {
+        const [l, rr] = pairOf(u, v);
+        const res = await c.query<{ id: string }>(
+          `insert into merge_candidates (org_id, left_id, right_id, block_key, score, features, decision)
+           values ($1, $2, $3, 'test', $4, '{}'::jsonb, $5) returning id`,
+          [a, l, rr, score, decision],
+        );
+        return res.rows[0]!.id;
+      };
+      const inside = await cand(y, z, 88); // both sides are x now
+      const ruled = await cand(p, q, 90, 'distinct'); // the person's "Different"
+      const across = await cand(p, r, 96); // r is q's now: the same two clusters
+      const live = await cand(p, x, 85); // an honest open question — must stay pending
+      await withPermissiveClaims(c);
+
+      const report = await runPass(c);
+      expect(report.stats.tidy).toEqual({ already_one: 1, spanned_distinct: 1 });
+      const d = await c.query<{ id: string; decision: string; decided_by: string | null }>(
+        'select id, decision, decided_by from merge_candidates where id = any($1::uuid[])',
+        [[inside, ruled, across, live]],
+      );
+      const byId = Object.fromEntries(d.rows.map((row) => [row.id, row.decision]));
+      expect(byId).toEqual({
+        [inside]: 'merged',
+        [ruled]: 'distinct',
+        [across]: 'distinct',
+        [live]: 'pending',
+      });
+      // Nothing was merged by the settling: the >= 95 pair across the ruling stayed apart.
+      expect((await mergedInto(c, [p, r]))[p]).toBeNull();
+    }));
+});
+
+/**
  * A-WR-10 (review 03). Stage 5 retried 40001 only. A 55000 from a reviewer deciding the same
  * pair mid-pass (now also the refusals A-CR-01 added), or a 40P01 deadlock between
  * record_merge and undo_merge, killed the rest of the merge loop after minutes of blocking and

@@ -689,6 +689,79 @@ export async function stageMerge(
 }
 
 // ---------------------------------------------------------------------------------------
+// Stage 6 — tidy the pending pairs the merges (and the reviewers) have made stale
+// ---------------------------------------------------------------------------------------
+
+export interface TidyStageResult {
+  /** Pending pairs whose two sides are now ONE cluster — marked `merged`. */
+  already_one: number;
+  /** Pending pairs between two clusters a `distinct` decision already spans — marked `distinct`. */
+  spanned_distinct: number;
+}
+
+/**
+ * A-WR-03 (review 03). Stage 5 settled "both sides are one root" only for the >= 95 queue it
+ * walks, and left a `skipped_distinct` candidate `pending` forever. So the review queue kept:
+ *   - an 80–94 pair whose two sides had been merged through OTHER edges — asking "Same
+ *     business?" about a pair that already IS one business (answering "Different" wrote a
+ *     `distinct` inside a single cluster);
+ *   - a >= 95 pair between two clusters a person had ruled apart (an unmerge, a "Different"),
+ *     ranked FIRST by score, one tap from re-merging what was just unmerged (D-20).
+ * This stage settles both, for every pending pair at every score, set-based, in one
+ * transaction:
+ *   - roots coincide            → `merged` (it is one business; nothing is written but the row)
+ *   - a `distinct` decision already joins the two ROOT clusters → `distinct`
+ * Attributed to the ETL actor (`etl:resolve`), stamped `decided_at`. `merge_candidates` carries
+ * no log_event (0023); the decision columns are its audit. A write-gated statement: a pair
+ * already settled is not pending, so a re-run settles nothing twice.
+ */
+export const TIDY_SQL = `
+  with roots as (
+    select mc.id, mc.decision,
+           coalesce(l.merged_into_id, l.id) as lr,
+           coalesce(r.merged_into_id, r.id) as rr
+      from merge_candidates mc
+      join businesses l on l.id = mc.left_id and l.org_id = mc.org_id
+      join businesses r on r.id = mc.right_id and r.org_id = mc.org_id
+     where mc.org_id = $1::uuid
+  ),
+  ruled_apart as (
+    select distinct least(lr, rr) as a, greatest(lr, rr) as b
+      from roots where decision = 'distinct' and lr <> rr
+  ),
+  one as (
+    update merge_candidates mc
+       set decision = 'merged', decided_at = now(),
+           decided_by = coalesce(current_setting('app.actor_id', true), 'system')
+      from roots x
+     where mc.id = x.id and mc.org_id = $1::uuid and mc.decision = 'pending' and x.lr = x.rr
+    returning 1
+  ),
+  apart as (
+    update merge_candidates mc
+       set decision = 'distinct', decided_at = now(),
+           decided_by = coalesce(current_setting('app.actor_id', true), 'system')
+      from roots x
+      join ruled_apart d on d.a = least(x.lr, x.rr) and d.b = greatest(x.lr, x.rr)
+     where mc.id = x.id and mc.org_id = $1::uuid and mc.decision = 'pending' and x.lr <> x.rr
+    returning 1
+  )
+  select (select count(*) from one)::int as already_one,
+         (select count(*) from apart)::int as spanned_distinct`;
+
+export async function stageTidy(db: ResolveDb): Promise<TidyStageResult> {
+  return db.run(async ({ tx, orgId }) => {
+    const { rows } = await tx.query<{ already_one: number; spanned_distinct: number }>(TIDY_SQL, [
+      orgId,
+    ]);
+    return {
+      already_one: Number(rows[0]?.already_one ?? 0),
+      spanned_distinct: Number(rows[0]?.spanned_distinct ?? 0),
+    };
+  });
+}
+
+// ---------------------------------------------------------------------------------------
 // The pass
 // ---------------------------------------------------------------------------------------
 
@@ -706,6 +779,8 @@ export interface ResolveStats {
   /** Pending candidates per band after scoring: >= 95, 80–94, < 80. */
   bands: BandCounts;
   merges: MergeStageResult | null;
+  /** Stage 6 (A-WR-03): pending pairs settled because they went stale. Null on a dry run. */
+  tidy: TidyStageResult | null;
   ms: Record<string, number>;
 }
 
@@ -807,6 +882,17 @@ export async function runResolvePass(
     } else {
       log('resolve: --dry-run — stage 5 not run, nothing merged');
     }
+    partial.merges = merges;
+
+    let tidy: TidyStageResult | null = null;
+    if (!opts.dryRun) {
+      stage = 'tidy';
+      tidy = await timed('tidy', () => stageTidy(db));
+      log(
+        `resolve: stage 6 tidy — ${tidy.already_one} pending pair(s) already one business, ` +
+          `${tidy.spanned_distinct} across a distinct ruling`,
+      );
+    }
     ms.total = Date.now() - t0;
 
     const stats: ResolveStats = {
@@ -820,6 +906,7 @@ export async function runResolvePass(
       score_rows_written: scored.written,
       bands: scored.bands,
       merges,
+      tidy,
       ms,
     };
 

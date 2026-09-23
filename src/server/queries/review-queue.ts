@@ -132,15 +132,25 @@ function toSide(r: SideRow): CandidateSideView {
   };
 }
 
-/** How many pairs are left in the band — the same predicate the top pair is drawn from. */
+/**
+ * 🔴 A-WR-03 (review 03): THE LIVE-ROOTS PREDICATE, shared by the count and the top pair. A
+ * reviewer's merge makes other pending pairs stale until the next resolve pass settles them
+ * (scripts/resolve.ts stage 6): a side may now be a merged-away loser, and both sides may now
+ * be ONE cluster. Each side is read as its live root (`coalesce(merged_into_id, id)` —
+ * clusters are flattened, so one hop is the root), and a pair whose roots coincide is not a
+ * question any more, so it is neither shown nor counted.
+ */
 export async function readReviewRemaining(tx: Tx): Promise<number> {
   const row = rowsOf<{ remaining: number }>(
     await tx.execute(sql`
       select count(*)::int as remaining
         from merge_candidates mc
+        join businesses l on l.id = mc.left_id and l.org_id = mc.org_id
+        join businesses r on r.id = mc.right_id and r.org_id = mc.org_id
        where mc.org_id = (select app.current_org_id())
          and mc.decision = 'pending'
-         and mc.score >= ${REVIEW_BAND_FLOOR}`),
+         and mc.score >= ${REVIEW_BAND_FLOOR}
+         and coalesce(l.merged_into_id, l.id) <> coalesce(r.merged_into_id, r.id)`),
   )[0];
   return row?.remaining ?? 0;
 }
@@ -154,11 +164,17 @@ export async function readReviewQueue(tx: Tx): Promise<ReviewQueue> {
     features: Record<string, unknown> | null;
   }>(
     await tx.execute(sql`
-      select mc.id, mc.left_id, mc.right_id, mc.score, mc.features
+      select mc.id,
+             coalesce(l.merged_into_id, l.id) as left_id,
+             coalesce(r.merged_into_id, r.id) as right_id,
+             mc.score, mc.features
         from merge_candidates mc
+        join businesses l on l.id = mc.left_id and l.org_id = mc.org_id
+        join businesses r on r.id = mc.right_id and r.org_id = mc.org_id
        where mc.org_id = (select app.current_org_id())
          and mc.decision = 'pending'
          and mc.score >= ${REVIEW_BAND_FLOOR}
+         and coalesce(l.merged_into_id, l.id) <> coalesce(r.merged_into_id, r.id)
        order by mc.skipped_at nulls first, mc.score desc, mc.id
        limit 1`),
   )[0];
