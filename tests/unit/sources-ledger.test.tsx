@@ -171,11 +171,12 @@ describe('confidence distribution', () => {
     }
 
     expect(screen.getByTestId('sources-confidence-toggle-cutoff')).toHaveTextContent(
-      'Funnel cutoff: 0.50 — rows below this stay in the spine and never enter the lead funnel.',
+      'Funnel cutoff: 0.30 — rows below this stay in the spine and never enter the lead funnel.',
     );
-    // The marker sits above the first band wholly below the 0.5 cutoff.
+    // The marker sits above the first band wholly below the cutoff: 0.3 since the 03-20 desk
+    // run (danlo, 2026-09-23). A re-tune of OVERTURE_CONFIDENCE_CUTOFF must red this pin.
     const marker = screen.getByTestId('sources-confidence-toggle-cutoff-marker');
-    expect(marker.parentElement?.querySelector('[data-band]')).toHaveAttribute('data-band', '0.4-0.5');
+    expect(marker.parentElement?.querySelector('[data-band]')).toHaveAttribute('data-band', '0.2-0.3');
   });
 
   it('confidence distribution renders nothing without bands', () => {
