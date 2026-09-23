@@ -158,7 +158,7 @@ Plans:
 - [x] 03-09-PLAN.md — The shared ingest write path, DB fixtures, DATA-04's four proofs, the external key and criterion 5
 
 **Wave 4** *(blocked on Wave 3)*
-- [ ] 03-10-PLAN.md — Blocking (the `cross join lateral` shape), the 25 km gate, the block cap, chain detection
+- [x] 03-10-PLAN.md — Blocking (the `cross join lateral` shape), the 25 km gate, the block cap, chain detection
 - [x] 03-11-PLAN.md — Survivorship, merge and unmerge, with the three SECURITY DEFINER writers
 - [x] 03-12-PLAN.md — `scripts/ingest-comptroller.ts`: permits, closures, the inline Census geocode, statewide chain names
 - [x] 03-13-PLAN.md — `scripts/ingest-overture.ts`: the DuckDB bbox range-read, the pure transform, the committed fixture
