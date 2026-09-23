@@ -155,7 +155,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2)*
 - [x] 03-08-PLAN.md — Overture `basic_category` → cluster mapping seed and its reference-row proofs
-- [ ] 03-09-PLAN.md — The shared ingest write path, DB fixtures, DATA-04's four proofs, the external key and criterion 5
+- [x] 03-09-PLAN.md — The shared ingest write path, DB fixtures, DATA-04's four proofs, the external key and criterion 5
 
 **Wave 4** *(blocked on Wave 3)*
 - [ ] 03-10-PLAN.md — Blocking (the `cross join lateral` shape), the 25 km gate, the block cap, chain detection
