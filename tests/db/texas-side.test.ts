@@ -12,8 +12,9 @@
  * below proves the fixture's Mexican rows really are inside it.
  *
  * M23 (replace `country==='US' && region==='TX'` with `region==='TX'`) must red this test.
- * Until 03-13 ships the Overture transform, the filter it mutates is `isTexasSide` in
- * tests/db/_ingest-fixtures.ts (executed 2026-09-22, see 03-09-SUMMARY.md).
+ * The filter it mutates is the production one, `overtureRowToSourceRecord` in
+ * src/lib/overture/transform.ts: `seedOvertureFixture` runs every row through it (03-13;
+ * executed there against this test and the unit `texas side filter`).
  */
 import { describe, expect, it } from 'vitest';
 import { actAs, seedTwoOrgs, withRollback } from './_fixtures';
