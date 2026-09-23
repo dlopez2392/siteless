@@ -23,6 +23,7 @@ import {
   REVIEW_ACTION_SAME,
   REVIEW_ACTION_SKIP,
   REVIEW_BUSY,
+  REVIEW_DECISION_FAILED,
   TOAST_DISTINCT,
   TOAST_MERGED,
 } from '@/lib/ui/copy';
@@ -87,7 +88,18 @@ export function ReviewActions({ candidateId }: { candidateId: string | null }) {
       setRefusal(null);
       setPressed(decision);
       startTransition(async () => {
-        const result = await recordReviewDecision({ candidateId, decision });
+        let result: Awaited<ReturnType<typeof recordReviewDecision>>;
+        try {
+          result = await recordReviewDecision({ candidateId, decision });
+        } catch {
+          // 🔴 C-CR-01: the REQUEST failed (no signal mid-tap, a 5xx, a deploy that retired the
+          // action id), so the promise rejected rather than answering `ok: false`. Uncaught
+          // inside a transition, React hands it to the nearest error boundary and the queue,
+          // the pair and the tab bar all go. Nothing was recorded — the server never answered —
+          // so it is the same refusal, retryable, with the pair still on screen (Rule 20).
+          setRefusal({ message: REVIEW_DECISION_FAILED, retryable: true, decision });
+          return;
+        }
         if (!result.ok) {
           // 🔴 Do NOT advance. The pair stays on screen with the reason beside it.
           setRefusal({

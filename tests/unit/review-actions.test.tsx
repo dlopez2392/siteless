@@ -95,6 +95,39 @@ describe('review actions', () => {
     expect(screen.getByTestId('review-action-same')).not.toHaveAttribute('aria-disabled');
   });
 
+  it('a decision whose request never reaches the server keeps the pair and shows the refusal', async () => {
+    // C-CR-01: the action PROMISE rejects (signal lost mid-tap, a 5xx, a deploy that retired
+    // the action id). Uncaught inside the transition, React hands it to the nearest error
+    // boundary and the whole screen goes. It must land in the same Alert a refusal does.
+    action.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    render(
+      <div>
+        <div data-testid="review-pair">the pair</div>
+        <ReviewActions candidateId={CANDIDATE} />
+      </div>,
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('review-action-different'));
+    });
+
+    expect(screen.getByTestId('review-pair')).toBeInTheDocument();
+    expect(screen.getByTestId('review-error')).toHaveTextContent(REVIEW_DECISION_FAILED);
+    expect(screen.getByTestId('review-error-retry')).toBeInTheDocument();
+    expect(screen.getByTestId('review-error-reload')).toBeInTheDocument();
+    expect(refresh).not.toHaveBeenCalled();
+    expect(toastFn).not.toHaveBeenCalled();
+    expect(screen.getByTestId('review-action-different')).not.toHaveAttribute('aria-disabled');
+
+    // "Try again" re-sends the SAME decision.
+    action.mockResolvedValueOnce({ ok: true, data: { remaining: 2, merged: null } });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('review-error-retry'));
+    });
+    expect(action).toHaveBeenLastCalledWith({ candidateId: CANDIDATE, decision: 'distinct' });
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
   it('a recorded merge toasts the true names and only then advances', async () => {
     const answer = deferAnswer();
     render(<ReviewActions candidateId={CANDIDATE} />);

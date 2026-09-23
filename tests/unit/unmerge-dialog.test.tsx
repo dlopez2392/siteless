@@ -239,6 +239,25 @@ describe('unmerge confirmation', () => {
     },
   );
 
+  it('an unmerge whose request never reaches the server keeps the dialog open with the unmerge-failed sentence', async () => {
+    // C-CR-01: the action PROMISE rejects (no signal, a 5xx, a retired action id). Uncaught
+    // inside the transition it reaches the error boundary and takes the whole page with it.
+    mocked.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    renderHistory();
+    openDialog();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('business-unmerge-confirm'));
+    });
+
+    const error = await screen.findByTestId('business-unmerge-error');
+    expect(error).toHaveTextContent(UNMERGE_FAILED);
+    expect(within(error).getByTestId('business-unmerge-retry')).toHaveTextContent('Try again');
+    expect(screen.getByTestId('business-unmerge-dialog')).toBeInTheDocument();
+    expect(screen.getByTestId(`business-merge-row-${NEWER.mergeId}`)).toBeInTheDocument();
+    expect(refresh).not.toHaveBeenCalled();
+    expect(toast).not.toHaveBeenCalled();
+  });
+
   it('a successful unmerge toasts, closes and refreshes', async () => {
     mocked.mockResolvedValue({ ok: true, data: { loserId: '00000000-0000-4000-8000-0000000000c9' } });
     renderHistory();

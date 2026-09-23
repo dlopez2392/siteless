@@ -816,3 +816,10 @@ export function SPINE_UNEXPECTED_ERROR(thing: string) {
     `whether the last ingest finished.`
   );
 }
+
+/** The `{thing}` the route error boundaries name in `UNEXPECTED_ERROR` /
+ *  `SPINE_UNEXPECTED_ERROR` (C-CR-01). One spelling each, here rather than in the boundary. */
+export const ERROR_THING = {
+  page: 'this page',
+  business: 'this business',
+} as const;

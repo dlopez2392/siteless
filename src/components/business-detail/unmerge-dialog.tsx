@@ -35,6 +35,7 @@ import {
   UNMERGE_BUSY,
   UNMERGE_CONFIRM,
   UNMERGE_DISMISS,
+  UNMERGE_FAILED,
   UNMERGE_TITLE,
 } from '@/lib/ui/copy';
 import { unmergeBusiness } from '@/server/actions/unmerge-business';
@@ -111,7 +112,18 @@ export function UnmergeDialog({
   const confirm = useCallback(() => {
     setError(null);
     startTransition(async () => {
-      const result = await unmergeBusiness({ mergeId });
+      let result: Awaited<ReturnType<typeof unmergeBusiness>>;
+      try {
+        result = await unmergeBusiness({ mergeId });
+      } catch {
+        // 🔴 C-CR-01: the REQUEST failed (no signal, a 5xx, a retired action id) — the promise
+        // rejected instead of answering `ok: false`. Uncaught inside the transition it reaches
+        // the error boundary and takes the page with it. `app.undo_merge` runs in one
+        // transaction, so the records are exactly as they were: the dialog stays open and says
+        // so, and nothing closes or refreshes.
+        setError(UNMERGE_FAILED);
+        return;
+      }
       if (!result.ok) {
         // The dialog stays open, with the sentence the action chose.
         setError(result.message);
