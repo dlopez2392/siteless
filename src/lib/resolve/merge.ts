@@ -2,6 +2,13 @@ import type { EtlExecutor } from '@/lib/ingest/etl-actor';
 import { addressKey, type PhoneKey } from '@/lib/normalize';
 import { pickPhone } from '@/lib/overture/transform';
 import { closureRowToSourceRecord, type ClosureRow } from '@/lib/socrata/closures';
+import type { PermitRow } from '@/lib/socrata/permits';
+import {
+  comptrollerDerived,
+  loadDerivationContext,
+  overtureClusterKey,
+  type DerivationContext,
+} from './derivation';
 import {
   survive,
   type LocationMatchType,
@@ -108,30 +115,35 @@ function censusMatchType(p: Json): LocationMatchType | null {
  * through the same shipped normalizers the ingest used, so `survive()` over a business's own
  * parents reproduces what the ingest wrote. A key outside the four returns null and is never a
  * parent (T-3-06: a Google record can never supply a durable field).
+ *
+ * 🔴 `ctx` CARRIES WHAT THE PAYLOAD DOES NOT (A-CR-03, review 03): the NAICS ranges and the
+ * category map a cluster comes from, and the city fold. Without it the view never set
+ * `clusterKey`, so survivorship's cluster rule never ran and a merge could drop a business out
+ * of the lead funnel. The Comptroller fields come from `comptrollerDerived` and the Overture
+ * cluster from `overtureClusterKey` — the functions the ingests write with (derivation.ts).
  */
-export function sourceRecordView(row: {
-  id: string;
-  source_key: string;
-  payload: unknown;
-}): SourceRecordView | null {
+export function sourceRecordView(
+  row: { id: string; source_key: string; payload: unknown },
+  ctx: DerivationContext,
+): SourceRecordView | null {
   const p: Json =
     row.payload && typeof row.payload === 'object' ? (row.payload as Json) : {};
   switch (row.source_key) {
     case 'tx_comptroller': {
       const v = emptyView(row.id, 'tx_comptroller');
       const name = str(p.outlet_name);
-      const street = str(p.outlet_address);
-      const addr = addressKey(street, str(p.outlet_zip_code));
+      const d = comptrollerDerived(p as unknown as PermitRow, ctx);
       return {
         ...v,
         legalName: name,
         displayName: name,
-        street,
-        streetNum: addr.streetNum,
-        streetNorm: addr.streetNorm,
-        unit: addr.unit,
-        postal: addr.postal,
-        city: str(p.outlet_city),
+        street: d.street,
+        streetNum: d.streetNum,
+        streetNorm: d.streetNorm,
+        unit: d.unit,
+        postal: d.postal,
+        city: d.city,
+        clusterKey: d.clusterKey,
       };
     }
     case 'overture': {
@@ -157,6 +169,7 @@ export function sourceRecordView(row: {
         lng,
         locationMatchType: lat !== null && lng !== null ? 'overture' : null,
         basicCategory: str(p.basic_category),
+        clusterKey: overtureClusterKey(str(p.basic_category), ctx.categoryMap),
         confidence: num(p.confidence),
         operatingStatus: str(p.operating_status),
       };
@@ -194,7 +207,9 @@ async function readParents(
   tx: EtlExecutor,
   memberSql: string,
   params: unknown[],
+  ctx?: DerivationContext,
 ): Promise<SourceRecordView[]> {
+  const context = ctx ?? (await loadDerivationContext(tx));
   const { rows } = await tx.query<{ id: string; source_key: string; payload: unknown }>(
     `with members as (${memberSql})
      select sr.id, sr.source_key, sr.payload
@@ -211,7 +226,7 @@ async function readParents(
   );
   const views: SourceRecordView[] = [];
   for (const r of rows) {
-    const v = sourceRecordView(r);
+    const v = sourceRecordView(r, context);
     if (v) views.push(v);
   }
   return views;

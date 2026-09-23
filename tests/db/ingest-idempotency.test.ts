@@ -37,7 +37,7 @@ import {
   type IngestInput,
 } from './_ingest-fixtures';
 
-const INPUTS: IngestInput[] = COMPTROLLER_FIXTURE.map(comptrollerIngestInput);
+const INPUTS: IngestInput[] = COMPTROLLER_FIXTURE.map((r) => comptrollerIngestInput(r));
 const N = INPUTS.length;
 
 /** The desk-script transaction preamble: the actor GUC, then the org claim. Nothing else. */
@@ -116,7 +116,7 @@ describe('DATA-04: the ingest write path', () => {
       const target = COMPTROLLER_FIXTURE[3]!;
       const edited = COMPTROLLER_FIXTURE.map((r) =>
         r === target ? { ...r, outlet_name: 'LA ESTRELLA BAKERY & CAFE' } : r,
-      ).map(comptrollerIngestInput);
+      ).map((r) => comptrollerIngestInput(r));
       const externalId = `${target.taxpayer_number}-${target.outlet_number}`;
 
       const second = await runFixtureIngest(c, a, 'tx_comptroller', edited);

@@ -53,6 +53,7 @@ import {
 } from '../src/lib/overture/transform';
 import { resolveEtlOrg, setEtlActor, type EtlExecutor } from '../src/lib/ingest/etl-actor';
 import { upsertBusinessFromSource, upsertSourceRecord } from '../src/lib/ingest/upsert';
+import { loadCategoryMap, overtureClusterKey } from '../src/lib/resolve/derivation';
 import {
   countGone,
   emptyTally,
@@ -262,16 +263,10 @@ interface IngestStats {
   unmapped_basic_category: Array<{ basic_category: string; rows: number }>;
 }
 
-async function readCategoryMap(x: EtlExecutor, orgId: string): Promise<Map<string, string>> {
-  // Built-ins (org_id IS NULL) first, then this org's own rows, so an org override wins.
-  const { rows } = await x.query<{ basic_category: string; cluster_key: string }>(
-    `select basic_category, cluster_key from overture_category_map
-      where org_id is null or org_id = $1
-      order by (org_id is not null), basic_category`,
-    [orgId],
-  );
-  const map = new Map<string, string>();
-  for (const r of rows) map.set(r.basic_category, r.cluster_key);
+async function readCategoryMap(x: EtlExecutor): Promise<Map<string, string>> {
+  // Built-ins (org_id IS NULL) first, then this org's own rows, so an org override wins. The
+  // SAME loader survivorship re-derives a merged winner's cluster through (A-CR-03).
+  const map = await loadCategoryMap(x);
   if (map.size === 0) {
     throw new Error(
       `${SCRIPT}: overture_category_map has no rows. Run db:seed first — without the map every ` +
@@ -358,7 +353,7 @@ async function ingest(duck: DuckDBConnection, release: string, clerkOrgId: strin
   try {
     console.log(`${SCRIPT}: target=${target} org=${clerkOrgId}`);
     const started = await inEtlTransaction(c, clerkOrgId, async (x, orgId) => {
-      const categoryMap = await readCategoryMap(x, orgId);
+      const categoryMap = await readCategoryMap(x);
       const run = await startRun(x, {
         orgId,
         sourceKey: 'overture',
@@ -388,7 +383,7 @@ async function ingest(duck: DuckDBConnection, release: string, clerkOrgId: strin
           await upsertBusinessFromSource(
             x,
             sr.id,
-            { ...rec.derived, clusterKey: cat === null ? null : (categoryMap.get(cat) ?? null) },
+            { ...rec.derived, clusterKey: overtureClusterKey(cat, categoryMap) },
             { orgId, changed: sr.changed },
           );
         }

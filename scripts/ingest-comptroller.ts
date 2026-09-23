@@ -77,7 +77,14 @@ import {
   type BatchOutcome,
   type BatchRow,
 } from '@/lib/geocode/census-batch';
-import { addressKey, nameNorm } from '@/lib/normalize';
+import { nameNorm } from '@/lib/normalize';
+import {
+  cityFoldKey,
+  comptrollerDerived,
+  loadCityFold,
+  seededClusterRanges,
+  type CityFold,
+} from '@/lib/resolve/derivation';
 import {
   paddedCountyCode,
   quote,
@@ -106,7 +113,7 @@ import {
   type ClusterNaicsRanges,
   type PermitRow,
 } from '@/lib/socrata/permits';
-import type { ClustersFile, CountiesFile } from '../src/seed/types';
+import type { CountiesFile } from '../src/seed/types';
 
 const SCRIPT: EtlScript = 'ingest-comptroller';
 
@@ -334,12 +341,12 @@ function readSeedFile<T>(name: string): T {
   return JSON.parse(readFileSync(path, 'utf8')) as T;
 }
 
-/** The seeded clusters' half-open NAICS ranges — the same file `pnpm db:seed` loads. */
+/**
+ * The seeded clusters' half-open NAICS ranges — the same file `pnpm db:seed` loads, read
+ * through the one derivation module survivorship also reads it through (A-CR-03).
+ */
 export function seededClusters(): ClusterNaicsRanges[] {
-  return readSeedFile<ClustersFile>('clusters.json').clusters.map((c) => ({
-    key: c.key,
-    naicsRanges: c.naicsRanges,
-  }));
+  return seededClusterRanges();
 }
 
 /** Cameron, Hidalgo, Starr, Willacy as integers (31, 108, 214, 245), from the seed. */
@@ -351,32 +358,12 @@ export function seededRgvComptrollerCodes(): number[] {
 }
 
 /**
- * `outlet_city` spelling → the seeded city `name`, per county: the Phase 2 ∥ 3 shared
- * contract (`cities.name_variants`, matched upper-case, displayed as `name`). Read from the
- * database's built-in rows, so the fold is exactly what the geo presets resolve against.
+ * `outlet_city` spelling → the seeded city `name`, per county (`cities.name_variants`). The
+ * fold lives in src/lib/resolve/derivation.ts since A-CR-03: survivorship re-derives a merged
+ * winner's city through the same fold the ingest writes it with. Re-exported here for the
+ * callers that already import it from this script.
  */
-export type CityFold = Map<string, string>;
-
-export const cityFoldKey = (countyCode: number, outletCity: string) =>
-  `${countyCode}|${outletCity.trim().replace(/\s+/g, ' ').toUpperCase()}`;
-
-export async function loadCityFold(tx: EtlExecutor): Promise<CityFold> {
-  const { rows } = await tx.query<{
-    comptroller_code: number;
-    name: string;
-    name_variants: string[];
-  }>(
-    `select co.comptroller_code, ci.name, ci.name_variants
-       from cities ci join counties co on co.id = ci.county_id
-      where ci.org_id is null and co.org_id is null`,
-  );
-  const fold: CityFold = new Map();
-  for (const r of rows) {
-    for (const v of [r.name, ...r.name_variants])
-      fold.set(cityFoldKey(r.comptroller_code, v), r.name);
-  }
-  return fold;
-}
+export { cityFoldKey, loadCityFold, type CityFold };
 
 // ---------------------------------------------------------------------------------------
 // The permits feed: fetch → validate → transform.
@@ -468,6 +455,10 @@ export interface PermitIngest {
  * Pure. `outlet_address` is the location; the taxpayer's mailing address is stripped by the
  * schema and never read (PITFALLS). An unmapped NAICS leaves `cluster_key` NULL: the row stays
  * in the spine and never enters the funnel (D-02).
+ *
+ * 🔴 THE DERIVED COLUMNS COME FROM `comptrollerDerived` (src/lib/resolve/derivation.ts), the
+ * function survivorship's `sourceRecordView` re-reads a stored permit through (A-CR-03). Two
+ * implementations of "what a permit derives" is how a merge used to drop the cluster.
  */
 export function permitToIngest(
   row: PermitRow,
@@ -476,7 +467,7 @@ export function permitToIngest(
   cityFold: CityFold,
 ): PermitIngest {
   const rec = comptrollerRowToSourceRecord(row, sourceVersion, clusters);
-  const addr = addressKey(row.outlet_address, row.outlet_zip_code);
+  const d = comptrollerDerived(row, { clusters, cityFold, categoryMap: new Map() });
   const folded =
     row.outlet_city === undefined
       ? undefined
@@ -486,23 +477,23 @@ export function permitToIngest(
     sourceVersion: rec.sourceVersion,
     payload: rec.payload,
     derived: {
-      displayName: rec.legalName,
-      legalName: rec.legalName,
+      displayName: d.displayName,
+      legalName: d.legalName,
       primarySource: 'tx_comptroller',
       comptrollerKey: rec.externalId,
       nameNorm: nameNorm(row.outlet_name),
-      city: folded ?? rec.city,
-      street: rec.street,
-      streetNum: addr.streetNum,
-      streetNorm: addr.streetNorm,
-      unit: addr.unit,
-      postal: addr.postal,
-      clusterKey: rec.clusterKey,
+      city: d.city,
+      street: d.street,
+      streetNum: d.streetNum,
+      streetNorm: d.streetNorm,
+      unit: d.unit,
+      postal: d.postal,
+      clusterKey: d.clusterKey,
       // lat/lng deliberately UNDEFINED: a re-ingest of a changed permit must not null the
       // location the Census pass wrote (upsert.ts: undefined = not written).
     },
     geocodeInput: { street: rec.street, city: rec.city, zip: rec.postal },
-    unmappedNaics: rec.clusterKey === null,
+    unmappedNaics: d.clusterKey === null,
     cityFolded: folded !== undefined,
   };
 }

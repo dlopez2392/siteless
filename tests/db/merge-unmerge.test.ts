@@ -44,7 +44,10 @@ import { asEtlExecutor } from './_ingest-fixtures';
 import {
   CLAIMS_A,
   CLAIMS_B,
+  seedCandidate,
+  seedComptrollerSide,
   seedMergePair,
+  seedOvertureSide,
   seedTriple,
   survivorshipColumns,
 } from './_merge-fixtures';
@@ -115,6 +118,56 @@ describe('merge and unmerge (DEDUP-02)', () => {
       expect(w.display_name_source_id).toBe(overture.sourceRecordId);
       expect(w.legal_name_source_id).toBe(comptroller.sourceRecordId);
       expect(w.location_source_id).toBe(overture.sourceRecordId);
+    }));
+
+  /**
+   * A-CR-03 (review 03). survive() derives cluster_key "Overture first, then any parent", but
+   * the view it reads never set a cluster — the Overture payload carries none (the ingest looks
+   * it up in overture_category_map) and the Comptroller view never mapped its NAICS code. So a
+   * Comptroller winner outside every seeded range kept cluster_key NULL after absorbing its
+   * Overture 'restaurant' twin, and under D-02 the merged business silently left the funnel.
+   */
+  it('a merge keeps the Overture-mapped cluster when the Comptroller winner has none', () =>
+    withRollback(async (c) => {
+      const { a } = await seedTwoOrgs(c);
+      const comptroller = await seedComptrollerSide(c, a, {
+        name: 'EL FARO RESTAURANT LLC',
+        address: '1200 N 10TH ST',
+        zip: '78501',
+        city: 'MCALLEN',
+        lat: 26.2034,
+        lng: -98.23,
+        naics: '522110', // banking: outside all four seeded ranges
+      });
+      const overture = await seedOvertureSide(c, a, {
+        name: 'El Faro Restaurant',
+        street: '1200 N 10th St',
+        zip: '78501',
+        city: 'McAllen',
+        lat: 26.2035,
+        lng: -98.23,
+        basicCategory: 'restaurant',
+      });
+      // Positive controls: the two sides really start with different clusters.
+      expect((await survivorshipColumns(c, comptroller.businessId)).cluster_key).toBeNull();
+      expect((await survivorshipColumns(c, overture.businessId)).cluster_key).toBe('food_hospitality');
+      const candidateId = await seedCandidate(c, a, comptroller.businessId, overture.businessId);
+
+      await actAs(c, CLAIMS_A);
+      const r = await mergePair(asEtlExecutor(c), {
+        candidateId,
+        leftId: comptroller.businessId,
+        rightId: overture.businessId,
+        reason: 'review',
+        score: 95,
+        features: FEATURES,
+      });
+      expect(r.winnerId).toBe(comptroller.businessId);
+      const w = await survivorshipColumns(c, comptroller.businessId);
+      expect({ basic_category: w.basic_category, cluster_key: w.cluster_key }).toEqual({
+        basic_category: 'restaurant',
+        cluster_key: 'food_hospitality',
+      });
     }));
 
   it('unmerge restores', () =>
