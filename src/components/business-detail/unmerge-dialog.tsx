@@ -29,6 +29,7 @@ import {
 import { Spinner } from '@/components/ui/spinner';
 import {
   ERROR_ACTION,
+  MERGE_SIDE,
   TOAST_UNMERGED,
   UNMERGE_BODY,
   UNMERGE_BUSY,
@@ -76,6 +77,8 @@ export function UnmergeDialog({
   winnerName,
   loserKey,
   winnerKey,
+  loserSource,
+  winnerSource,
   children,
 }: {
   mergeId: string;
@@ -83,7 +86,10 @@ export function UnmergeDialog({
   winnerName: string;
   loserKey: string;
   winnerKey: string;
-  /** The row's "Unmerge {loser}" button — the trigger. */
+  /** Pre-rendered SOURCE_TAG values (or null): with the keys, they tell same-name records apart. */
+  loserSource: string | null;
+  winnerSource: string | null;
+  /** The row's "Unmerge {loser key · source}" button — the trigger. */
   children: ReactNode;
 }) {
   const router = useRouter();
@@ -111,13 +117,13 @@ export function UnmergeDialog({
         setError(result.message);
         return;
       }
-      toast(TOAST_UNMERGED(loserName));
+      toast(TOAST_UNMERGED(loserName, loserKey));
       setOpen(false);
       router.refresh();
     });
-  }, [mergeId, loserName, router]);
+  }, [mergeId, loserName, loserKey, router]);
 
-  const title = UNMERGE_TITLE(loserName, winnerName);
+  const title = UNMERGE_TITLE(MERGE_SIDE(loserKey, loserSource), MERGE_SIDE(winnerKey, winnerSource));
   const body = UNMERGE_BODY(loserName, winnerName, loserKey, winnerKey);
   const Description = isDesk ? DialogDescription : DrawerDescription;
 

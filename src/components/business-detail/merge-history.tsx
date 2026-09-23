@@ -14,6 +14,9 @@ import {
   MERGE_REASON_AUTO,
   MERGE_REASON_REVIEW,
   MERGE_ROW,
+  MERGE_ROW_NAMES,
+  MERGE_ROW_SAME_NAME,
+  MERGE_SIDE,
   MERGE_UNDONE,
   MERGES_EMPTY_BODY,
   MERGES_EMPTY_HEADING,
@@ -26,10 +29,11 @@ import { UnmergeDialog } from './unmerge-dialog';
  * `readBusinessDetail` orders them (`merged_at desc, id desc`). This component does not
  * re-sort: the order is the query's, and a second ordering here could disagree with it.
  *
- * Each row: "{loser} merged into {winner}", then the reason ("Auto-merged at 97" /
+ * Each row: "{loser key · source} merged into {winner key · source}", then the two display
+ * names in muted Label ("Both records are named …" when survivorship left them equal), then the reason ("Auto-merged at 97" /
  * "Reviewed by danlo") and the time in America/Chicago through `formatLocal`.
  *
- * 🔴 EACH ACTIVE ROW CARRIES A NAMED TEXT ACTION, "Unmerge {loser}" — destructive OUTLINE,
+ * 🔴 EACH ACTIVE ROW CARRIES A NAMED TEXT ACTION, "Unmerge {loser key · source}" — destructive OUTLINE,
  * never icon-only. On a screen of near-identical rows the consequential choice must be the
  * unambiguous one. It opens `UnmergeDialog`, which always confirms. Unmerge is last-in-first-
  * out: if a later merge into the same winner is still active, the server refuses and the
@@ -55,6 +59,13 @@ export type MergeRow = {
   loserKey: string;
   /** The winner's lead key — the survivor keeps it (D-19). */
   winnerKey: string;
+  /**
+   * Each side's primary source as a pre-rendered SOURCE_TAG ("Comptroller", "Overture"), or
+   * null. With the key it names the side: after survivorship the two display names are often
+   * equal, and "X merged into X" told the reader nothing (03-22 screen review).
+   */
+  loserSource: string | null;
+  winnerSource: string | null;
   reason: 'auto' | 'review';
   score: number | null;
   /** Who merged, already resolved to a readable name by the route. */
@@ -117,6 +128,8 @@ export function MergeHistory({
             {merges.map((m) => {
               const reason = reasonOf(m);
               const active = m.undoneAt === null;
+              const loserSide = MERGE_SIDE(m.loserKey, m.loserSource);
+              const winnerSide = MERGE_SIDE(m.winnerKey, m.winnerSource);
               return (
                 <li
                   key={m.mergeId}
@@ -125,8 +138,13 @@ export function MergeHistory({
                   className="flex flex-col gap-2 py-4 lg:flex-row lg:items-center lg:justify-between lg:gap-6"
                 >
                   <div className="flex min-w-0 flex-col gap-1">
-                    <p className="text-base font-normal break-words">
-                      {MERGE_ROW(m.loserName, m.winnerName)}
+                    <p className="text-base font-normal break-words tabular-nums">
+                      {MERGE_ROW(loserSide, winnerSide)}
+                    </p>
+                    <p className="text-sm font-normal break-words text-muted-foreground">
+                      {m.loserName === m.winnerName
+                        ? MERGE_ROW_SAME_NAME(m.winnerName)
+                        : MERGE_ROW_NAMES(m.loserName, m.winnerName)}
                     </p>
                     <p className="text-sm font-normal text-muted-foreground">
                       {reason === null ? null : (
@@ -154,6 +172,8 @@ export function MergeHistory({
                       winnerName={m.winnerName}
                       loserKey={m.loserKey}
                       winnerKey={m.winnerKey}
+                      loserSource={m.loserSource}
+                      winnerSource={m.winnerSource}
                     >
                       <Button
                         type="button"
@@ -161,7 +181,7 @@ export function MergeHistory({
                         className="h-11 w-fit border-destructive text-destructive hover:bg-destructive-surface hover:text-destructive-surface-foreground sm:h-9"
                         data-testid={`business-unmerge-${m.mergeId}`}
                       >
-                        {UNMERGE_ACTION(m.loserName)}
+                        {UNMERGE_ACTION(loserSide)}
                       </Button>
                     </UnmergeDialog>
                   ) : null}

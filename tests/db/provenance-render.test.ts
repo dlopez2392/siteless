@@ -19,6 +19,7 @@ import { randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import { readBusinessDetail, readBusinessList } from '@/server/queries/businesses';
 import { readReviewQueue } from '@/server/queries/review-queue';
+import { decideCandidate } from '@/server/actions/_merge-decisions';
 import { actAs, actAsOwner, seedTwoOrgs } from './_fixtures';
 import { asPg, closeDrizzleTx, withTxRollback } from './_drizzle-tx';
 import {
@@ -242,5 +243,30 @@ describe('business detail provenance', () => {
       await actAsOwner(c);
       await actAs(c, CLAIMS_B);
       expect((await readBusinessDetail(tx, theirs.businessId))?.id).toBe(theirs.businessId);
+    }));
+
+  it('merge history names each side by lead key and primary source', () =>
+    withTxRollback(async (tx) => {
+      // 03-22: after survivorship the two display names are often equal, so the merge row names
+      // each side by its lead key AND its source. Both must come from the query, per side.
+      const c = asPg(tx);
+      const { a } = await seedTwoOrgs(c);
+      const pair = await seedMergePair(c, a); // the Comptroller side is older, so it wins
+      await actAs(c, CLAIMS_A);
+      const outcome = await decideCandidate(tx, { candidateId: pair.candidateId, decision: 'merged' });
+      expect(outcome.kind).toBe('recorded');
+
+      const detail = await readBusinessDetail(tx, pair.comptroller.businessId);
+      expect(detail?.merges).toHaveLength(1);
+      const m = detail!.merges[0]!;
+      expect(m.winnerId).toBe(pair.comptroller.businessId);
+      expect(m.loserId).toBe(pair.overture.businessId);
+      expect({ winnerSource: m.winnerSource, loserSource: m.loserSource }).toEqual({
+        winnerSource: 'tx_comptroller',
+        loserSource: 'overture',
+      });
+      expect(m.winnerKey).toMatch(/^SL-/);
+      expect(m.loserKey).toMatch(/^SL-/);
+      expect(m.loserKey).not.toBe(m.winnerKey);
     }));
 });

@@ -20,7 +20,7 @@ import {
 import { orgClaims } from '@/lib/auth/require-org';
 import { isUuid } from '@/lib/ids';
 import { APP_LOCALE } from '@/lib/time';
-import { BUSINESSES_TITLE, FLAG_CHAIN } from '@/lib/ui/copy';
+import { BUSINESSES_TITLE, FLAG_CHAIN, SOURCE_TAG } from '@/lib/ui/copy';
 import { getBusinessDetail, type MergeHistoryRow } from '@/server/queries/businesses';
 
 export const dynamic = 'force-dynamic';
@@ -51,6 +51,12 @@ export const dynamic = 'force-dynamic';
 
 /** Merge actors that are a Clerk user. `etl:resolve` (the desk resolve pass) is never shown:
  *  an auto merge reads "Auto-merged at {score}", which names no actor. */
+/** A `businesses.primary_source` key to its plain-text tag; an unknown or absent key names no source. */
+function sourceTagOf(key: string | null): string | null {
+  if (key === null || !Object.hasOwn(SOURCE_TAG, key)) return null;
+  return SOURCE_TAG[key as keyof typeof SOURCE_TAG];
+}
+
 function clerkUserIds(merges: MergeHistoryRow[]): string[] {
   const ids = new Set<string>();
   for (const m of merges) {
@@ -109,6 +115,8 @@ export default async function BusinessDetailPage({
     winnerName: m.winnerName,
     loserKey: m.loserKey,
     winnerKey: m.winnerKey,
+    loserSource: sourceTagOf(m.loserSource),
+    winnerSource: sourceTagOf(m.winnerSource),
     reason: m.reason,
     score: m.score,
     actor: nameOf(m.mergedBy),

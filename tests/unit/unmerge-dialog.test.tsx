@@ -71,6 +71,8 @@ const NEWER: MergeRow = {
   winnerName: 'Taquería El Ñandú',
   loserKey: 'SL-2K9QX',
   winnerKey: 'SL-7F3K2',
+  loserSource: 'Overture',
+  winnerSource: 'Comptroller',
   reason: 'review',
   score: 88,
   actor: 'danlo',
@@ -85,6 +87,8 @@ const OLDER: MergeRow = {
   winnerName: 'Taquería El Ñandú',
   loserKey: 'SL-4HHM8',
   winnerKey: 'SL-7F3K2',
+  loserSource: 'Overture',
+  winnerSource: 'Comptroller',
   reason: 'auto',
   score: 97,
   actor: 'etl:resolve',
@@ -113,11 +117,13 @@ describe('merge history', () => {
     expect(rows).toEqual([`business-merge-row-${NEWER.mergeId}`, `business-merge-row-${OLDER.mergeId}`]);
 
     const newer = within(screen.getByTestId(`business-merge-row-${NEWER.mergeId}`));
-    expect(newer.getByText('Taqueria El Nandu merged into Taquería El Ñandú')).toBeInTheDocument();
+    // Each side is named by its lead key and source first (03-22): names alone can be equal.
+    expect(newer.getByText('SL-2K9QX · Overture merged into SL-7F3K2 · Comptroller')).toBeInTheDocument();
+    expect(newer.getByText('“Taqueria El Nandu” into “Taquería El Ñandú”')).toBeInTheDocument();
     expect(newer.getByText(/Reviewed by danlo/)).toBeInTheDocument();
     const action = screen.getByTestId(`business-unmerge-${NEWER.mergeId}`);
-    expect(action).toHaveAccessibleName('Unmerge Taqueria El Nandu');
-    expect(action).toHaveTextContent('Unmerge Taqueria El Nandu');
+    expect(action).toHaveAccessibleName('Unmerge SL-2K9QX · Overture');
+    expect(action).toHaveTextContent('Unmerge SL-2K9QX · Overture');
 
     const older = within(screen.getByTestId(`business-merge-row-${OLDER.mergeId}`));
     expect(older.getByText(/Auto-merged at 97/)).toBeInTheDocument();
@@ -137,6 +143,43 @@ describe('merge history', () => {
     );
   });
 
+  it('two same-name records are told apart by lead key and source, in the row, the button and the dialog', () => {
+    // The real case from the 03-22 screen review: after survivorship the winner carries the
+    // loser's display name, so a name-only row read “X merged into X” and “Unmerge X”.
+    const SAME: MergeRow = {
+      ...NEWER,
+      mergeId: '00000000-0000-4000-8000-0000000000c3',
+      loserName: 'Nuevo León Express Taquerias',
+      winnerName: 'Nuevo León Express Taquerias',
+      loserKey: 'SL-PZWZJM',
+      winnerKey: 'SL-4TQ9RC',
+      loserSource: 'Overture',
+      winnerSource: 'Comptroller',
+    };
+    render(<MergeHistory merges={[SAME]} context={{ businessId: WINNER, businessName: SAME.winnerName }} />);
+    const row = within(screen.getByTestId(`business-merge-row-${SAME.mergeId}`));
+    expect(row.getByText('SL-PZWZJM · Overture merged into SL-4TQ9RC · Comptroller')).toBeInTheDocument();
+    expect(row.getByText('Both records are named “Nuevo León Express Taquerias”')).toBeInTheDocument();
+    expect(row.queryByText('Nuevo León Express Taquerias merged into Nuevo León Express Taquerias')).toBeNull();
+
+    const action = screen.getByTestId(`business-unmerge-${SAME.mergeId}`);
+    expect(action).toHaveAccessibleName('Unmerge SL-PZWZJM · Overture');
+    expect(action).not.toHaveAccessibleName(/SL-4TQ9RC/);
+
+    fireEvent.click(action);
+    const d = within(screen.getByTestId('business-unmerge-dialog'));
+    expect(d.getByText('Unmerge SL-PZWZJM · Overture from SL-4TQ9RC · Comptroller?')).toBeInTheDocument();
+    expect(mocked).not.toHaveBeenCalled();
+  });
+
+  it('a side with no primary source is named by its lead key alone', () => {
+    const BARE: MergeRow = { ...NEWER, loserSource: null, winnerSource: null };
+    renderHistory([BARE]);
+    const row = within(screen.getByTestId(`business-merge-row-${BARE.mergeId}`));
+    expect(row.getByText('SL-2K9QX merged into SL-7F3K2')).toBeInTheDocument();
+    expect(screen.getByTestId(`business-unmerge-${BARE.mergeId}`)).toHaveAccessibleName('Unmerge SL-2K9QX');
+  });
+
   it('no merges reads One source, no merges and offers no action', () => {
     renderHistory([]);
     const empty = screen.getByTestId('business-merges-empty');
@@ -153,7 +196,7 @@ describe('unmerge confirmation', () => {
     expect(mocked).not.toHaveBeenCalled();
 
     const d = within(dialog);
-    expect(d.getByText('Unmerge “Taqueria El Nandu” from “Taquería El Ñandú”?')).toBeInTheDocument();
+    expect(d.getByText('Unmerge SL-2K9QX · Overture from SL-7F3K2 · Comptroller?')).toBeInTheDocument();
     const body = d.getByTestId('business-unmerge-consequences');
     // All four consequences and the audit line, with both keys.
     expect(body).toHaveTextContent('becomes active again with its own lead key SL-2K9QX');
@@ -205,7 +248,7 @@ describe('unmerge confirmation', () => {
     });
 
     await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
-    expect(toast).toHaveBeenCalledWith('Unmerged — “Taqueria El Nandu” is active again');
+    expect(toast).toHaveBeenCalledWith('Unmerged — “Taqueria El Nandu” (SL-2K9QX) is active again');
     await waitFor(() => expect(screen.queryByTestId('business-unmerge-dialog')).toBeNull());
   });
 

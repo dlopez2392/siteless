@@ -306,6 +306,10 @@ export type MergeHistoryRow = {
   loserId: string;
   loserName: string;
   loserKey: string;
+  /** `businesses.primary_source` of each side (a source key, or null). With the key it tells
+   *  two same-name records apart in the merge history (03-22). */
+  winnerSource: string | null;
+  loserSource: string | null;
   reason: 'auto' | 'review';
   score: number | null;
   /** Who merged: a Clerk user id, or the desk actor (`etl:resolve`). */
@@ -576,6 +580,8 @@ export async function readBusinessDetail(tx: Tx, id: string): Promise<BusinessDe
     loser_id: string;
     loser_name: string;
     loser_key: string;
+    winner_source: string | null;
+    loser_source: string | null;
     reason: 'auto' | 'review';
     score: number | null;
     merged_by: string;
@@ -591,6 +597,8 @@ export async function readBusinessDetail(tx: Tx, id: string): Promise<BusinessDe
              m.loser_id,
              l.display_name as loser_name,
              l.external_key as loser_key,
+             w.primary_source as winner_source,
+             l.primary_source as loser_source,
              m.reason,
              m.score,
              m.merged_by,
@@ -654,6 +662,8 @@ export async function readBusinessDetail(tx: Tx, id: string): Promise<BusinessDe
       loserId: m.loser_id,
       loserName: m.loser_name,
       loserKey: m.loser_key,
+      winnerSource: m.winner_source,
+      loserSource: m.loser_source,
       reason: m.reason,
       score: m.score,
       mergedBy: m.merged_by,

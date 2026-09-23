@@ -586,6 +586,26 @@ export function MERGE_ROW(loser: string, winner: string) {
   return `${loser} merged into ${winner}`;
 }
 
+/**
+ * One side of a merge, named by what tells two records apart: its lead key and its source tag
+ * (03-22). After survivorship the winner often carries the loser's display name, so a
+ * name-only row read “X merged into X”. `source` is a pre-rendered `SOURCE_TAG` value, or null
+ * when the record has no primary source — then the key stands alone.
+ */
+export function MERGE_SIDE(key: string, source: string | null) {
+  return source ? `${key} · ${source}` : key;
+}
+
+/** The merge row's second line, when the two display names differ. */
+export function MERGE_ROW_NAMES(loser: string, winner: string) {
+  return `“${loser}” into “${winner}”`;
+}
+
+/** The merge row's second line, when survivorship left both records with one name. */
+export function MERGE_ROW_SAME_NAME(name: string) {
+  return `Both records are named “${name}”`;
+}
+
 export function MERGE_REASON_AUTO(score: number) {
   return `Auto-merged at ${score}`;
 }
@@ -595,9 +615,10 @@ export function MERGE_REASON_REVIEW(actor: string) {
 }
 
 /** Named, never icon-only: on a screen of near-identical rows the consequential choice is
- *  the unambiguous one. */
-export function UNMERGE_ACTION(loser: string) {
-  return `Unmerge ${loser}`;
+ *  the unambiguous one. `loserSide` is `MERGE_SIDE(key, source)` — a name can repeat, a key
+ *  cannot (03-22). */
+export function UNMERGE_ACTION(loserSide: string) {
+  return `Unmerge ${loserSide}`;
 }
 
 /** `date` is pre-formatted through `formatLocal`. */
@@ -607,8 +628,9 @@ export function MERGE_UNDONE(actor: string, date: string) {
 
 /* --- The unmerge confirmation (D-20 — the one destructive action in this phase) ----- */
 
-export function UNMERGE_TITLE(loser: string, winner: string) {
-  return `Unmerge “${loser}” from “${winner}”?`;
+/** Both sides as `MERGE_SIDE(key, source)`; the body below still names them in words. */
+export function UNMERGE_TITLE(loserSide: string, winnerSide: string) {
+  return `Unmerge ${loserSide} from ${winnerSide}?`;
 }
 
 /**
@@ -640,8 +662,8 @@ export function TOAST_MERGED(loser: string, winner: string) {
 
 export const TOAST_DISTINCT = 'Recorded as different';
 
-export function TOAST_UNMERGED(loser: string) {
-  return `Unmerged — “${loser}” is active again`;
+export function TOAST_UNMERGED(loser: string, loserKey: string) {
+  return `Unmerged — “${loser}” (${loserKey}) is active again`;
 }
 
 /** The fourth toast is `LEAD_KEY_COPIED(key)` above — one spelling, not two. */
