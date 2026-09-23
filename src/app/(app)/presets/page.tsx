@@ -5,7 +5,6 @@ import { PresetsEmpty } from '@/components/preset-list/presets-empty';
 import { Card } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { orgClaims } from '@/lib/auth/require-org';
-import { PHASE4_RUN_NOTICE } from '@/lib/ui/copy';
 import { listPresetCards } from '@/server/queries/preset-cards';
 
 export const dynamic = 'force-dynamic';
@@ -75,10 +74,6 @@ async function PresetListRegion() {
               <PresetCard key={preset.id} preset={preset} />
             ))}
           </div>
-
-          <p className="max-w-[60ch] text-sm font-normal text-muted-foreground">
-            {PHASE4_RUN_NOTICE}
-          </p>
 
           {/* The thumb zone (MOB-01). A full-width 48px primary button on the `--card`
               surface with a 1px top border, sitting directly above the 64px tab bar and

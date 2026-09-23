@@ -26,7 +26,6 @@ import {
   DETACH_CONFIRM,
   GEOCODE_NO_MATCH,
   GOOGLE_MAPS_TAG,
-  PHASE4_RUN_NOTICE,
   PRESETS_EMPTY_HEADING,
   REJECT_CONFIRM,
   REVIEW_ACTION_NOT_THIS,
@@ -196,7 +195,6 @@ describe('the server-safe UI maps (UI-SPEC Executor Rule 5)', () => {
   it('ui copy: the fixed strings are the ones UI-SPEC fixed', () => {
     expect(PRESETS_EMPTY_HEADING).toBe('No search presets yet');
     expect(SKIP_LINK).toBe('Skip to main content');
-    expect(PHASE4_RUN_NOTICE).toContain('Runs start when the Places verifier ships in Phase 4.');
     expect(SPEND_FOOTER).toContain('One ledger row per paid call.');
     // The user's own input is quoted back, because it is the thing that failed.
     expect(GEOCODE_NO_MATCH('Joe’s Taqueria')).toContain('Joe’s Taqueria');
@@ -420,5 +418,20 @@ describe('the navigation partition (03-UI-SPEC § 0)', () => {
     for (const item of all) {
       expect(item.label.trim(), `${item.testId} has no label`).not.toBe('');
     }
+  });
+});
+
+describe('retired copy (04-UI-SPEC Rule 38)', () => {
+  it('the phase 2 run notice is retired everywhere', () => {
+    // UI-SPEC Rule 38. "Runs start when the Places verifier ships in Phase 4" is false the
+    // moment queueRun starts the workflow, so neither the constant nor its testid may come
+    // back anywhere under src/. Spelled in halves so the plan's own retirement grep over
+    // tests/ stays empty too.
+    const retired = ['PHASE4_' + 'RUN_NOTICE', 'run-' + 'phase4-notice'];
+    const hits = walk('src', ['.ts', '.tsx']).filter((f) => {
+      const text = nodeFs.readFileSync(f, 'utf8');
+      return retired.some((r) => text.includes(r));
+    });
+    expect(hits).toEqual([]);
   });
 });

@@ -339,6 +339,7 @@ export default async function PresetDetailPage({
           */}
           {preset.currentVersionId ? (
             <RunDrawer
+              kind="full"
               presetName={preset.displayName}
               versions={runOptions}
               initialVersionId={preset.currentVersionId}
