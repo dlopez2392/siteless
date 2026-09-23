@@ -28,3 +28,9 @@ vitest.db.config.ts
 # so a local `vitest --coverage` run shipped it anyway and `next build` then type-checked
 # the coverage/*.ts files it found (Phase 2 debt, 03-CONTEXT § Deferred Ideas).
 coverage/
+
+# .claude/ holds Claude Code agent worktrees (`.claude/worktrees/agent-*`) — full checkouts
+# of this repository, .ts files included, that are untracked and not gitignored. The CLI
+# uploads the working tree, so a stale worktree left behind by a killed agent would ship a
+# second copy of `src/` for `next build` to type-check (the same class as coverage/ above).
+.claude/
