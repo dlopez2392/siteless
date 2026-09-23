@@ -28,10 +28,19 @@ import {
   PRESETS_EMPTY_HEADING,
   RUN_REFUSED,
   SKIP_LINK,
+  SOURCES_RUN_STATUS,
   SPEND_FOOTER,
   VERSION_NOTICE,
 } from '@/lib/ui/copy';
-import { RUN_LABEL, RUN_STATUSES, RUN_TONE, type RunStatus } from '@/lib/ui/run-tone';
+import {
+  INGEST_RUN_LABEL,
+  INGEST_RUN_STATUSES,
+  INGEST_RUN_TONE,
+  RUN_LABEL,
+  RUN_STATUSES,
+  RUN_TONE,
+  type RunStatus,
+} from '@/lib/ui/run-tone';
 import { LEADS_NAV, NAV_ITEMS, OPERATIONS_NAV } from '@/components/app-shell/app-sidebar';
 
 const UI_DIR = nodePath.join('src', 'lib', 'ui');
@@ -82,6 +91,48 @@ describe('the server-safe UI maps (UI-SPEC Executor Rule 5)', () => {
     const failed: RunStatus = 'failed';
     expect(RUN_TONE[refused]).toBe(RUN_TONE[failed]);
     expect(RUN_LABEL[refused]).not.toBe(RUN_LABEL[failed]);
+  });
+
+  it('ingest run tone covers every status', () => {
+    // `ingest_runs.status` is its own CHECK constraint (`ir_status_known`), not `runs.status`.
+    // A fifth value there with no tone here renders on /sources as an unstyled badge with no
+    // word in it, so the union and the constraint are compared, not trusted to agree.
+    const sql = nodeFs
+      .readdirSync(DRIZZLE_DIR)
+      .filter((f) => f.endsWith('.sql'))
+      .map((f) => nodeFs.readFileSync(nodePath.join(DRIZZLE_DIR, f), 'utf8'))
+      .join('\n');
+
+    const matches = [...sql.matchAll(/ir_status_known"?\s+CHECK\s*\(status in \(([^)]*)\)\)/gi)];
+    // Two-sided: a renamed constraint makes this regex find nothing, and an empty list would
+    // compare equal to nothing while checking nothing.
+    expect(matches.length).toBeGreaterThanOrEqual(1);
+
+    for (const match of matches) {
+      const fromSql = [...(match[1] ?? '').matchAll(/'([^']+)'/g)].map((m) => m[1]);
+      expect(fromSql).toEqual([...INGEST_RUN_STATUSES]);
+    }
+
+    expect(Object.keys(INGEST_RUN_TONE).sort()).toEqual([...INGEST_RUN_STATUSES].sort());
+    expect(Object.keys(INGEST_RUN_LABEL).sort()).toEqual([...INGEST_RUN_STATUSES].sort());
+    for (const status of INGEST_RUN_STATUSES) {
+      expect(INGEST_RUN_TONE[status], `${status} has no tone`).toBeTruthy();
+      expect(INGEST_RUN_LABEL[status], `${status} has no word`).toBeTruthy();
+    }
+
+    // 03-UI-SPEC § Copy Table fixes the three badge words; the copy module spells them too,
+    // so the two spellings are pinned to each other and to the spec.
+    expect(INGEST_RUN_LABEL.stopped).toBe('Stopped early');
+    for (const status of ['complete', 'stopped', 'failed'] as const) {
+      expect(INGEST_RUN_LABEL[status]).toBe(SOURCES_RUN_STATUS[status]);
+    }
+
+    // Extended, not forked: the ingest tones are drawn from the SAME vocabulary the Phase 2
+    // run statuses use, so a stopped ingest looks exactly like a partial run.
+    const phase2Tones = new Set(Object.values(RUN_TONE));
+    for (const tone of Object.values(INGEST_RUN_TONE)) expect(phase2Tones.has(tone)).toBe(true);
+    expect(INGEST_RUN_TONE.stopped).toBe(RUN_TONE.partial);
+    expect(INGEST_RUN_TONE.failed).toBe(RUN_TONE.failed);
   });
 
   it('ui copy: money is formatted, never concatenated', () => {

@@ -23,7 +23,7 @@
  * the zone and the locale actually reached the formatter.
  */
 import { describe, expect, it, vi } from 'vitest';
-import { APP_LOCALE, APP_TZ, formatLocal, localDate } from '@/lib/time';
+import { APP_LOCALE, APP_TZ, formatCount, formatLocal, localDate } from '@/lib/time';
 
 /** 2026-09-20 20:00 America/Chicago. [VERIFIED: executed against PostgreSQL 18] */
 const INSTANT = new Date('2026-09-21T01:00:00.000Z');
@@ -88,5 +88,21 @@ describe('timezone discipline', () => {
     // Painted value, not just the spy: 01:00Z is 8 PM in the RGV and 1 AM in UTC, so the
     // rendered hour itself discriminates even if the spy were removed.
     expect(rendered).toBe('8 PM');
+  });
+
+  it('formatCount pins the locale', () => {
+    // The /sources ledger's digits. An unpinned NumberFormat on a de-/es- environment
+    // renders "35.270" — the same count, a different string, a hydration mismatch.
+    const spy = vi.spyOn(Intl, 'NumberFormat');
+    const rendered = formatCount(35_270);
+
+    expect(spy.mock.calls.length).toBeGreaterThan(0);
+    for (const call of spy.mock.calls) expect(call[0]).toBe(APP_LOCALE);
+    spy.mockRestore();
+
+    // Painted value too: the grouping separator is the locale's, and a whole number stays
+    // whole.
+    expect(rendered).toBe('35,270');
+    expect(formatCount(0)).toBe('0');
   });
 });
