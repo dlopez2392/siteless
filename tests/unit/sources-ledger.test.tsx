@@ -134,6 +134,33 @@ describe('sources ledger', () => {
   });
 });
 
+/**
+ * C-WR-04: `ItemGroup` renders `role="list"`, but `Item` is a plain div — so the phone ledger and
+ * its skeleton announced a list of zero items (axe `aria-required-children` / `listitem`).
+ * `business-cards.tsx` already wraps each Item in a `role="listitem"` div; the ledger must too.
+ */
+function expectEveryListOwnsOnlyListItems(container: HTMLElement, expected: number) {
+  const lists = [...container.querySelectorAll<HTMLElement>('[role="list"]')];
+  expect(lists.length).toBeGreaterThan(0);
+  for (const list of lists) {
+    const children = [...list.children];
+    expect(children).toHaveLength(expected);
+    for (const child of children) expect(child).toHaveAttribute('role', 'listitem');
+  }
+}
+
+describe('sources list semantics', () => {
+  it('the phone ledger list owns one listitem per source', () => {
+    const { container } = render(<SourceLedger rows={[]} />);
+    expectEveryListOwnsOnlyListItems(container, 4);
+  });
+
+  it('the phone skeleton list owns one listitem per source', () => {
+    const { container } = render(<SourcesSkeleton />);
+    expectEveryListOwnsOnlyListItems(container, 4);
+  });
+});
+
 describe('confidence distribution', () => {
   it('confidence distribution opens to clamped bands and the cutoff line', async () => {
     render(

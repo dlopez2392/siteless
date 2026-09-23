@@ -283,8 +283,12 @@ export function SourceLedger({
           const datasetId = row.datasetId ?? source.datasetId;
           const ran = row.lastRunAt !== null;
           return (
+            // `ItemGroup` is `role="list"` and `Item` is a bare div: the role is set here or the
+            // list announces zero items (C-WR-04). The Item is not a link, so the role is safe
+            // on it directly — `business-cards.tsx` wraps instead because its Item IS a link.
             <Item
               key={source.key}
+              role="listitem"
               variant="outline"
               data-testid={`sources-card-${source.key}`}
               className="flex-col items-stretch gap-4 bg-card p-4"
