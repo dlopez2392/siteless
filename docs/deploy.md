@@ -124,6 +124,7 @@ diverged, which is the exact failure D-09 exists to prevent.
 | 2 | `0012_eager_vertigo`, `0013_reference_policies_and_grants`, `0014_brown_phantom_reporter`, `0015_budget_grants_and_triggers`, `0016_budget_meter_functions` — five | 2026-09-22, plan 02-14 |
 | 2 (fix waves) | `0017_strange_mathemanic` … `0020_yellow_ricochet` — four | 2026-09-22, with the Phase 2 merge |
 | 3 | `0021_extensions`, `0022_spine_tables`, `0023_spine_constraints_grants`, `0024_merge_functions` — four | 2026-09-23, plan 03-21 (journal 21 → 25) |
+| 3 (review fixes) | `0025_review_fixes_spine` — one (record_merge lock, DML revoke on businesses/source_records, `pg_temp` on all definers, `apply_survivorship_if_changed`, `undo_merge` new signature) | 2026-09-23, after `/gsd-code-review 3 --fix` (journal 25 → 26; second run no-op; deployed `8f05309`) |
 
 ### Phase 3 (plan 03-21): what the run taught
 
