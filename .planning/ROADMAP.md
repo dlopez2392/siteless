@@ -171,7 +171,7 @@ Plans:
 - [ ] 03-16-PLAN.md — `/review`: the candidate pair, the chip band, three actions, no optimistic advance
 - [ ] 03-17-PLAN.md — `/sources`: the four-row ledger, the composed confidence distribution, the attribution block
 - [ ] 03-18-PLAN.md — `/businesses`: search, filters, append paging
-- [ ] 03-19-PLAN.md — `/businesses/[id]`: ten fields with inline source tags, merge history, unmerge
+- [x] 03-19-PLAN.md — `/businesses/[id]`: ten fields with inline source tags, merge history, unmerge
 - [ ] 03-20-PLAN.md — The desk run: real numbers committed, the confidence cutoff and the ten verdicts confirmed (checkpoint)
 
 **Wave 7** *(blocked on Wave 6, checkpoints)*
