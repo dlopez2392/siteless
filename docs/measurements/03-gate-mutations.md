@@ -149,3 +149,110 @@ transaction, so the winner rule (older `created_at`, then smaller id) fell throu
 uuid, a ~50% flake. It was fixed by back-dating two days. It then went 6/6 green in isolation and
 green in every full run since. Left unfixed, it would have reported a random extra red under
 every DB mutation.
+
+---
+
+# Task 2: both-theme screen review on the built app
+
+**How it was shot.** `$PNPM build` at `b820e6c`, then
+`SUPABASE_DB_POOL_URL=<local siteless_test> next start -p 3122`. That is the built app, not dev
+mode, against danlo's **local** spine (91,872 businesses, 7,975 pending 80–94 pairs, 1,077
+merges). Headless Chromium through `@playwright/test` signed in with `@clerk/testing`
+(`E2E_ADMIN_EMAIL`, the sign-in-ticket path `auth.setup.ts` uses), landing on `/review` in the
+Clerk dev org. The theme was switched through the real user-menu control, never by writing the
+class. Before **every** screenshot and **every** probe: `innerHeight > 0`, `innerWidth > 0`,
+`document.visibilityState === 'visible'`, and the probed element `isVisible()`. The shots are
+viewport-sized (390×844 phone with touch, 1280×900 desk), not full-page.
+
+**Nothing was decided.** No Same / Different / Skip / Unmerge was pressed. Afterwards the
+pending count (7,975), active merges (1,077) and business count (91,872) were unchanged, and the
+last `decided_at` in the org predates the session. The server was stopped by its own PID
+(checked by port 3122 and command line).
+
+**Screens** (all in `docs/measurements/03-screens/`):
+the 16 required, `{review,sources,businesses,business-detail}-{phone,desk}-{light,dark}.png`;
+`more-sheet-phone-{light,dark}.png`; supplements `business-detail-merge-history-{phone,desk}-{light,dark}.png`
+(the merge row and the Unmerge action, below the fold) and `business-detail-closed-phone-{light,dark}.png`
+(the Closed badge); and `review-phone-light-SIMULATED-refusal.png` (see flagged item a).
+Detail target: `023341ab…` "Nuevo León Express Taquerias", a merged winner. Closed target:
+`aa84541a…` "ELITE NUTRITION STORES, LLC". The top review pair at shoot time was Subway ×
+Subway (Rio Grande City), score 94, chain-flagged on both sides.
+
+## Contrast, by computed style
+
+Each value is `getComputedStyle(el).color` composited over the effective background. The
+background is found by walking the ancestor chain and compositing every `backgroundColor`,
+with each colour normalised through a 1-px canvas so `oklab()`/alpha resolve to painted sRGB.
+The ratio is the WCAG 2 formula. Phone and desk measured **identically** in every row, so each
+row is one pair.
+
+| Element (real node) | Light: fg on bg → ratio | Dark: fg on bg → ratio | Size / weight |
+|---|---|---|---|
+| Inline source tag, review card (`Overture`) | `#5B686D` on `#FFFFFF` → **5.76:1** | `#93A1A5` on `#161E21` → **6.35:1** | 14 / 400 |
+| Field source tag, detail (`business-field-*-source`) | `#5B686D` on `#FFFFFF` → **5.76:1** | `#93A1A5` on `#161E21` → **6.35:1** | 14 / 400 |
+| Agreement chip (`secondary`, "phone exact") | `#101619` on `#E7EBEC` → **15.2:1** | `#E7EDEE` on `#1D272A` → **12.9:1** | 14 / 600 |
+| Outline badge + muted fg (the chain badge "Chain · 279 in Texas", the same treatment as a disagreement chip) | `#5B686D` on `#FFFFFF` → **5.76:1**, border `#D8DEE0` | `#93A1A5` on `#161E21` → **6.35:1**, border `#263136` | 14 / 600 |
+| Muted text on the page background, the chip band's surface (`Score 94 of 100`) | `#5B686D` on `#F4F6F7` → **5.31:1** | `#93A1A5` on `#0E1416` → **6.97:1** | 14 / 400 |
+| `/businesses` "Comptroller · Overture" text | `#5B686D` on `#F4F6F7` → **5.31:1** | `#93A1A5` on `#0E1416` → **6.97:1** | 14 / 400 |
+| `/sources` dataset id (`jrea-zgmq`) | `#5B686D` on `#FFFFFF` → **5.76:1** | `#93A1A5` on `#161E21` → **6.35:1** | 14 / 400 |
+| `/sources` attribution heading + body (muted on `--muted`) | `#5B686D` on `#E7EBEC` → **4.80:1** | `#93A1A5` on `#1D272A` → **5.73:1** | 20/600 heading, 16/400 body |
+| **Closed badge**, detail header | `#7A271A` on `#FEE4E2` → **8.16:1** | `#F97066` on `#3A1210` → **5.92:1** | **12 / 500** |
+| Lead key (accent text) | `#0F766E` on `#FFFFFF` → **5.47:1** | `#2DD4BF` on `#161E21` → **9.08:1** | 16 / 600 |
+| Unmerge action (destructive outline) | `#B42318` on `#F4F6F7` → **6.06:1** | `#F97066` on `#1A2427` → **5.68:1** | 14 / 500 |
+
+Every pair clears WCAG AA 4.5:1 in both themes. Against UI-SPEC § Theme's predictions
+(muted-fg on card 5.03 / 6.38; destructive-surface pair 7.4 / 6.2): light muted-on-card
+measures **higher** (5.76, not 5.03). Dark Closed measures **lower** than predicted (**5.92**,
+not 6.2), because its painted foreground is `#F97066`, which is still above AA.
+**No disagreement chip was on screen** (the only pair reachable without deciding scored 94 with
+every chip agreeing). The row above measures the real `outline` + `text-muted-foreground`
+badge on the same card, and the band's surface is measured by the score line. A first attempt
+to measure an injected clone of a chip was discarded: the clone painted the default foreground,
+so it was not the treatment.
+
+## The two items earlier plans flagged for this review
+
+**(a) 03-16: does a refusal alert push the phone action bar over card B?** Yes, substantially.
+Measured at 390×844, scrolled to the end of the content:
+
+| State | Bar top | Bar height | Card B (top–bottom) | Card B covered |
+|---|---|---|---|---|
+| No refusal | 643 | 137 (matches the `PHONE_BAR_CLEARANCE` arithmetic) | 376–627 | none, 16 px clear |
+| Refusal showing | 443 | **337** | 376–627 | **184 of 251 px** |
+
+The refusal state was **simulated client-side** and never triggered on real data. A DOM replica
+of the `review-error` Alert was built with the component's class string, the real
+`REVIEW_DECISION_FAILED` copy (the longest refusal), and clones of the real outline/ghost
+buttons at `h-11`. It was prepended into `review-actions` and measured at **192 px** tall; the
+page was reloaded afterwards. The fixed bar grows upward while the content clearance stays
+137 px, so for as long as the refusal shows, everything below card B's heading is under the bar
+and cannot be scrolled clear. See `review-phone-light-SIMULATED-refusal.png`. The refusal's own
+way out ("Reload the queue") is fully visible, so it is not a dead end. But card B's details are
+unreadable while it shows. **For danlo:** accept, or (for example) render the refusal above the
+pair instead of inside the fixed bar.
+
+**(b) 03-04: is the Sheet's icon-only close button under 44 px?** Yes: the More sheet's ✕
+(`data-slot="sheet-close"`, `size="icon-sm"`) measures **28 × 28 px** at (350, 640) in both
+themes. The sheet's three rows are 374 × 44 each, which is fine. The sheet also closes on overlay
+tap and Escape, and the touch-targets spec does not measure the ✕. UI-SPEC § Accessibility says
+"No icon-only actions anywhere in this phase". This button comes from the shared shadcn
+`SheetContent`, and it breaks both the 44 px floor and that rule. The tablet off-canvas in
+`top-bar.tsx` shares it.
+
+## Other things seen in the screenshots (for danlo's eye, not pre-judged)
+
+1. **Merge history reads as a no-op on a real merge.** On the detail target the row says
+   "Nuevo León Express Taquerias merged into Nuevo León Express Taquerias", and the action is
+   "Unmerge Nuevo León Express Taquerias". After survivorship both records carry the same
+   `display_name`, so the one sentence meant to make the consequential choice unambiguous
+   names the same string twice. The lead keys would disambiguate it.
+2. **The two Closed badges differ.** On the review card it is 14 px / 600 (as the type contract
+   says: Label 14). In the detail header it is the Badge default, **12 px / 500**.
+3. **The `/sources` attribution heading is muted**, not foreground, which is why the block looks
+   washed out in light (4.80:1: passes, but the lowest pair on the four screens).
+4. **The org label in the chrome reads `bis-1790038019758308742`** on every screen (phone top
+   bar and desk sidebar). That is the local `orgs.display_name` (= `name_internal`) for
+   `org_3Jf2trxDQzIC3yX4sgZki3kE3ky`, a local-DB row from 2026-09-22, not the Clerk name "BIS".
+   This is Phase 1 chrome and local data, not a Phase 3 screen.
+
+**Status: awaiting danlo's `screens approved` or named defects.**
