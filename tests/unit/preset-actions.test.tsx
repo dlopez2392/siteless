@@ -29,21 +29,29 @@ vi.mock('next/navigation', () => ({
 }));
 
 import { PlacesModeNotice } from '@/components/preset-detail/places-mode-notice';
+import { RecentRuns, type RecentRun } from '@/components/preset-detail/recent-runs';
 import { RunActions, type RunActionsProps } from '@/components/preset-detail/run-actions';
+import { SummaryCard } from '@/components/preset-detail/summary-card';
 import {
   PLACES_MODE_NOTICE_IDS_ONLY_TITLE,
   PLACES_MODE_NOTICE_OFF_TITLE,
   PRESET_COST_CHECK,
   PRESET_COST_FULL,
   PRESET_COST_PARTITION,
+  PRESET_LAST_RUN_LINK,
   PRESET_OFF_STICKY_NOTE,
   PRESET_PARTITION_EMPTY,
   PRESET_PARTITION_WEEK,
+  PRESET_RECENT_RUNS_EMPTY_BODY,
+  PRESET_RECENT_RUNS_EMPTY_BODY_OFF,
+  PRESET_RECENT_RUNS_FOOTER,
   RUN_CHECK_CHANGES,
   RUN_FULL_SWEEP,
   RUN_PARTITION,
+  STOPPED_REASON,
   type PlacesModeName,
 } from '@/lib/ui/copy';
+import { RUN_KIND_LABEL, RUN_LABEL } from '@/lib/ui/run-tone';
 import { queueRun } from '@/server/actions/queue-run';
 
 const action = vi.mocked(queueRun);
@@ -268,5 +276,168 @@ describe('preset run actions (04-UI-SPEC § Screen 2)', () => {
 
     render(<PlacesModeNotice mode="enterprise" id={NOTICE_ID} />);
     expect(screen.queryByTestId('places-mode-notice')).toBeNull();
+  });
+});
+
+/* --- Recent runs and the summary's report link (§ Screen 2, § States → Empty) --------------- */
+
+const RUN = (n: number) => `aaaaaaaa-aaaa-4aaa-8aaa-${String(n).padStart(12, '0')}`;
+
+/** Six runs, deliberately NOT in time order, so "newest first" is the component's claim. The
+ *  newest is 2026-09-23 19:14Z = 2:14 PM in Chicago (7:14 PM in UTC, the suite's zone). */
+const SIX: RecentRun[] = [
+  {
+    id: RUN(3),
+    kind: 'partition',
+    status: 'partial',
+    stoppedReason: 'budget_cap_reached',
+    costMicroUsd: 2_310_000n,
+    at: new Date('2026-09-21T15:00:00Z'),
+    version: 2,
+  },
+  {
+    id: RUN(1),
+    kind: 'full_sweep',
+    status: 'complete',
+    stoppedReason: null,
+    costMicroUsd: 0n,
+    at: new Date('2026-09-23T19:14:00Z'),
+    version: 2,
+  },
+  {
+    id: RUN(6),
+    kind: 'full_sweep',
+    status: 'failed',
+    stoppedReason: 'never_started',
+    costMicroUsd: 0n,
+    at: new Date('2026-09-10T15:00:00Z'),
+    version: 1,
+  },
+  {
+    id: RUN(2),
+    kind: 'change_check',
+    status: 'running',
+    stoppedReason: null,
+    costMicroUsd: 0n,
+    at: new Date('2026-09-22T15:00:00Z'),
+    version: 2,
+  },
+  {
+    id: RUN(5),
+    kind: 'full_sweep',
+    status: 'refused',
+    stoppedReason: 'budget_cap_reached',
+    costMicroUsd: 0n,
+    at: new Date('2026-09-15T15:00:00Z'),
+    version: 1,
+  },
+  {
+    id: RUN(4),
+    kind: 'partition',
+    status: 'complete',
+    stoppedReason: null,
+    costMicroUsd: 1_000_000n,
+    at: new Date('2026-09-20T15:00:00Z'),
+    version: 2,
+  },
+];
+
+describe('preset recent runs (04-UI-SPEC § Screen 2)', () => {
+  it('recent runs list the five newest with kind, cost and status', () => {
+    render(<RecentRuns runs={SIX} mode="enterprise" />);
+    const card = screen.getByTestId('preset-recent-runs');
+    const rows = [...card.querySelectorAll<HTMLElement>('[data-testid^="preset-run-row-"]')];
+
+    // Five, newest first; the oldest (RUN 6) is not on the preset page.
+    expect(rows.map((r) => r.dataset.testid)).toEqual(
+      [1, 2, 3, 4, 5].map((n) => `preset-run-row-${RUN(n)}`),
+    );
+
+    for (const row of rows) {
+      const id = row.dataset.testid!.replace('preset-run-row-', '');
+      expect(row.tagName).toBe('A');
+      expect(row).toHaveAttribute('href', `/runs/${id}`);
+      expect(row.className).toMatch(/\bmin-h-11\b/);
+      expect(within(row).getByTestId(`preset-run-status-${id}`)).toBeInTheDocument();
+    }
+
+    const newest = screen.getByTestId(`preset-run-row-${RUN(1)}`);
+    // Chicago time, pinned — the suite runs in UTC, where this would read 7:14 PM.
+    expect(newest).toHaveTextContent('Sep 23, 2:14 PM');
+    expect(newest).toHaveTextContent(RUN_KIND_LABEL.full_sweep);
+    expect(newest).toHaveTextContent('version 2');
+    expect(within(newest).getByTestId(`preset-run-status-${RUN(1)}`)).toHaveTextContent(
+      RUN_LABEL.complete,
+    );
+
+    const partial = screen.getByTestId(`preset-run-row-${RUN(3)}`);
+    expect(partial).toHaveTextContent('$2.31');
+    expect(partial).toHaveTextContent(STOPPED_REASON.budget_cap_reached);
+    expect(partial).toHaveTextContent(RUN_KIND_LABEL.partition);
+    // A machine key never renders (Rule 35); a refused run carries no stopped sentence.
+    expect(card).not.toHaveTextContent('budget_cap_reached');
+    expect(screen.getByTestId(`preset-run-row-${RUN(5)}`)).not.toHaveTextContent(
+      STOPPED_REASON.budget_cap_reached,
+    );
+
+    const footer = within(card).getByTestId('preset-recent-runs-spend');
+    expect(footer).toHaveAttribute('href', '/spend');
+    expect(footer).toHaveTextContent(PRESET_RECENT_RUNS_FOOTER);
+  });
+
+  it('recent runs empty state names the off mode', () => {
+    const off = render(<RecentRuns runs={[]} mode="off" />);
+    expect(screen.getByTestId('preset-recent-runs-empty')).toHaveTextContent(
+      PRESET_RECENT_RUNS_EMPTY_BODY_OFF,
+    );
+    off.unmount();
+
+    render(<RecentRuns runs={[]} mode="enterprise" />);
+    const empty = screen.getByTestId('preset-recent-runs-empty');
+    expect(empty).toHaveTextContent(PRESET_RECENT_RUNS_EMPTY_BODY);
+    expect(empty).not.toHaveTextContent(PRESET_RECENT_RUNS_EMPTY_BODY_OFF);
+  });
+
+  it("the summary links the last run's report", () => {
+    render(
+      <SummaryCard
+        version={2}
+        isCurrent
+        clusterNames={['Home services']}
+        geo={{ kind: 'cities', names: ['McAllen'] }}
+        estimate={null}
+        runCost={{ kindLabel: RUN_KIND_LABEL.full_sweep, line: PRESET_COST_FULL(0, 0, 54) }}
+        lastRun={{
+          id: RUN(1),
+          status: 'complete',
+          at: new Date('2026-09-23T19:14:00Z'),
+          costMicroUsd: 2_310_000n,
+        }}
+      />,
+    );
+    const link = screen.getByTestId('summary-last-run-link');
+    expect(link).toHaveAttribute('href', `/runs/${RUN(1)}`);
+    expect(link).toHaveTextContent(PRESET_LAST_RUN_LINK);
+    expect(screen.getByTestId('summary-last-run')).toHaveTextContent('Sep 23, 2:14 PM');
+    // The primary action's cost line sits beside the estimate, so all three are visible.
+    expect(screen.getByTestId('summary-run-cost')).toHaveTextContent(
+      `${RUN_KIND_LABEL.full_sweep} · ${PRESET_COST_FULL(0, 0, 54)}`,
+    );
+  });
+
+  it('a never-run preset has no report link', () => {
+    render(
+      <SummaryCard
+        version={1}
+        isCurrent
+        clusterNames={['Home services']}
+        geo={{ kind: 'cities', names: ['McAllen'] }}
+        estimate={null}
+        runCost={null}
+        lastRun={null}
+      />,
+    );
+    expect(screen.queryByTestId('summary-last-run-link')).toBeNull();
+    expect(screen.queryByTestId('summary-run-cost')).toBeNull();
   });
 });
