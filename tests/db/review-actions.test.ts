@@ -27,7 +27,12 @@ import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { drizzleExecutor } from '@/db/drizzle-executor';
 import type { OrgClaims } from '@/db/with-org';
-import { NOT_FOUND, REVIEW_DECISION_FAILED, UNMERGE_FAILED } from '@/lib/ui/copy';
+import {
+  NOT_FOUND,
+  REVIEW_ALREADY_DECIDED,
+  UNMERGE_ALREADY_UNDONE,
+  UNMERGE_LATER_MERGE_FIRST,
+} from '@/lib/ui/copy';
 import { pgFailure } from '@/server/actions/_pg';
 import { decideCandidate } from '@/server/actions/_merge-decisions';
 import type { Tx } from '@/server/queries/budget';
@@ -289,7 +294,7 @@ describe('review actions, as a Clerk user', () => {
       expect(second).toEqual({
         ok: false,
         code: 'conflict',
-        message: REVIEW_DECISION_FAILED,
+        message: REVIEW_ALREADY_DECIDED,
         detail: { reason: 'already_decided' },
       });
     }));
@@ -333,7 +338,7 @@ describe('review actions, as a Clerk user', () => {
       expect(await actions.unmergeBusiness({ mergeId })).toEqual({
         ok: false,
         code: 'conflict',
-        message: UNMERGE_FAILED,
+        message: UNMERGE_ALREADY_UNDONE,
         detail: { reason: 'already_undone' },
       });
     }));
@@ -363,7 +368,7 @@ describe('review actions, as a Clerk user', () => {
       expect(await actions.unmergeBusiness({ mergeId: earlier })).toEqual({
         ok: false,
         code: 'conflict',
-        message: UNMERGE_FAILED,
+        message: UNMERGE_LATER_MERGE_FIRST,
         detail: { reason: 'later_merge_first' },
       });
       // The refusal rolled back its own transaction: both merges still stand.

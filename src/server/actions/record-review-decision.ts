@@ -4,7 +4,12 @@ import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { withOrg } from '@/db/with-org';
 import { orgClaims, requireOrg } from '@/lib/auth/require-org';
-import { NOT_FOUND, REVIEW_DECISION_FAILED } from '@/lib/ui/copy';
+import {
+  NOT_FOUND,
+  REVIEW_ALREADY_DECIDED,
+  REVIEW_DECISION_FAILED,
+  REVIEW_MARKED_DISTINCT,
+} from '@/lib/ui/copy';
 
 import { decideCandidate, isSerializationFailure, MAX_ATTEMPTS } from './_merge-decisions';
 import { pgFailure } from './_pg';
@@ -35,19 +40,18 @@ import { fail, ok, type ActionResult } from './_result';
 /**
  * A caught failure → its result. The SQLSTATE is on `err.cause`; `pgFailure()` walks the chain.
  *
- * 🔴 COPY GAP, RECORDED RATHER THAN INVENTED: `src/lib/ui/copy.ts` (owned by 03-04) has no
- * sentence for "somebody decided this pair first". `REVIEW_DECISION_FAILED` is the review
- * screen's refusal copy; the `conflict` code and `detail.reason` let the screen branch (reload
- * the queue) until a dedicated string exists.
+ * Each 55000 branch carries its own sentence (`REVIEW_ALREADY_DECIDED`, `REVIEW_MARKED_DISTINCT`):
+ * `REVIEW_DECISION_FAILED` says the pair "is still pending", which is false once someone else
+ * decided it. `detail.reason` still travels so a screen can also reload the queue.
  */
 function decisionFailure<T>(error: unknown): ActionResult<T> {
   const failure = pgFailure(error);
   // 42501 from a definer: "... not in this org" — a foreign or stale id.
   if (failure?.code === '42501') return fail('not_found', NOT_FOUND('pair'));
   if (failure?.code === '55000') {
-    return fail('conflict', REVIEW_DECISION_FAILED, {
-      reason: /distinct/.test(failure.message) ? 'marked_distinct' : 'already_decided',
-    });
+    return /distinct/.test(failure.message)
+      ? fail('conflict', REVIEW_MARKED_DISTINCT, { reason: 'marked_distinct' })
+      : fail('conflict', REVIEW_ALREADY_DECIDED, { reason: 'already_decided' });
   }
   if (failure?.code === '40001') {
     return fail('conflict', REVIEW_DECISION_FAILED, { reason: 'concurrent_merge' });
@@ -78,7 +82,7 @@ export async function recordReviewDecision(
       const outcome = await withOrg(claims, (tx) => decideCandidate(tx, parsed.data));
       if (outcome.kind === 'missing') return fail('not_found', NOT_FOUND('pair'));
       if (outcome.kind === 'already_decided') {
-        return fail('conflict', REVIEW_DECISION_FAILED, { reason: 'already_decided' });
+        return fail('conflict', REVIEW_ALREADY_DECIDED, { reason: 'already_decided' });
       }
       revalidatePath('/review');
       revalidatePath('/businesses');

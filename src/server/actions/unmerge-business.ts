@@ -4,7 +4,12 @@ import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { withOrg } from '@/db/with-org';
 import { orgClaims, requireOrg } from '@/lib/auth/require-org';
-import { NOT_FOUND, UNMERGE_FAILED } from '@/lib/ui/copy';
+import {
+  NOT_FOUND,
+  UNMERGE_ALREADY_UNDONE,
+  UNMERGE_FAILED,
+  UNMERGE_LATER_MERGE_FIRST,
+} from '@/lib/ui/copy';
 
 import { isSerializationFailure, MAX_ATTEMPTS, undoMerge } from './_merge-decisions';
 import { isUniqueViolationOn, pgFailure } from './_pg';
@@ -33,19 +38,18 @@ import { fail, ok, type ActionResult } from './_result';
  * A caught failure → its result. `55000` carries two distinct refusals, told apart by the
  * definer's message: `undo the later merge first` (LIFO) and `merge already undone`.
  *
- * 🔴 COPY GAP, RECORDED RATHER THAN INVENTED: `src/lib/ui/copy.ts` (owned by 03-04) has one
- * unmerge refusal sentence, `UNMERGE_FAILED`, and it is true of every branch below except
- * "already undone" (where the records are no longer merged). The reason travels in `detail`
- * so the dialog can branch once a dedicated string exists.
+ * `UNMERGE_FAILED` ("still merged exactly as they were") is true of every branch below except
+ * the two 55000 cases, which carry their own sentences (`UNMERGE_LATER_MERGE_FIRST`,
+ * `UNMERGE_ALREADY_UNDONE`). `detail.reason` still travels for the dialog.
  */
 function unmergeFailure<T>(error: unknown): ActionResult<T> {
   const failure = pgFailure(error);
   // 42501 from the definer: "undo_merge: merge not in this org" — a foreign or stale id.
   if (failure?.code === '42501') return fail('not_found', NOT_FOUND('merge'));
   if (failure?.code === '55000') {
-    return fail('conflict', UNMERGE_FAILED, {
-      reason: /later merge/.test(failure.message) ? 'later_merge_first' : 'already_undone',
-    });
+    return /later merge/.test(failure.message)
+      ? fail('conflict', UNMERGE_LATER_MERGE_FIRST, { reason: 'later_merge_first' })
+      : fail('conflict', UNMERGE_ALREADY_UNDONE, { reason: 'already_undone' });
   }
   // The released key re-claimed by a live alias — by constraint NAME, never a bare 23505.
   if (isUniqueViolationOn(error, 'business_aliases_key_uniq')) {
@@ -76,7 +80,7 @@ export async function unmergeBusiness(
       const outcome = await withOrg(claims, (tx) => undoMerge(tx, parsed.data));
       if (outcome.kind === 'missing') return fail('not_found', NOT_FOUND('merge'));
       if (outcome.kind === 'already_undone') {
-        return fail('conflict', UNMERGE_FAILED, { reason: 'already_undone' });
+        return fail('conflict', UNMERGE_ALREADY_UNDONE, { reason: 'already_undone' });
       }
       revalidatePath('/businesses');
       revalidatePath(`/businesses/${outcome.winnerId}`);

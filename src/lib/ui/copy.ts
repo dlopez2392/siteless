@@ -710,6 +710,16 @@ export const REVIEW_DECISION_FAILED =
   "pending, so you haven't lost your place in the queue. Try again, or reload if it keeps " +
   'happening.';
 
+/** 55000 from the definer: another reviewer (or the resolve pass) decided this pair first. */
+export const REVIEW_ALREADY_DECIDED =
+  'Someone already decided this pair while it was open here. Their decision stands and ' +
+  'nothing of yours was recorded. Reload the queue for the next pair.';
+
+/** 55000 from the definer: the pair is marked distinct, so it cannot be merged from the queue. */
+export const REVIEW_MARKED_DISTINCT =
+  "This pair is already marked as two different businesses, so it can't be merged from the " +
+  'queue. Nothing was recorded. Reload the queue for the next pair.';
+
 export const REVIEW_LOAD_FAILED =
   "We couldn't load the review queue. Nothing is wrong with your decisions — every one " +
   'already recorded is safe. Try again, or check the sources ledger to see whether the ' +
@@ -719,6 +729,16 @@ export const UNMERGE_FAILED =
   "The unmerge didn't complete. The two records are still merged exactly as they were — " +
   'nothing was half-undone, and both lead keys still point where they did a moment ago. ' +
   'Try again, or check the sources ledger if an ingest is running.';
+
+/** 55000 from the definer: a later merge into this business must be undone first (LIFO). */
+export const UNMERGE_LATER_MERGE_FIRST =
+  'Another merge into this business happened after this one. Undo that later merge first, ' +
+  'then this one. Nothing was changed.';
+
+/** 55000 from the definer: the merge is already undone — the records are separate. */
+export const UNMERGE_ALREADY_UNDONE =
+  'This merge was already undone, so the two records are separate again. Nothing was ' +
+  'changed. Reload to see the current merge history.';
 
 export const SOURCES_LOAD_FAILED =
   "We couldn't read the run history. The ingests themselves are desk scripts and are " +
