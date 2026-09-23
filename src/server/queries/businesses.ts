@@ -163,6 +163,12 @@ export async function readBusinessList(
 
   // The page first, then its source records in ONE join: `source_records` has no index on
   // `business_id`, so a per-row lateral would scan it once per row.
+  //
+  // 🔴 `srcs` MUST BE `materialized`. It is referenced once, so Postgres (12+) otherwise
+  // INLINES it into the per-row `string_agg` subplan and pushes `business_id = p.id` down —
+  // recreating exactly the per-row scan the comment above exists to avoid. Measured on the
+  // local spine (91,872 businesses, 141,242 source records, as `authenticated` under RLS,
+  // 03-18): 50 rows 5.6 s → 167 ms, 500 rows 49 s → 270 ms, results byte-identical.
   const rows = rowsOf<{
     id: string;
     display_name: string;
@@ -181,7 +187,7 @@ export async function readBusinessList(
          order by b.display_name, b.id
          limit ${limit} offset ${offset}
       ),
-      srcs as (
+      srcs as materialized (
         select p.id as business_id, sr.source_key
           from page p
           join source_records sr on sr.business_id = p.id
