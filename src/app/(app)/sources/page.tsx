@@ -6,6 +6,7 @@ import { AttributionBlock } from '@/components/sources/attribution-block';
 import { ConfidenceDistribution } from '@/components/sources/confidence-distribution';
 import { SourceLedger } from '@/components/sources/source-ledger';
 import { SourcesSkeleton } from '@/components/sources/sources-skeleton';
+import { TransientCard, TransientCardSkeleton } from '@/components/sources/transient-card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import {
@@ -27,7 +28,7 @@ import {
   SOURCES_SUBTITLE,
   SOURCES_TITLE,
 } from '@/lib/ui/copy';
-import { listSources, type SourceLedgerRow } from '@/server/queries/sources';
+import { listSourcesPage, type SourcesPage } from '@/server/queries/sources';
 
 export const dynamic = 'force-dynamic';
 
@@ -37,7 +38,8 @@ export const dynamic = 'force-dynamic';
  *
  * 🔴 `requireOrg()` IS ALREADY ENFORCED by `src/app/(app)/layout.tsx` (T-3-09). This page
  * reads `orgClaims()` only to scope its one query, and opens exactly ONE `withOrg`
- * (`listSources`): the pool is `max: 1`, so a nested transaction HANGS rather than failing.
+ * (`listSourcesPage` — the ledger AND the Google Places transient figures, 04-17): the pool
+ * is `max: 1`, so a nested transaction HANGS rather than failing.
  *
  * 🔴 THE HEADING, THE SUBTITLE AND THE FOUR SOURCE NAMES PAINT BEFORE ANY DATA. Only the
  * run-derived cells suspend; the fallback renders the four static rows (Executor Rule 27).
@@ -45,7 +47,9 @@ export const dynamic = 'force-dynamic';
  * 🔴 NO PRIMARY CTA. Ingests are desk scripts (D-01); there is deliberately no in-app
  * refresh button. The screen's action is the named script in its empty and error copy.
  *
- * Hierarchy: title → subtitle → the ledger → the `gone` explainer → the attribution block.
+ * Hierarchy: title → subtitle → the ledger → the "Google Places (transient)" card (04-17, D-12)
+ * → the `gone` explainer → the attribution block. The card's title and five labels paint in
+ * the fallback (`TransientCardSkeleton`); its values stream with the ledger's.
  */
 export default function SourcesPage() {
   return (
@@ -55,7 +59,14 @@ export default function SourcesPage() {
         <p className="text-sm font-normal text-muted-foreground">{SOURCES_SUBTITLE}</p>
       </header>
 
-      <Suspense fallback={<SourcesSkeleton />}>
+      <Suspense
+        fallback={
+          <>
+            <SourcesSkeleton />
+            <TransientCardSkeleton />
+          </>
+        }
+      >
         <SourcesRegion />
       </Suspense>
 
@@ -70,18 +81,31 @@ export default function SourcesPage() {
   );
 }
 
+/** The render instant for the purge-overdue rule. A module function, not an inline call, so
+ *  the one clock read on this page is named; the page is `force-dynamic`, never cached. */
+function renderNowMs(): number {
+  return Date.now();
+}
+
 async function SourcesRegion() {
   const claims = await orgClaims();
 
-  let rows: SourceLedgerRow[];
+  let page: SourcesPage;
   try {
-    rows = await listSources(claims);
+    page = await listSourcesPage(claims);
   } catch (error) {
     // Framework control flow (redirects, dynamic-rendering bail-outs) is not a load failure.
     unstable_rethrow(error);
     console.error('sources: the run ledger failed to load', error);
-    return <SourcesLoadFailed />;
+    return (
+      <>
+        <SourcesLoadFailed />
+        <TransientCard stats={null} nowMs={renderNowMs()} />
+      </>
+    );
   }
+
+  const { rows, transient } = page;
 
   const nothingRan = rows.every((row) => row.lastRunAt === null);
   // The one `stats` key the ledger reads, on the Overture row only (03-15 handoff).
@@ -109,6 +133,9 @@ async function SourcesRegion() {
           ) : undefined
         }
       />
+      {/* Below the ledger, above the gone explainer — a separate dashed card, never a fifth
+          row (04-UI-SPEC § Screen 4, Rule 37). `transient` null = its own error state. */}
+      <TransientCard stats={transient} nowMs={renderNowMs()} />
     </>
   );
 }

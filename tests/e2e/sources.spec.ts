@@ -67,6 +67,37 @@ test.describe('sources: desk', () => {
       'page',
     );
   });
+
+  // 04-17 (D-12, criterion 2): the Google Places transient card — STATIC STRUCTURE like the
+  // ledger (Rule 27), so it renders with its five figures before any Places call. Counts are
+  // "a non-negative integer", never pinned: the day a production run first calls Places they
+  // change. 🔴 Needs drizzle/0026–0029 applied to the target (04-30); against a database
+  // without `app.places_transient_stats()` the card shows its own load failure instead.
+  test('sources: the transient card sits beside the four rows, never among them', async ({
+    page,
+  }) => {
+    await page.goto('/sources');
+    expect(await page.evaluate(() => window.innerHeight)).toBeGreaterThan(0);
+
+    const card = page.getByTestId('sources-transient');
+    await expect(card).toBeVisible();
+    await expect(page.getByTestId('sources-transient-load-failed')).toHaveCount(0);
+
+    for (const figure of ['place-ids', 'coordinates', 'purged']) {
+      await expect(card.getByTestId(`sources-transient-${figure}`)).toHaveAttribute(
+        'data-count',
+        /^\d+$/,
+      );
+    }
+    await expect(card.getByTestId('sources-transient-oldest')).toBeVisible();
+    await expect(card.getByTestId('sources-transient-last-purge')).toBeVisible();
+
+    // Rule 37: still exactly four ledger rows — the transient source is not a fifth, and none
+    // of the card's hooks is a ledger hook.
+    await expect(page.locator('[data-testid^="sources-row-"]')).toHaveCount(SOURCE_KEYS.length);
+    await expect(card.locator('[data-testid^="sources-row-"]')).toHaveCount(0);
+    await expect(card.locator('[data-testid^="sources-card-"]')).toHaveCount(0);
+  });
 });
 
 test.describe('sources: phone', () => {

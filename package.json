@@ -30,7 +30,8 @@
     "ingest:comptroller": "tsx scripts/ingest-comptroller.ts",
     "ingest:overture": "tsx scripts/ingest-overture.ts",
     "resolve": "tsx scripts/resolve.ts",
-    "rederive": "tsx scripts/rederive.ts"
+    "rederive": "tsx scripts/rederive.ts",
+    "purge:places": "tsx scripts/purge-places.ts"
   },
   "dependencies": {
     "@clerk/nextjs": "7.9.4",
