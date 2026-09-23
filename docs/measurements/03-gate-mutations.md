@@ -195,8 +195,11 @@ row is one pair.
 | Muted text on the page background, the chip band's surface (`Score 94 of 100`) | `#5B686D` on `#F4F6F7` → **5.31:1** | `#93A1A5` on `#0E1416` → **6.97:1** | 14 / 400 |
 | `/businesses` "Comptroller · Overture" text | `#5B686D` on `#F4F6F7` → **5.31:1** | `#93A1A5` on `#0E1416` → **6.97:1** | 14 / 400 |
 | `/sources` dataset id (`jrea-zgmq`) | `#5B686D` on `#FFFFFF` → **5.76:1** | `#93A1A5` on `#161E21` → **6.35:1** | 14 / 400 |
-| `/sources` attribution heading + body (muted on `--muted`) | `#5B686D` on `#E7EBEC` → **4.80:1** | `#93A1A5` on `#1D272A` → **5.73:1** | 20/600 heading, 16/400 body |
-| **Closed badge**, detail header | `#7A271A` on `#FEE4E2` → **8.16:1** | `#F97066` on `#3A1210` → **5.92:1** | **12 / 500** |
+| `/sources` attribution heading + body (muted on `--muted`), **as first shot** | `#5B686D` on `#E7EBEC` → **4.80:1** | `#93A1A5` on `#1D272A` → **5.73:1** | 20/600 heading, 16/400 body |
+| `/sources` attribution **heading after fix 4** (foreground on `--muted`) | `#101619` on `#E7EBEC` → **15.2:1** | `#E7EDEE` on `#1D272A` → **12.9:1** | 20 / 600 |
+| `/sources` attribution body after fix 4 (unchanged, muted) | `#5B686D` on `#E7EBEC` → **4.80:1** | `#93A1A5` on `#1D272A` → **5.73:1** | 16 / 400 |
+| **Closed badge**, detail header, as first shot | `#7A271A` on `#FEE4E2` → **8.16:1** | `#F97066` on `#3A1210` → **5.92:1** | **12 / 500** |
+| **Closed badge after fix 4** (shared `ClosedBadge`, detail header) | `#7A271A` on `#FEE4E2` → **8.16:1** | `#F97066` on `#3A1210` → **5.92:1** | **14 / 600** |
 | Lead key (accent text) | `#0F766E` on `#FFFFFF` → **5.47:1** | `#2DD4BF` on `#161E21` → **9.08:1** | 16 / 600 |
 | Unmerge action (destructive outline) | `#B42318` on `#F4F6F7` → **6.06:1** | `#F97066` on `#1A2427` → **5.68:1** | 14 / 500 |
 
@@ -255,4 +258,56 @@ tap and Escape, and the touch-targets spec does not measure the ✕. UI-SPEC § 
    `org_3Jf2trxDQzIC3yX4sgZki3kE3ky`, a local-DB row from 2026-09-22, not the Clerk name "BIS".
    This is Phase 1 chrome and local data, not a Phase 3 screen.
 
-**Status: awaiting danlo's `screens approved` or named defects.**
+## danlo's answer: screens approved 2026-09-23 with four fixes applied
+
+danlo's reply, relayed by the orchestrator on 2026-09-23: **approve the screens, and fix all four
+of these before the phase closes.** Each fix has its own commit. Where the change was testable,
+its test was watched red first. The gates on the combined tree (`3c89af4`) passed: typecheck
+exit 0, lint exit 0, unit **298/298**, db **194/194**, build exit 0.
+
+| # | Defect | Fix | Commit | Watched red → green |
+|---|---|---|---|---|
+| 1 | A refusal Alert grew the fixed phone bar to 337 px, and 184 of card B's 251 px sat under it, out of scroll reach | `ThumbBar` (`src/components/review/thumb-bar.tsx`, client) measures the bar with a ResizeObserver and mirrors its height into an in-flow spacer. The guessed 137 px constant is now only the first-paint value. Rule 20 is untouched: `review-actions.test.tsx` stays 6/6 | `bd83587` | `tests/unit/thumb-bar.test.tsx` 3/3 red against a constant-spacer version (`expected null to be <div data-slot="card">`), then 3/3 green |
+| 2 | The shared Sheet's icon-only ✕ was 28×28 | `size-11` (44×44) in the **shared** `SheetContent`, `data-testid="sheet-close"`, sr-only name from `copy.ts` `SHEET_CLOSE_LABEL` ('Close'). The tablet nav title got `pr-14` so the larger button never covers it | `f274413` | `touch-targets.spec.ts`: the phone test now measures `sheet-close` in the More sheet, and a new tablet test (800×1024) measures it in the off-canvas nav. Both use exactly-one-visible plus the accessible name. On the built app at :3122: **red at `Received: 28`** (both), then 4/4 green |
+| 3 | The merge history read "Nuevo León Express Taquerias merged into Nuevo León Express Taquerias" | Each side is named `MERGE_SIDE(key, source)`: "SL-CW2K9F · Overture merged into SL-PZWZJM · Comptroller". A names line follows ("Both records are named “…”" when equal, otherwise "“a” into “b”"). The button ("Unmerge SL-CW2K9F · Overture"), the dialog title and the toast name the loser by key. `readBusinessDetail` returns each side's `primary_source`, and the route maps it through `SOURCE_TAG`. The new strings are in `copy.ts` | `7b00b72` | unit: `two same-name records are told apart by lead key and source, in the row, the button and the dialog` + 4 updated assertions, **5 red**, then 12/12. db: `merge history names each side by lead key and primary source`, **red with only the query reverted** (`winnerSource: undefined`), then 4/4 |
+| 4 | The detail-header Closed badge was 12/500; the attribution heading was muted | One shared `ClosedBadge` (`src/components/flags/closed-badge.tsx`, 14/600) replaces three copies (review card, `/businesses` list, detail header). The attribution heading is `text-foreground` | `3c89af4` | `closed-badge.test.tsx`: one class list at all three sites, **red** (the detail header lacked `text-sm`), then green. `sources-ledger.test.tsx` pins the heading class, **red** then green. **Painted values** (contrast table above): Closed 14px / 600, heading 15.2:1 light / 12.9:1 dark |
+
+**Fix 1, proven on the built app** (the simulated refusal, phone light, `innerHeight` 844 and
+the page `visible` asserted first). With the alert showing, the bar measured 337 px and the
+spacer 337 px. At rest both measured 137 px, so at rest the measured spacer equals the old
+constant: `review-phone-{light,dark}.png` re-shot **byte-identical** to the originals. After
+scrolling to the end, card B's bottom is at **427** and the bar's top at **443**: 16 px clear,
+the same clearance as with no refusal. The script asserts `cardBBottom <= barTop` and throws
+otherwise. Before the fix the same measurement had card B 184 px under the bar.
+
+**Fix 2, measured:** `sheet-close` is 44 × 44 at (338, 636), exactly one visible, named "Close",
+in both themes.
+
+**Fix 3, as rendered on the real merge:** "SL-CW2K9F · Overture merged into SL-PZWZJM ·
+Comptroller / Both records are named “Nuevo León Express Taquerias” / Auto-merged at 95 · Sep 22,
+2026, 11:09 PM / Unmerge SL-CW2K9F · Overture", identical at phone and desk in both themes.
+
+**After-shots** (the same build `3c89af4`, served on :3122 with the local-DB override, signed in
+through `@clerk/testing`, nothing pressed on real data). Afterwards local data was unchanged
+(7,975 pending, 1,077 merges, 91,872 businesses, last `decided_at` before the session), and the
+server was stopped by its own PID:
+
+- `review-phone-light-SIMULATED-refusal.png` and **`review-phone-light-SIMULATED-refusal-scrolled.png`** (new)
+- `review-phone-{light,dark}.png` (re-shot, byte-identical)
+- `more-sheet-phone-{light,dark}.png`
+- `business-detail-merge-history-{phone,desk}-{light,dark}.png`
+- `business-detail-closed-phone-{light,dark}.png`
+- `sources-desk-{light,dark}.png`
+
+The other screenshots are unchanged: no fix touches what they show.
+
+**Not run: `$PNPM test:e2e` against the deployed URL.** This plan may not touch production, and
+the e2e suite writes presets there. Nothing is pushed, so the deployed app lacks these fixes, and
+the new `sheet-close` assertions will fail against it until this branch deploys.
+`touch-targets.spec.ts` ran green against the local build of this tree. The full e2e run belongs
+to CI on the PR.
+
+**Still open from the observations above:** item 4 (the org label) is local data and Phase 1
+chrome, and is logged in `deferred-items.md`. The detail header's "{name} merged into {name}"
+line on a **loser's** page has the same ambiguity fix 3 closed in the history; it is logged
+there too.
