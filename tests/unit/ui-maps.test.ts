@@ -32,6 +32,7 @@ import {
   VERSION_NOTICE,
 } from '@/lib/ui/copy';
 import { RUN_LABEL, RUN_STATUSES, RUN_TONE, type RunStatus } from '@/lib/ui/run-tone';
+import { LEADS_NAV, NAV_ITEMS, OPERATIONS_NAV } from '@/components/app-shell/app-sidebar';
 
 const UI_DIR = nodePath.join('src', 'lib', 'ui');
 const DRIZZLE_DIR = 'drizzle';
@@ -138,5 +139,39 @@ describe('the server-safe UI maps (UI-SPEC Executor Rule 5)', () => {
     expect(VERSION_NOTICE(7)).toContain('keep pointing at version 6');
     // "keep pointing at version 0" would be a sentence about a row that does not exist.
     expect(() => VERSION_NOTICE(1)).toThrow(/no\s+predecessor/);
+  });
+});
+
+describe('the navigation partition (03-UI-SPEC § 0)', () => {
+  it('nav groups hold six destinations', () => {
+    // One partition used at both breakpoints: Leads are the three phone tabs and the first
+    // desk group; Operations sit behind the More tab and in the second desk group. Three
+    // tabs plus More is the most a 390px bar holds with every label still real text.
+    expect(LEADS_NAV).toHaveLength(3);
+    expect(OPERATIONS_NAV).toHaveLength(3);
+
+    // The testids, IN ORDER. They are the e2e contract — touch-targets.spec.ts measures
+    // every one — and nav-presets / nav-spend / nav-settings keep their Phase 2 names.
+    expect(LEADS_NAV.map((i) => i.testId)).toEqual(['nav-presets', 'nav-review', 'nav-businesses']);
+    expect(OPERATIONS_NAV.map((i) => i.testId)).toEqual([
+      'nav-sources',
+      'nav-spend',
+      'nav-settings',
+    ]);
+    expect(NAV_ITEMS.map((i) => i.testId)).toEqual([
+      ...LEADS_NAV.map((i) => i.testId),
+      ...OPERATIONS_NAV.map((i) => i.testId),
+    ]);
+
+    // building-2 is the org glyph in the sidebar header. Reusing it for a destination puts
+    // two meanings on one glyph in one sidebar.
+    const all = [...LEADS_NAV, ...OPERATIONS_NAV];
+    expect(all.map((i) => i.iconName)).not.toContain('building-2');
+
+    // Every row has a real label — the label is the accessible-name fallback, never an
+    // icon standing alone.
+    for (const item of all) {
+      expect(item.label.trim(), `${item.testId} has no label`).not.toBe('');
+    }
   });
 });
