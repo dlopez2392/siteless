@@ -1,7 +1,8 @@
 /**
  * The Census Geocoder, replayed from the four recorded payloads in `./fixtures/` — and,
  * since plan 03-03, the Texas Comptroller's Socrata datasets (see the Socrata section
- * below and the fixtures README).
+ * below and the fixtures README), and since plan 03-07 the Census BATCH endpoint (five
+ * recorded `text/plain` bodies; see the batch section below).
  *
  * 🔴 CI MUST NEVER REACH THE NETWORK. `onUnhandledRequest` is set to `'error'` inside
  * `startCensusServer()` rather than at each call site precisely so no test can weaken it
@@ -21,6 +22,8 @@
  * verbatim 200 bodies. Replaying one as the other is the mistake the fixtures' README
  * warns about, so this module asserts the shape at load rather than trusting it.
  */
+import { readFileSync } from 'node:fs';
+
 import { http, HttpResponse, type JsonBodyType } from 'msw';
 import { setupServer } from 'msw/node';
 
@@ -81,10 +84,13 @@ export function respondNextWithJson(body: JsonBodyType): void {
   oneShot = { kind: 'json', body };
 }
 
-/** Clear the request log and any pending one-shot. Call in `afterEach`. */
+/** Clear the request log and any pending one-shot — the one-line endpoint's AND the batch
+ *  endpoint's (see the batch section below), so a file that only knows `resetCensus` still
+ *  cannot leak an armed batch failure into the next test. Call in `afterEach`. */
 export function resetCensus(): void {
   censusRequests.length = 0;
   oneShot = null;
+  resetCensusBatch();
 }
 
 export const censusHandler = http.get(CENSUS_ENDPOINT, ({ request }) => {
@@ -103,6 +109,217 @@ export const censusHandler = http.get(CENSUS_ENDPOINT, ({ request }) => {
   // An unrecorded address falls through to the empty-match payload, which is exactly what
   // the live service does for anything it cannot resolve.
   return HttpResponse.json(BY_ADDRESS.get(address) ?? noMatch);
+});
+
+// ─── Census BATCH geocoder (plan 03-07) ─────────────────────────────────────────────────
+//
+// Five verbatim `text/plain` bodies recorded from `locations/addressbatch` on 2026-09-22
+// (provenance in the fixtures README). They are read as TEXT, not imported, because they
+// are CSV and must reach the parser byte-for-byte.
+//
+// 🔴 DISPATCH IS BY THE INPUT CSV READ OUT OF THE REQUEST BODY, matched against what each
+// fixture ECHOES. Every response line starts with the request's own ID and its input
+// address echoed as `street, city, state, zip` — the batch analogue of the one-line
+// payload echoing `result.input.address`. So each fixture carries its own request, and the
+// handler serves the fixture whose (id, echoed address) set equals the request's exactly.
+// Nothing below restates an address. A request that matches no recording gets a 501 naming
+// the mismatch — never a best-effort body, which would make a wrong CSV look right.
+
+export const CENSUS_BATCH_PATHNAME = '/geocoder/locations/addressbatch';
+export const CENSUS_BATCH_ENDPOINT = `${CENSUS_ORIGIN}${CENSUS_BATCH_PATHNAME}`;
+
+export const CENSUS_BATCH_FIXTURES = ['match', 'non_exact', 'tie', 'no_match', 'shuffled'] as const;
+export type CensusBatchFixture = (typeof CENSUS_BATCH_FIXTURES)[number];
+
+/** The recorded bodies, verbatim. Tests read lines out of these; the handler serves them. */
+export const CENSUS_BATCH_BODY = Object.fromEntries(
+  CENSUS_BATCH_FIXTURES.map((name) => [
+    name,
+    readFileSync(new URL(`./fixtures/census-batch-${name}.txt`, import.meta.url), 'utf8'),
+  ]),
+) as Record<CensusBatchFixture, string>;
+
+/**
+ * A deliberately small quoted-CSV splitter, kept separate from the parser under test: a
+ * harness that parsed with the code it is testing would agree with that code's bugs.
+ * Returns `null` on an unbalanced quote.
+ */
+function splitQuotedCsv(line: string): string[] | null {
+  const fields: string[] = [];
+  let field = '';
+  let quoted = false;
+  for (let i = 0; i < line.length; i += 1) {
+    const ch = line[i];
+    if (quoted) {
+      if (ch === '"' && line[i + 1] === '"') {
+        field += '"';
+        i += 1;
+      } else if (ch === '"') {
+        quoted = false;
+      } else {
+        field += ch;
+      }
+    } else if (ch === '"') {
+      quoted = true;
+    } else if (ch === ',') {
+      fields.push(field);
+      field = '';
+    } else {
+      field += ch;
+    }
+  }
+  if (quoted) return null;
+  fields.push(field);
+  return fields;
+}
+
+function nonEmptyLines(text: string): string[] {
+  return text.split(/\r?\n/).filter((line) => line.length > 0);
+}
+
+export type RecordedBatchRow = {
+  id: string;
+  street: string;
+  city: string;
+  state: string;
+  zip: string;
+};
+
+/**
+ * The rows each fixture was recorded against, read back out of the fixture's own echo, in
+ * ID order (the order they were submitted in — the response is not). The echo is
+ * `street, city, state, zip`; it is split from the RIGHT so a street carrying a comma would
+ * still survive. A test that typed these rows by hand could drift from the body it expects.
+ */
+function recordedRows(name: CensusBatchFixture): RecordedBatchRow[] {
+  const rows = nonEmptyLines(CENSUS_BATCH_BODY[name]).map((line) => {
+    const fields = splitQuotedCsv(line);
+    const id = fields?.[0];
+    const echo = fields?.[1];
+    const parts = echo?.split(', ');
+    if (!id || !parts || parts.length < 4) {
+      throw new Error(
+        `tests/unit/msw/server.ts: census-batch-${name}.txt has an unreadable line: ${line}`,
+      );
+    }
+    const zip = parts.pop() as string;
+    const state = parts.pop() as string;
+    const city = parts.pop() as string;
+    return { id, street: parts.join(', '), city, state, zip };
+  });
+  return rows.sort((a, b) => a.id.localeCompare(b.id, 'en', { numeric: true }));
+}
+
+export const RECORDED_BATCH_ROWS = Object.fromEntries(
+  CENSUS_BATCH_FIXTURES.map((name) => [name, recordedRows(name)]),
+) as Record<CensusBatchFixture, RecordedBatchRow[]>;
+
+function signatureOf(rows: ReadonlyArray<{ id: string; echo: string }>): string {
+  const sorted = [...rows].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  return JSON.stringify(sorted.map((r) => [r.id, r.echo]));
+}
+
+const BATCH_BY_SIGNATURE = new Map<string, CensusBatchFixture>();
+for (const name of CENSUS_BATCH_FIXTURES) {
+  const body = CENSUS_BATCH_BODY[name];
+  // Load-time checks: pure text, one line per submitted row, every ID distinct. A fixture
+  // re-saved through an editor that added a BOM, CRLFs or a NUL fails here, not in a test.
+  // (`.gitattributes` marks these files `-text` so an autocrlf checkout cannot add the CRs.)
+  if (
+    body.includes('\u0000') ||
+    body.includes('\r') ||
+    body.charCodeAt(0) === 0xfeff ||
+    !body.endsWith('\n')
+  ) {
+    throw new Error(
+      `tests/unit/msw/server.ts: census-batch-${name}.txt is not the verbatim LF-terminated body`,
+    );
+  }
+  const rows = RECORDED_BATCH_ROWS[name];
+  if (new Set(rows.map((r) => r.id)).size !== nonEmptyLines(body).length) {
+    throw new Error(`tests/unit/msw/server.ts: census-batch-${name}.txt repeats an ID`);
+  }
+  const signature = signatureOf(
+    rows.map((r) => ({ id: r.id, echo: `${r.street}, ${r.city}, ${r.state}, ${r.zip}` })),
+  );
+  BATCH_BY_SIGNATURE.set(signature, name);
+}
+
+/** Every batch request the handler saw: where it went, the form fields, and the CSV. */
+export const censusBatchRequests: Array<{
+  url: URL;
+  benchmark: string | null;
+  vintage: string | null;
+  csv: string;
+}> = [];
+
+type BatchFailure = 'network' | 'status_500' | 'truncated';
+let batchFailures: { kind: BatchFailure; remaining: number } | null = null;
+
+/**
+ * Make the NEXT `count` batch requests fail, then serve normally again. `'network'` is a
+ * transport error (the fetch rejects), `'status_500'` a non-200, and `'truncated'` a 200
+ * whose body has lost its last line — the service's own failure mode, since it answers 200
+ * for everything. Cleared by `resetCensusBatch()` / `resetCensus()` in `afterEach`, so an
+ * armed failure can never leak into the next test.
+ */
+export function failNextCensusBatches(count: number, kind: BatchFailure = 'network'): void {
+  batchFailures = { kind, remaining: count };
+}
+
+export function resetCensusBatch(): void {
+  censusBatchRequests.length = 0;
+  batchFailures = null;
+}
+
+export const censusBatchHandler = http.post(CENSUS_BATCH_ENDPOINT, async ({ request }) => {
+  const url = new URL(request.url);
+  const form = await request.formData();
+  const file = form.get('addressFile');
+  const csv = typeof file === 'string' ? file : file ? await file.text() : '';
+  const benchmark = form.get('benchmark');
+  const vintage = form.get('vintage');
+  censusBatchRequests.push({
+    url,
+    benchmark: typeof benchmark === 'string' ? benchmark : null,
+    vintage: typeof vintage === 'string' ? vintage : null,
+    csv,
+  });
+
+  if (benchmark !== 'Public_AR_Current' || vintage !== null) {
+    return new HttpResponse(
+      `msw: unrecorded batch form: benchmark=${String(benchmark)} vintage=${String(vintage)}`,
+      { status: 501 },
+    );
+  }
+
+  const requested: Array<{ id: string; echo: string }> = [];
+  for (const line of nonEmptyLines(csv)) {
+    const f = splitQuotedCsv(line);
+    if (!f || f.length !== 5) {
+      return new HttpResponse(`msw: batch CSV line is not 5 fields: ${line}`, { status: 501 });
+    }
+    const [id, street, city, state, zip] = f as [string, string, string, string, string];
+    requested.push({ id, echo: `${street}, ${city}, ${state}, ${zip}` });
+  }
+  const name = BATCH_BY_SIGNATURE.get(signatureOf(requested));
+  if (!name) {
+    return new HttpResponse(
+      `msw: no batch recording for these ${requested.length} rows (first: ${JSON.stringify(requested[0])})`,
+      { status: 501 },
+    );
+  }
+  const body = CENSUS_BATCH_BODY[name];
+
+  if (batchFailures && batchFailures.remaining > 0) {
+    batchFailures.remaining -= 1;
+    const { kind } = batchFailures;
+    if (kind === 'network') return HttpResponse.error();
+    if (kind === 'status_500') return new HttpResponse('', { status: 500 });
+    const lines = nonEmptyLines(body);
+    return HttpResponse.text(`${lines.slice(0, -1).join('\n')}\n`);
+  }
+  return HttpResponse.text(body);
 });
 
 // ─── Socrata (data.texas.gov) ────────────────────────────────────────────────────────────
@@ -241,7 +458,12 @@ export const socrataViewsHandler = http.get(`${SOCRATA_ORIGIN}/api/views/:file`,
   return HttpResponse.json({ rowsUpdatedAt: entry.recording.rowsUpdatedAt });
 });
 
-export const server = setupServer(censusHandler, socrataResourceHandler, socrataViewsHandler);
+export const server = setupServer(
+  censusHandler,
+  censusBatchHandler,
+  socrataResourceHandler,
+  socrataViewsHandler,
+);
 
 /**
  * Start the replay server — Census and Socrata both. 🔴 The `onUnhandledRequest` setting
