@@ -605,7 +605,9 @@ No `sub` (attribution falls to `app.actor_id`, like `etl:<script>`); no `org_rol
 | A9 | Daily-quota vs per-minute 429 are distinguishable from `error.details` | Pitfall 3 | Fallback is "stop" — safe, may stop a run that could have waited a minute |
 | A10 | The Vercel project uses Fluid compute (recommended for Workflows) | Environment | Higher cost/cold starts only; check at the D-03 checkpoint |
 
-## Open Questions
+## Open Questions (RESOLVED)
+
+All six were settled on 2026-09-23 after this research: (1) by **D-19**, which stops the run as `partial` / `google_daily_quota` now and decides between raising the quota and multi-day runs on D-04's numbers; (2) by **D-18**, the type-aware estimate (plan 04-04); (3) by **D-21**, which keeps rating and review count in the mask, in memory only, and adds a review-volume bucket to the D-01 enumeration (plan 04-29); (4) by plan 04-07's UI-SPEC Amendment 1; (5) by **D-20**, anonymized fixtures only; (6) by plan 04-09's grant-less coordinates side table.
 
 1. **The 100/day quota vs any real sweep.** An RGV partition is ~250–1,000 requests; it will stop `google_daily_quota` at ~100. Options: (a) raise the quota after D-04 (runbook anticipates it); (b) multi-day runs (the workflow `sleep()`s to 00:05 US/Pacific — free, but a `running` run for days needs UI copy); (c) accept `partial` and re-run. Recommendation: implement the stop reason now, keep 100 for D-04, decide (a)/(b) on D-04's numbers. Needs danlo.
 2. **Type-aware estimate (Pitfall 2).** Changes displayed Phase 2 numbers and makes the full RGV sweep refuse at admission. Recommendation: do it (otherwise D-15 stops every run); surface the new numbers to danlo in the plan.

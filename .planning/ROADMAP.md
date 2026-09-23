@@ -186,14 +186,75 @@ Plans:
 ### Phase 4: Places Transient Verifier
 **Goal**: Google Places answers "does this business have a website URI?" as an authoritative, billed, transient verifier whose response is almost entirely discarded.
 **Depends on**: Phase 2 (budget cap must exist before the first billable call) and Phase 3 (durable record must exist before a `place_id` can attach to anything)
-**Requirements**: PLACE-01, PLACE-02, PLACE-03, PLACE-04, PLACE-05, PLACE-06
+**Requirements**: PLACE-01, PLACE-02, PLACE-03, PLACE-04, PLACE-05, PLACE-06, BUDG-03 (carried from Phase 2)
 **Success Criteria** (what must be TRUE):
   1. A Text Search runs against a hard-coded field-mask allow-list; `fieldMaskTier()` refuses an unknown field, and Place Details is unreachable per candidate.
   2. After a run, the only Places-derived data on disk is `place_id`, lat/lng younger than 30 days, and a derived `had_website_uri` boolean — the TTL purge is observable — and wherever a Places-derived signal is displayed, Google attribution is displayed with it.
   3. A search that saturates the 60-result ceiling is detected, its tile subdivided, and the run reports truncation rather than returning a silent partial.
   4. Pure service-area businesses (trades with no storefront) appear in results, and Enterprise sweeps run over rotating weekly partitions of the (cluster × city × type) cell list while change detection uses the free IDs-Only SKU.
   5. Every outbound Places call is reserved against the budget before it leaves and lands in the ledger with its SKU; with the cap reached, the run stops instead of calling.
-**Plans:** TBD
+**Plans:** 33 plans across 13 waves
+
+Plans:
+**Wave 1**
+- [ ] 04-01-PLAN.md — Workflow DevKit toolchain: pinned install, withWorkflow, proxy exclusion, the workflow test lane, CI step
+- [ ] 04-02-PLAN.md — PLACES_MODE / CRON_SECRET in env.ts (kill switch, default off) and the shared excluding source walker
+- [ ] 04-03-PLAN.md — Pure host-class classifier, FNV-1a weekly partitions, change-detection diff
+- [ ] 04-04-PLAN.md — Table A type snapshot (general_contractor removed) and the type-aware estimate + RUN_CEILING_MULTIPLIER (D-18)
+- [ ] 04-05-PLAN.md — Quadtree tiling (saturation at exactly 60, three floors, polygon pruning), geo-shape seed, the pure queue reducer
+- [ ] 04-06-PLAN.md — In-memory matcher (≥95 / 80–94 / ties / SAB branch) and the one-statement candidate query
+- [ ] 04-08-PLAN.md — GoogleMapsTag with Google's painted colours and the no-map guard
+- [ ] 04-09-PLAN.md — Schema 0026–0027: eight tables, append-only observations, grant-less coordinates, signal view, cron role; PLACE-02 amended
+- [ ] 04-10-PLAN.md — msw Places harness (RegExp path, 501 discipline, mask-aware) and synthetic fixtures
+
+**Wave 2** *(blocked on Wave 1)*
+- [ ] 04-07-PLAN.md — Every Phase 4 string, stopped-reason and run-kind maps, Places formatters; copy gaps settled as a UI-SPEC amendment
+- [ ] 04-11-PLAN.md — 0028: release_reservation, run-search progress, the siteless_cron purge, transient stats; withCronRole
+- [ ] 04-12-PLAN.md — The one builder, zod response, ReservedCall brand, the one sanctioned client; guards moved onto it
+- [ ] 04-13-PLAN.md — Run planning: one pure function for full sweep / this week's partition / change check
+
+**Wave 3** *(blocked on Wave 2)*
+- [ ] 04-14-PLAN.md — Shared run chrome: RunStatusBadge, RunAutoRefresh, /spend stopped-reason fix and run links, nav
+- [ ] 04-15-PLAN.md — 0029: page-record contract, numeric-only features CHECK, record_places_page / record_change_check / decide_place_attachment
+- [ ] 04-16-PLAN.md — The per-page meter (reserve + ceiling in one txn, per-attempt settlement) and withWorkerOrg
+- [ ] 04-17-PLAN.md — Daily cron purge route, desk purge, /sources transient card, Places runbook
+
+**Wave 4** *(blocked on Wave 3)*
+- [ ] 04-18-PLAN.md — The Enterprise tile search body, proven against msw and the real writer
+- [ ] 04-19-PLAN.md — The IDs-only change-check body and the D-20 anonymizing fixture recorder
+- [ ] 04-20-PLAN.md — Run report query, tested against the writer's real rows
+- [ ] 04-21-PLAN.md — Listing decision / detach actions, the review queue's Google kind, the business Google check read
+
+**Wave 5** *(blocked on Wave 4)*
+- [ ] 04-22-PLAN.md — placesSweep workflow and its steps, with the workflow-lane proofs
+- [ ] 04-23-PLAN.md — /runs/[id] run report
+- [ ] 04-24-PLAN.md — /review Google listing kind, filter and reject confirmation
+- [ ] 04-25-PLAN.md — Business detail Google Maps check and detach confirmation
+
+**Wave 6** *(blocked on Wave 5)*
+- [ ] 04-26-PLAN.md — queueRun starts the workflow (mode refusal, kinds, ceiling, one active run); notice retired; e2e can never start a run
+
+**Wave 7** *(blocked on Wave 6)*
+- [ ] 04-27-PLAN.md — Preset detail: three ways to run, the Places-mode notice, recent runs
+
+**Wave 8** *(blocked on Wave 7)*
+- [ ] 04-28-PLAN.md — Attribution registry, local run-report e2e with computed tag styles, budget-banner guard, full phase gate
+
+**Wave 9** *(checkpoint)*
+- [ ] 04-29-PLAN.md — D-01 legal gate recorded against the schema-generated persistence list
+
+**Wave 10** *(checkpoint)*
+- [ ] 04-30-PLAN.md — Production migration 0026–0029 and deploy with Places off
+
+**Wave 11** *(checkpoint)*
+- [ ] 04-31-PLAN.md — D-03 Google Cloud setup, one metered IDs-only key check, BUDG-03 closed
+
+**Wave 12** *(checkpoint)*
+- [ ] 04-32-PLAN.md — D-04 first real run (one city × one cluster) and anonymized fixture recording
+
+**Wave 13** *(checkpoint)*
+- [ ] 04-33-PLAN.md — Gate mutations M26–M53, both-theme screenshot review, close 04-VALIDATION
+**UI hint**: yes
 **Security**: /gsd-secure-phase applies — external paid API, key handling, retention/TTL enforcement, spend gating.
 **Research flag**: light — ToS and pricing are settled by research; tile-saturation tuning against real RGV density is empirical. The §3.2.3(d)(iii) legal read belongs before this phase's first production call; the adapter sits behind an interface so a "no" is a config change.
 
