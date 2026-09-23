@@ -212,8 +212,11 @@ describe('review decision core, as a Clerk user', () => {
       const other = await seedMergePair(c, a, 'OTHERPAIR');
       // The Overture side is made the OLDER record, so it wins (mergePair: older created_at)
       // and the two names differ after survivorship — a swapped winner/loser cannot pass.
+      // Two days, not one: seedComptrollerSide already back-dates the Comptroller side by one
+      // day, so `now() - 1 day` TIED the two and the smaller random uuid picked the winner
+      // (a ~50% flake, found at the 03-22 gate).
       await c.query(
-        `update businesses set created_at = now() - interval '1 day' where id = $1`,
+        `update businesses set created_at = now() - interval '2 days' where id = $1`,
         [pair.overture.businessId],
       );
       await actAs(c, CLAIMS_A);
