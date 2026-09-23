@@ -72,7 +72,10 @@ describe('the queue', () => {
     const a3 = childOf(a, 3);
     const b1 = childOf(b, 1);
 
-    let s: QueueState = initialQueue([a, b]);
+    const roots = [a, b];
+    let s: QueueState = initialQueue(roots);
+    // The queue does not alias the caller's array.
+    roots.push(a3);
     expect(s).toEqual({
       pending: [a, b],
       searched: 0,
