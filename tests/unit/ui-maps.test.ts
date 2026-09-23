@@ -23,16 +23,40 @@ import {
   BUDGET_100_BANNER,
   BUDGET_80_BANNER,
   BUDGET_CAP_HELP,
+  DETACH_CONFIRM,
   GEOCODE_NO_MATCH,
+  GOOGLE_MAPS_TAG,
   PHASE4_RUN_NOTICE,
   PRESETS_EMPTY_HEADING,
+  REJECT_CONFIRM,
+  REVIEW_ACTION_NOT_THIS,
+  RUN_ABANDONED,
+  RUN_ALREADY_IN_PROGRESS,
+  RUN_CHECK_CHANGES,
+  RUN_ESTIMATE_LINE,
+  RUN_FAILED_ERROR,
+  RUN_FULL_SWEEP,
+  RUN_MODE_REFUSED,
+  RUN_NEVER_STARTED,
+  RUN_NO_GEOMETRY,
+  RUN_PARTITION,
   RUN_REFUSED,
+  RUN_REPORT_TITLE,
+  RUN_STOP_DAILY_QUOTA,
+  RUN_TRUNCATION_HEADING,
+  SECOND_WALL_SET_BADGE,
   SKIP_LINK,
   SOURCES_RUN_STATUS,
+  SOURCES_TRANSIENT_TITLE,
   SPEND_FOOTER,
   STOPPED_REASON,
   VERSION_NOTICE,
 } from '@/lib/ui/copy';
+import {
+  RUN_ABANDONED_AFTER_MINUTES,
+  RUN_CEILING_MULTIPLIER,
+  RUN_NEVER_STARTED_AFTER_MINUTES,
+} from '@/lib/estimate/assumptions';
 import {
   INGEST_RUN_LABEL,
   INGEST_RUN_STATUSES,
@@ -293,6 +317,73 @@ describe('run kinds and stopped reasons (04-UI-SPEC Rule 35, Open Question 19)',
       expect(sentence, `${reason} renders a machine key`).not.toContain('_');
       expect(sentence).not.toContain(reason);
     }
+  });
+
+  it('phase 4 copy matches the UI-SPEC copy table', () => {
+    // 04-UI-SPEC § Copy Table / § Copywriting Contract, exact. Case matters: "Google Maps" is
+    // Google's required attribution text and is never "google maps" or "Google".
+    expect(GOOGLE_MAPS_TAG).toBe('Google Maps');
+    expect(RUN_FULL_SWEEP).toBe('Run full sweep');
+    expect(RUN_PARTITION).toBe("Run this week's partition");
+    expect(RUN_CHECK_CHANGES).toBe('Check for changes (free)');
+    expect(REVIEW_ACTION_NOT_THIS).toBe('Not this business');
+    expect(REJECT_CONFIRM).toBe('Never attach this listing');
+    expect(DETACH_CONFIRM).toBe('Detach this listing');
+    expect(SOURCES_TRANSIENT_TITLE).toBe('Google Places (transient)');
+    expect(RUN_REPORT_TITLE).toBe('Run report');
+    expect(SECOND_WALL_SET_BADGE).toBe('Set');
+
+    // "Name the number", with the grammar the number needs.
+    expect(RUN_TRUNCATION_HEADING(1).startsWith('1 tile still hit')).toBe(true);
+    expect(RUN_TRUNCATION_HEADING(3).startsWith('3 tiles still hit')).toBe(true);
+    expect(RUN_TRUNCATION_HEADING(1234).startsWith('1,234 tiles still hit')).toBe(true);
+    expect(RUN_TRUNCATION_HEADING(3)).toBe(
+      "3 tiles still hit Google's 60-result limit at the smallest tile size.",
+    );
+  });
+
+  it('the settled copy gaps name the number and say what happened to the money', () => {
+    // Amendment 1 (04-UI-SPEC). Every stop, refusal and failure says whether anything was
+    // charged — the voice rule these sentences were written against.
+    const quota = RUN_STOP_DAILY_QUOTA(100, 41, 27);
+    expect(quota).toContain("Google's daily limit of 100 requests");
+    expect(quota).toContain('nothing past the limit was charged');
+    expect(quota).toContain('The 41 tiles already searched are complete; the 27 not searched');
+    expect(quota).toContain('midnight Pacific time');
+
+    // D-18: the ceiling is enforced on REQUESTS, so both figures render — inside the free
+    // allowance the dollar ceiling is $0.00 and would read as "stops immediately" alone.
+    expect(RUN_ESTIMATE_LINE(1_900_000n, 2_900_000n, 5_800_000n, 166)).toBe(
+      'Estimated $1.90–$2.90 · this run stops at $5.80 · 166 requests',
+    );
+    expect(RUN_ESTIMATE_LINE(0, 0, 0, 1_204)).toBe(
+      'Estimated $0.00–$0.00 · this run stops at $0.00 · 1,204 requests',
+    );
+
+    // The minute figures come from the constants the sweeper uses, never a second literal.
+    expect(RUN_NEVER_STARTED).toContain(`within ${RUN_NEVER_STARTED_AFTER_MINUTES} minutes`);
+    expect(RUN_NEVER_STARTED).toContain('nothing was charged');
+    expect(RUN_ABANDONED(2_310_000n)).toContain(`for ${RUN_ABANDONED_AFTER_MINUTES} minutes`);
+    expect(RUN_ABANDONED(2_310_000n)).toContain('so $2.31 above is exactly what it cost');
+    // "twice the estimate" in STOPPED_REASON is prose for RUN_CEILING_MULTIPLIER.
+    expect(RUN_CEILING_MULTIPLIER).toBe(2);
+    expect(STOPPED_REASON.exceeded_estimate).toContain('twice the estimate');
+
+    expect(RUN_ALREADY_IN_PROGRESS).toContain('Nothing was reserved and nothing was charged.');
+    expect(RUN_NO_GEOMETRY('Texas')).toContain('no map outline for Texas, so it can');
+    expect(RUN_NO_GEOMETRY(['Texas', 'Oklahoma'])).toContain(
+      "no map outline for Texas and Oklahoma, so it can't tile them",
+    );
+    expect(RUN_MODE_REFUSED('off')).toContain('Google Places was switched off after this page');
+    expect(RUN_MODE_REFUSED('ids_only')).toContain('switched to IDs-only mode after this page');
+
+    // The {error} clause never carries a machine key or a Google response fragment.
+    expect(Object.keys(RUN_FAILED_ERROR).sort()).toEqual([
+      'places_key_missing',
+      'places_request_rejected',
+      'places_unavailable',
+    ]);
+    for (const clause of Object.values(RUN_FAILED_ERROR)) expect(clause).not.toContain('_');
   });
 });
 
