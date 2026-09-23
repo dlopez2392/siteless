@@ -187,19 +187,31 @@ export async function readBusinessList(
          order by b.display_name, b.id
          limit ${limit} offset ${offset}
       ),
-      srcs as materialized (
-        select p.id as business_id, sr.source_key
+      -- 🔴 A-WR-09 (review 03): a row's sources are its CLUSTER's — the row plus every
+      -- business merged into it (clusters are flattened: one hop), exactly the membership the
+      -- detail view reads. Without it a merged winner listed "Comptroller" here while its own
+      -- detail page said "Comptroller · Overture" (D-17). A merged-away row has no members
+      -- but itself. The member test is "id = p.id or merged_into_id = p.id", which
+      -- businesses_merged_idx serves.
+      members as materialized (
+        select p.id as business_id, m.id as member_id, m.comptroller_key
           from page p
-          join source_records sr on sr.business_id = p.id
+          join businesses m
+            on m.org_id = p.org_id and (m.id = p.id or m.merged_into_id = p.id)
+      ),
+      srcs as materialized (
+        select mb.business_id, sr.source_key
+          from members mb
+          join source_records sr on sr.business_id = mb.member_id
          where sr.retention_class = 'durable'
         union
-        select p.id, sr.source_key
-          from page p
+        select mb.business_id, sr.source_key
+          from members mb
           join source_records sr
-            on sr.org_id = p.org_id
+            on sr.org_id = (select app.current_org_id())
            and sr.source_key in ('census_geocoder', 'tx_comptroller_closures')
-           and sr.external_id = p.comptroller_key
-         where p.comptroller_key is not null
+           and sr.external_id = mb.comptroller_key
+         where mb.comptroller_key is not null
            and sr.retention_class = 'durable'
       )
       select p.id,

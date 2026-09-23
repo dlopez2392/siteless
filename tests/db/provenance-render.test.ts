@@ -149,6 +149,33 @@ describe('business detail provenance', () => {
       expect(detail.merges).toEqual([]);
     }));
 
+  /**
+   * A-WR-09 (review 03). The list's "sources" column read only the records whose business_id
+   * was the row itself (plus Census/closure records by its own comptroller_key), while the
+   * detail view includes every business merged into it. A Comptroller winner whose display name
+   * came from its absorbed Overture twin listed "Comptroller" on /businesses and "Comptroller ·
+   * Overture" on its detail page. D-17: the list shows the sources present.
+   */
+  it('the list shows the sources a merged winner absorbed', () =>
+    withTxRollback(async (tx) => {
+      const c = asPg(tx);
+      const { a } = await seedTwoOrgs(c);
+      const pair = await seedMergePair(c, a, 'LISTSOURCES');
+      await actAs(c, CLAIMS_A);
+      expect(
+        await decideCandidate(tx, { candidateId: pair.candidateId, decision: 'merged' }),
+      ).toMatchObject({ kind: 'recorded' });
+      const list = await readBusinessList(tx, { query: 'listsources', status: 'active' });
+      expect(list.rows.map((r) => r.id)).toEqual([pair.comptroller.businessId]);
+      expect(list.rows[0]!.sources).toEqual(
+        expect.arrayContaining(['tx_comptroller', 'overture', 'census_geocoder']),
+      );
+      // And the list agrees with the detail view, which always included the members.
+      const detail = await readBusinessDetail(tx, pair.comptroller.businessId);
+      const detailSources = new Set(detail!.sourceRecords.map((r) => r.sourceKey));
+      expect(new Set(list.rows[0]!.sources)).toEqual(detailSources);
+    }));
+
   it('provenance never leaks the internal columns', () =>
     withTxRollback(async (tx) => {
       const c = asPg(tx);
