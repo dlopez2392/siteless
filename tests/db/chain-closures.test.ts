@@ -24,6 +24,7 @@ import { applyClosures } from '../../scripts/ingest-comptroller';
 import { resolveEtlOrg, setEtlActor } from '@/lib/ingest/etl-actor';
 import { upsertBusinessFromSource, upsertSourceRecord } from '@/lib/ingest/upsert';
 import { detectChains } from '@/lib/resolve/chain';
+import { nameNorm } from '@/lib/normalize';
 import { closureRowSchema, closureRowToSourceRecord } from '@/lib/socrata/closures';
 import { SQL_FRESH_EXTERNAL_KEY, seedTwoOrgs, withRollback } from './_fixtures';
 import {
@@ -169,6 +170,53 @@ describe('chain detection', () => {
       const after = await chainKeys(c, [...two, one]);
       for (const id of two) expect(after.get(id)).toBe('tacos el guero');
       expect(after.get(one)).toBeNull();
+    });
+  });
+
+  /**
+   * B-WR-05, the chain-detection half (review 03). D-12 strips the generic trade words for
+   * SIMILARITY, which is right; but chain detection grouped on that same key, so "Taqueria
+   * Garcia", "Panaderia Garcia" and "Carniceria Garcia" — three unrelated family businesses,
+   * the dominant RGV naming pattern — all became `garcia`, were flagged a chain ("Chain · 3 in
+   * Texas") and each lost auto-merge against its own true duplicate. The chain key keeps the
+   * trade words a name was reduced by; a statewide count keyed by the reduced name is not that
+   * business's identity either.
+   */
+  it('surname-plus-trade names are not one chain; three of the same trade name are', async () => {
+    await withRollback(async (c) => {
+      const { a } = await asDeskScript(c);
+      const raw = async (displayName: string) => {
+        const r = await c.query<{ id: string }>(
+          `insert into businesses (org_id, external_key, display_name, name_norm)
+           values ($1, ${SQL_FRESH_EXTERNAL_KEY}, $2, $3) returning id`,
+          [a, displayName, nameNorm(displayName)],
+        );
+        return r.rows[0]!.id;
+      };
+      const families = [
+        await raw('Taqueria Garcia'),
+        await raw('Panadería Garcia'),
+        await raw('CARNICERIA GARCIA'),
+      ];
+      // Positive control on the premise: all three really share one normalized name.
+      expect(['Taqueria Garcia', 'Panadería Garcia', 'CARNICERIA GARCIA'].map(nameNorm)).toEqual([
+        'garcia',
+        'garcia',
+        'garcia',
+      ]);
+      // The statewide map says "garcia" is everywhere — it is the reduced name, not theirs.
+      await seedStatewideRun(c, a, { garcia: 57 });
+
+      const outlets = [
+        await raw('Taqueria El Rey'),
+        await raw('TAQUERIA EL REY'),
+        await raw('Taquería El Rey'),
+      ];
+      await detectChains(asEtlExecutor(c), a);
+      const keys = await chainKeys(c, [...families, ...outlets]);
+      for (const id of families) expect(keys.get(id), 'a family business').toBeNull();
+      // Three outlets of ONE trade name are a real local chain, keyed with the trade word.
+      for (const id of outlets) expect(keys.get(id)).toBe('taqueria rey');
     });
   });
 
