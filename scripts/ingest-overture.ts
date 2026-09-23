@@ -573,7 +573,8 @@ async function cutSample(duck: DuckDBConnection, release: string, path: string):
       bbox: OVERTURE_RGV_BBOX,
       rowCount: rows.length,
       perBranch: perGroup,
-      cutDate: new Date().toISOString().slice(0, 10),
+      // An instant, not a date: a UTC date cut on an RGV evening reads as tomorrow.
+      cutAt: new Date().toISOString(),
       cutBy: `tsx ${SCRIPT} --release=${release} --sample=<this file>`,
       license: 'CDLA-Permissive-2.0 (Overture Maps Foundation)',
     },
