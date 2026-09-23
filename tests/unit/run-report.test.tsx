@@ -1,4 +1,4 @@
-import { cleanup, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { RunReport } from '@/server/queries/run-report';
 
@@ -150,10 +150,25 @@ function renderReport(report: RunReport, opts: { canRaiseCap?: boolean } = {}) {
 }
 
 const THREE_TRUNCATED: RunReport['tiles']['truncated'] = [
-  { tileKey: 'city:4845384|roofing_contractor|r012', cellKey: 'home_services/4845384', placesType: 'roofing_contractor', why: 'min_size' },
-  { tileKey: 'city:4845384|roofing_contractor|r013', cellKey: 'home_services/4845384', placesType: 'roofing_contractor', why: 'max_depth' },
+  {
+    tileKey: 'city:4845384|roofing_contractor|r012',
+    cellKey: 'home_services/4845384',
+    placesType: 'roofing_contractor',
+    why: 'min_size',
+  },
+  {
+    tileKey: 'city:4845384|roofing_contractor|r013',
+    cellKey: 'home_services/4845384',
+    placesType: 'roofing_contractor',
+    why: 'max_depth',
+  },
   // A truncated tile whose reason was never written still shows (04-20: `why` may be null).
-  { tileKey: 'city:4822660|plumber|r2', cellKey: 'home_services/4822660', placesType: 'plumber', why: null },
+  {
+    tileKey: 'city:4822660|plumber|r2',
+    cellKey: 'home_services/4822660',
+    placesType: 'plumber',
+    why: null,
+  },
 ];
 
 /** The status a writer pairs with each stopped reason. */
@@ -217,7 +232,11 @@ describe('run report — header and alerts (04-23 Task 2)', () => {
       const alert = screen.getByTestId('run-stop-alert');
       expect(alert, reason).toHaveAttribute('data-reason', reason);
       const text = container.textContent ?? '';
-      for (const key of STOPPED_REASONS) expect(text, `${reason} page shows ${key}`).not.toContain(key);
+      // `abandoned` is also an English word its own sentence uses ("marked it abandoned"); the
+      // underscore keys are the ones that can only be the machine key.
+      for (const key of STOPPED_REASONS.filter((k) => k.includes('_'))) {
+        expect(text, `${reason} page shows ${key}`).not.toContain(key);
+      }
       // No `_`-joined machine key of any kind reaches the page text.
       expect(text.match(/\b[a-z]+(?:_[a-z]+)+\b/g), reason).toBeNull();
       unmount();
@@ -243,7 +262,10 @@ describe('run report — header and alerts (04-23 Task 2)', () => {
     expect(alert.textContent).toContain(
       "This run was refused. Your $50.00 cap is spent, so Siteless didn't call anything and nothing was charged.",
     );
-    expect(within(alert).getByTestId('run-stop-raise-cap')).toHaveAttribute('href', '/settings/budget');
+    expect(within(alert).getByTestId('run-stop-raise-cap')).toHaveAttribute(
+      'href',
+      '/settings/budget',
+    );
     expect(screen.queryByTestId('run-requests')).toBeNull();
     expect(document.querySelector('[data-testid^="run-tiles-"]')).toBeNull();
     expect(document.querySelector('[data-testid^="run-outcome-"]')).toBeNull();
@@ -254,7 +276,9 @@ describe('run report — header and alerts (04-23 Task 2)', () => {
 
   it('the refused state offers a member the ask-an-admin way out', () => {
     renderReport(
-      reportOf({ run: { status: 'refused', stoppedReason: 'budget_cap_reached', costMicroUsd: 0 } }),
+      reportOf({
+        run: { status: 'refused', stoppedReason: 'budget_cap_reached', costMicroUsd: 0 },
+      }),
       { canRaiseCap: false },
     );
     const alert = screen.getByTestId('run-stop-alert');
@@ -271,9 +295,7 @@ describe('run report — header and alerts (04-23 Task 2)', () => {
       }),
     );
     const line = screen.getByTestId('run-estimate-line');
-    expect(line.textContent).toBe(
-      'Estimated $1.90–$2.90 · this run stops at $5.80 · 108 requests',
-    );
+    expect(line.textContent).toBe('Estimated $1.90–$2.90 · this run stops at $5.80 · 108 requests');
   });
 
   it('the header shows the above-estimate line only between the top of the estimate and the ceiling', () => {
@@ -305,12 +327,17 @@ describe('run report — header and alerts (04-23 Task 2)', () => {
 
   it("the header's live parts appear only while the run is live", () => {
     const { unmount } = renderReport(
-      reportOf({ run: { status: 'running', finishedMs: null }, tiles: { searched: 34, total: 68 } }),
+      reportOf({
+        run: { status: 'running', finishedMs: null },
+        tiles: { searched: 34, total: 68 },
+      }),
     );
     expect(screen.getByTestId('run-refresh-now')).toBeInTheDocument();
     expect(screen.getByTestId('run-updated-at')).toBeInTheDocument();
     expect(screen.queryByTestId('run-finished-line')).toBeNull();
-    expect(screen.getByTestId('run-status-line')).toHaveTextContent('34 of 68 tiles searched so far');
+    expect(screen.getByTestId('run-status-line')).toHaveTextContent(
+      '34 of 68 tiles searched so far',
+    );
     expect(screen.getByTestId('run-live-status')).toBeInTheDocument();
     unmount();
 
@@ -352,7 +379,12 @@ describe('run report — header and alerts (04-23 Task 2)', () => {
   it('a run queued for more than two minutes says so, in muted words', () => {
     const { unmount } = renderReport(
       reportOf({
-        run: { status: 'queued', startedMs: null, finishedMs: null, createdMs: RENDERED - 5 * 60_000 },
+        run: {
+          status: 'queued',
+          startedMs: null,
+          finishedMs: null,
+          createdMs: RENDERED - 5 * 60_000,
+        },
       }),
     );
     const alert = screen.getByTestId('run-queued-long');
@@ -371,12 +403,32 @@ describe('run report — header and alerts (04-23 Task 2)', () => {
 
   it('the truncation list names each tile and copies one per line', () => {
     renderReport(reportOf({ tiles: { stillTruncated: 3, truncated: THREE_TRUNCATED } }));
+    const toggle = screen.getByTestId('run-truncation-toggle');
+    expect(toggle.textContent).toContain('Show the 3 truncated tiles');
+    // Collapsed by default: the list is one click away, the count is always on screen.
+    expect(screen.queryAllByTestId('run-truncation-tile')).toHaveLength(0);
+    fireEvent.click(toggle);
     const rows = screen.getAllByTestId('run-truncation-tile');
     expect(rows.map((r) => r.textContent)).toEqual([
       'city:4845384 · roofing_contractor · tile r012',
       'city:4845384 · roofing_contractor · tile r013',
       'city:4822660 · plumber · tile r2',
     ]);
+    // The null-reason tile is listed, not dropped (04-20; criterion 3).
+    expect(rows[2]).toHaveAttribute('data-why', '');
+    expect(toggle).toHaveAttribute('data-state', 'open');
+
+    // "Copy the tile list" copies exactly the rows shown, one per line.
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    fireEvent.click(screen.getByTestId('run-truncation-copy'));
+    expect(writeText).toHaveBeenCalledWith(
+      [
+        'city:4845384 · roofing_contractor · tile r012',
+        'city:4845384 · roofing_contractor · tile r013',
+        'city:4822660 · plumber · tile r2',
+      ].join('\n'),
+    );
   });
 
   it('stop alerts stack before the truncation warning', () => {
@@ -387,7 +439,11 @@ describe('run report — header and alerts (04-23 Task 2)', () => {
           stillTruncated: 3,
           truncated: THREE_TRUNCATED,
           stillSubdividing: [
-            { tileKey: 'city:4845384|roofing_contractor|r0', cellKey: 'home_services/4845384', placesType: 'roofing_contractor' },
+            {
+              tileKey: 'city:4845384|roofing_contractor|r0',
+              cellKey: 'home_services/4845384',
+              placesType: 'roofing_contractor',
+            },
           ],
         },
       }),
