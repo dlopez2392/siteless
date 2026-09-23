@@ -1,0 +1,116 @@
+{
+  "places": [
+    {
+      "id": "synthetic-match-ortiz",
+      "displayName": {
+        "text": "Ortiz Plumbing",
+        "languageCode": "en"
+      },
+      "formattedAddress": "1200 N 10th St, McAllen, TX 78501, USA",
+      "location": {
+        "latitude": 26.2159,
+        "longitude": -98.2336
+      },
+      "types": ["plumber"],
+      "businessStatus": "OPERATIONAL",
+      "nationalPhoneNumber": "(956) 631-0001",
+      "rating": 4.2,
+      "userRatingCount": 10
+    },
+    {
+      "id": "synthetic-match-garza",
+      "displayName": {
+        "text": "Garza Electric LLC",
+        "languageCode": "en"
+      },
+      "formattedAddress": "4100 N 23rd St, McAllen, TX 78504, USA",
+      "location": {
+        "latitude": 26.249,
+        "longitude": -98.2389
+      },
+      "types": ["electrician"],
+      "businessStatus": "OPERATIONAL",
+      "nationalPhoneNumber": "(956) 631-0002",
+      "websiteUri": "https://garza-electric-synthetic.business.site",
+      "rating": 4.2,
+      "userRatingCount": 10
+    },
+    {
+      "id": "synthetic-match-rio",
+      "displayName": {
+        "text": "Rio Roofing",
+        "languageCode": "en"
+      },
+      "types": ["roofing_contractor"],
+      "businessStatus": "OPERATIONAL",
+      "pureServiceAreaBusiness": true,
+      "nationalPhoneNumber": "(956) 631-0003",
+      "websiteUri": "https://www.facebook.com/rio-roofing-synthetic",
+      "rating": 4.2,
+      "userRatingCount": 10
+    },
+    {
+      "id": "synthetic-match-valley",
+      "displayName": {
+        "text": "Valley Locksmith",
+        "languageCode": "en"
+      },
+      "types": ["locksmith"],
+      "businessStatus": "OPERATIONAL",
+      "pureServiceAreaBusiness": true,
+      "nationalPhoneNumber": "(956) 631-0004",
+      "websiteUri": "https://valley-locksmith-synthetic.example",
+      "rating": 4.2,
+      "userRatingCount": 10
+    },
+    {
+      "id": "synthetic-match-tentative",
+      "displayName": {
+        "text": "Ortiz Plumbing and Drain",
+        "languageCode": "en"
+      },
+      "formattedAddress": "1200 N 10th St Ste 5, McAllen, TX 78501, USA",
+      "location": {
+        "latitude": 26.2161,
+        "longitude": -98.2335
+      },
+      "types": ["plumber"],
+      "businessStatus": "OPERATIONAL",
+      "nationalPhoneNumber": "(956) 555-0199",
+      "rating": 4.2,
+      "userRatingCount": 10
+    },
+    {
+      "id": "synthetic-match-nothing",
+      "displayName": {
+        "text": "Synthetic Nobody Services",
+        "languageCode": "en"
+      },
+      "formattedAddress": "9 Synthetic Rd, McAllen, TX 78501, USA",
+      "location": {
+        "latitude": 26.29,
+        "longitude": -98.29
+      },
+      "types": ["plumber"],
+      "businessStatus": "OPERATIONAL",
+      "rating": 4.2,
+      "userRatingCount": 10
+    },
+    {
+      "id": "synthetic-match-mexico",
+      "displayName": {
+        "text": "Synthetic Taller",
+        "languageCode": "es"
+      },
+      "formattedAddress": "Calle Sintética 1, Reynosa, Tamps., Mexico",
+      "location": {
+        "latitude": 26.07,
+        "longitude": -98.29
+      },
+      "types": ["car_repair"],
+      "businessStatus": "OPERATIONAL",
+      "rating": 4.2,
+      "userRatingCount": 10
+    }
+  ]
+}
