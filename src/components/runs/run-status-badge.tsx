@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils';
  * THE run status badge — `/spend` By-run, the preset's recent runs and the run report all
  * render this one component (04-UI-SPEC § Reused, Executor Rule 41). It was lifted out of
  * `src/components/spend/by-run.tsx`, where it had been written at the `Badge` primitive's
- * `text-xs` (12/600) — below the UI-SPEC type scale, and the same drift the flag badges had
+ * 12px size (12/600) — below the UI-SPEC type scale, and the same drift the flag badges had
  * before `FLAG_BADGE_SIZING` existed. It now takes that class list, so a run status and a
  * `Closed` badge beside it are the same size.
  *
