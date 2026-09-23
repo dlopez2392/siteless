@@ -324,41 +324,48 @@ test('preset detail: duplicate creates a new preset at version 1', async ({ page
   await expect(page.getByTestId('version-history-single')).toBeVisible();
 });
 
-test('preset detail: run this preset queues a run', async ({ page }) => {
-  await page.goto(`/presets/${fixture.searchId}`);
+/**
+ * The Run button with Places switched off (D-02): the server action refuses before any row or
+ * hold exists, and the drawer says so in place.
+ *
+ * 🔴 04-26 (UI-SPEC Rules 38, 39). Since `queueRun` starts the places-sweep workflow, a
+ * confirmed run is a Places sweep, so no e2e spec may create one. The Phase 2 version of this
+ * test confirmed a run and watched `version-row-2-used-by` move to 1; that claim now lives in
+ * the DB lane, with `start()` as a double:
+ *   tests/db/queue-run.test.ts → 'a confirmed run creates a runs row on the current version'
+ *
+ * This file runs only against a LOCAL target (see `TARGET_IS_LOCAL`), where `PLACES_MODE`
+ * defaults to `off`. The skip below makes that an asserted precondition instead of an
+ * assumption: if this machine's .env.local switches Places on, clicking confirm would start a
+ * real run, so the test refuses to click. 04-27 replaces this again with the `off`-state
+ * assertions (the notice and the aria-disabled actions).
+ */
+test('preset detail: run is refused while places is off', async ({ page }) => {
+  const localMode = process.env.PLACES_MODE ?? '';
+  test.skip(
+    localMode !== '' && localMode !== 'off',
+    `PLACES_MODE is "${localMode}" in .env.local, so confirming would start a real run — ` +
+      'this spec never starts one (UI-SPEC Rule 39)',
+  );
 
-  // Version 2 is current and has no runs yet — the number this test moves.
+  await page.goto(`/presets/${fixture.searchId}`);
+  const url = page.url();
+
+  await page.getByTestId('run-preset').click();
+  await expect(page.getByTestId('run-drawer')).toBeVisible();
+  await page.getByTestId('run-confirm').click();
+
+  // Refused in place: the destructive Alert replaces the confirm, and nothing navigated.
+  await expect(page.getByTestId('run-mode-refused')).toBeVisible();
+  await expect(page.getByTestId('run-confirm')).toHaveCount(0);
+  expect(page.url()).toBe(url);
+
+  // Nothing was queued on either version.
+  await page.reload();
   await expect(page.getByTestId('version-row-2-used-by')).toHaveAttribute(
     'data-used-by-count',
     '0',
   );
-
-  await page.getByTestId('run-preset').click();
-  await expect(page.getByTestId('run-drawer')).toBeVisible();
-
-  // 🔴 The Phase-4 notice is on screen BEFORE confirming, not in a tooltip: the reader has
-  // to know that queuing is not running before they reserve budget for it.
-  await expect(page.getByTestId('run-phase4-notice')).toBeVisible();
-
-  await page.getByTestId('run-confirm').click();
-
-  // The drawer closes on success, and no refusal is showing.
-  await expect(page.getByTestId('run-drawer')).toHaveCount(0);
-  await expect(page.getByTestId('run-refused')).toHaveCount(0);
-
-  /**
-   * The run landed on the CURRENT version and nowhere else.
-   *
-   * `/spend` → By run is plan 02-13's and is not on this branch, so the assertion that a
-   * run row exists is made here instead, against the count this screen already publishes.
-   * It is the stronger claim of the two anyway: it says WHICH version the run attached to,
-   * which the spend view does not show.
-   */
-  await expect(page.getByTestId('version-row-2-used-by')).toHaveAttribute(
-    'data-used-by-count',
-    '1',
-  );
-  // And version 1's history is untouched by the new run (T-2-12).
   await expect(page.getByTestId('version-row-1-used-by')).toHaveAttribute(
     'data-used-by-count',
     '1',

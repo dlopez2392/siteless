@@ -79,62 +79,39 @@ test('spend: the by-run tab reports its own state', async ({ page }) => {
 });
 
 /**
- * The plan's second spec: queue a run from a preset and watch the row appear.
+ * Every listed run links to its own report.
  *
- * 🔴 THIS TEST HAD NEVER ONCE EXECUTED (WR-09), AND IT READ AS A PASS. Both of its hooks
- * were wrong, and each one alone was enough to skip it silently:
+ * 🔴 THIS SPEC MUST NEVER CLICK A RUN CONFIRM AGAINST A DEPLOYED APP: ONCE PLACES_MODE IS
+ * ENTERPRISE THAT IS A BILLED PLACES SWEEP FROM CI (04-UI-SPEC Rule 39, T-4-09). Its Phase 2
+ * predecessor opened the most recently updated preset, opened its run drawer and confirmed;
+ * since 04-26 that confirmation starts the places-sweep workflow, so on every e2e
+ * run it would have spent real money — or, under D-18, been refused at admission on an
+ * RGV-sized preset and gone red. This spec only READS: it creates no run, so when there is
+ * none to read it skips and says why.
  *
- *   * `'[data-testid^="preset-card-"] a, a[href^="/presets/"]'` — the card IS the anchor
- *     (`preset-card.tsx`), so the first alternative matched nothing, and the second matched
- *     `href="/presets/new"` on the header Create-preset CTA, which precedes the cards in DOM
- *     order. The click landed on the new-preset form.
- *   * `preset-run-cta` exists nowhere in `src/`. The trigger plan 02-12 shipped is
- *     `run-preset`. So the drawer never opened, `run-confirm` — which is mounted only while
- *     the drawer is open — was always count 0, and the `test.skip` below fired every time.
+ * The proof that a confirmed run lands as a `runs` row on the current version moved to the
+ * DB lane, where `start()` is a double and no request can leave:
+ *   tests/db/queue-run.test.ts → 'a confirmed run creates a runs row on the current version'
  *
- * The file's own header warned about exactly this ("if 02-12 names its trigger something
- * this probe does not find, the skip persists silently") and it came true anyway, because a
- * skipped test and a passing test are the same line in a summary: the phase gate's
- * "15 passed, 6 skipped" included this one.
- *
- * 🔴 THE "SHIPS IN PLAN 02-12" SKIP IS GONE, DELIBERATELY. 02-12 has shipped. A conditional
- * that can no longer be false is a conditional nobody will ever revisit. What remains is the
- * one legitimate precondition — there is no preset to run — which is a real state of the
- * database this suite points at and not a statement about unfinished work.
- *
- * 🔴 THIS TEST QUEUES A REAL RUN AND TAKES A REAL RESERVATION against whatever
- * `E2E_BASE_URL` is. That is the point — the meter is exercised from the UI months before
- * the first billed call — but it means one `runs` row and one `cost_reservations` hold per
- * execution, the hold released by the TTL sweep (migration 0018). It belongs with the
- * `e2e-*` row cleanup already logged in deferred-items.md, and is the reason a teardown path
- * is owed alongside it.
+ * Each run renders TWO links with its testid (the desk table and the phone cards, one hidden
+ * by CSS), so every element is checked, not the first.
  */
-test('spend: the by-run tab lists a queued run', async ({ page }) => {
-  await page.goto('/presets');
-
-  // The card is the link. `data-preset-name` carries the user's own data, so the assertion
-  // at the end matches on that rather than on rendered copy every other part of the phase is
-  // still restyling — and it is read HERE, before the navigation, because it lives on the
-  // list item and not on the detail page.
-  const card = page.locator('[data-testid^="preset-card-"]').first();
-  test.skip((await card.count()) === 0, 'no preset to run');
-  const presetName = (await card.getAttribute('data-preset-name'))?.trim() ?? '';
-  expect(presetName, 'the card must carry the preset name as an attribute').not.toBe('');
-
-  await card.click();
-
-  // No `if (count > 0)` around this. A probe that tolerates a missing trigger is how the
-  // previous version of this test passed for a fortnight without opening anything: if
-  // `run-preset` is not there, this must FAIL and name it.
-  await page.getByTestId('run-preset').click();
-  const confirm = page.getByTestId('run-confirm');
-  await expect(confirm).toBeVisible();
-
-  await confirm.click();
-
+test('spend: every listed run links to its report', async ({ page }) => {
   await page.goto(SPEND);
   await page.getByTestId('spend-tab-by-run').click();
-  await expect(
-    page.locator('[data-testid="spend-run-row"]', { hasText: presetName }).first(),
-  ).toBeVisible();
+
+  const links = page.locator('[data-testid^="spend-run-link-"]');
+  const count = await links.count();
+  test.skip(
+    count === 0,
+    'no runs exist on this deployment yet — this spec never creates one (UI-SPEC Rule 39)',
+  );
+
+  for (let i = 0; i < count; i += 1) {
+    const link = links.nth(i);
+    const testId = (await link.getAttribute('data-testid')) ?? '';
+    const runId = testId.slice('spend-run-link-'.length);
+    expect(runId, `${testId} must name a run id`).toMatch(/^[0-9a-f-]{36}$/);
+    await expect(link).toHaveAttribute('href', `/runs/${runId}`);
+  }
 });
