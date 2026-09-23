@@ -636,8 +636,15 @@ export type Geocoder = (rows: ReadonlyArray<BatchRow>) => Promise<Map<string, Ba
 /**
  * Writes a Match onto its business: `lat`/`lng`, the census source record as
  * `location_source_id` (durable — `businesses_location_src_fk` would refuse an ephemeral one,
- * T-3-06) and `location_match_type`. The `is distinct from` guard makes an unchanged re-run
- * write nothing, so `app.log_event` on `businesses` records no event for it.
+ * T-3-06) and `location_match_type`. The `is distinct from` guard skips a write that would
+ * change nothing.
+ *
+ * 🔴 CALLED ONLY FOR A NEW OR CHANGED census record (`runGeocodePass`), the same gate
+ * `upsertBusinessFromSource` applies to every other derived column. `is distinct from` alone
+ * is NOT enough: once a merge's survivorship has moved a winner's location to the Overture
+ * point (survivorship.ts: Overture, then Census Exact, then Non_Exact), an unchanged Census
+ * answer is "distinct" and would be written back over it — measured on the 03-20 desk run as
+ * 908 `businesses` events on a re-run where every source row was unchanged.
  */
 const WRITE_LOCATION = `
   update businesses
@@ -661,8 +668,8 @@ const WRITE_LOCATION = `
  * (NULL on a first run) and the business falls back to text matching (D-08). No location is
  * ever invented, and a transient chunk failure never erases a location an earlier run found.
  *
- * 🔴 Expect ≈10,100 of 34,928 to end unlocated — the measured 70.9 % match rate, not a
- * failure. The review queue will be dominated by unlocated Comptroller rows.
+ * 🔴 Expect ≈7,000 of 34,928 to end unlocated (03-20 desk run: 79.9 % matched, 6,889 no match,
+ * 136 tie; research had 70.9 %). Not a failure: those rows fall back to text matching.
  *
  * `gone` for this run = previously-matched records that did not match this time.
  */
@@ -745,6 +752,8 @@ export async function runGeocodePass(
               seenAt: run.startedAt,
             });
             recordOutcome(tally, sr);
+            // The gate: an unchanged census record writes nothing (see WRITE_LOCATION).
+            if (!sr.inserted && !sr.changed) continue;
             const { rows } = await tx.query<{ id: string }>(WRITE_LOCATION, [
               w.businessId,
               orgId,
@@ -810,6 +819,53 @@ export interface FetchedClosures {
   sourceVersion: string;
   records: ClosureIngest[];
   rejected: Rejected;
+  /** Keys the feed sent more than once, and the rows they covered (03-20: 18 keys, 60 rows). */
+  duplicateKeys?: number;
+  duplicateRows?: number;
+}
+
+export interface FoldedClosures {
+  records: ClosureIngest[];
+  duplicateKeys: number;
+  duplicateRows: number;
+}
+
+/**
+ * 🔴 ONE RECORD PER KEY. `3kx8-uryv` repeats a `tp_number-loc_number` key with different
+ * `out_of_business_date`s (measured 2026-09-22: 21,509 RGV rows, 21,467 keys, 18 keys on 60
+ * rows; one outlet carries nine quarterly dates). Written row by row, a repeated key overwrites
+ * its own stored payload inside one run, and `$order=tp_number,loc_number` does not order rows
+ * WITHIN a key, so the stored payload depends on Socrata's arbitrary order and a re-run over an
+ * unchanged feed reports `changed` (DATA-04).
+ *
+ * The kept record is the LATEST closure date — the same rule `CLOSURE_UPDATE_SQL` applies when
+ * several closures reach one winner — and an equal date is broken by the payload's JSON, so the
+ * result is a function of the SET of rows, never of their order. Pure.
+ */
+export function foldClosureDuplicates(records: readonly ClosureIngest[]): FoldedClosures {
+  const byKey = new Map<string, ClosureIngest[]>();
+  for (const r of records) {
+    const group = byKey.get(r.externalId);
+    if (group) group.push(r);
+    else byKey.set(r.externalId, [r]);
+  }
+  const tie = (r: ClosureIngest) => JSON.stringify(r.payload);
+  let duplicateKeys = 0;
+  let duplicateRows = 0;
+  const out: ClosureIngest[] = [];
+  for (const group of byKey.values()) {
+    if (group.length > 1) {
+      duplicateKeys += 1;
+      duplicateRows += group.length;
+    }
+    let best = group[0]!;
+    for (const r of group.slice(1)) {
+      const d = r.closedAt.getTime() - best.closedAt.getTime();
+      if (d > 0 || (d === 0 && tie(r) > tie(best))) best = r;
+    }
+    out.push(best);
+  }
+  return { records: out, duplicateKeys, duplicateRows };
 }
 
 /** One `3kx8-uryv` request, every row through `closureRowSchema` (T-3-03). */
@@ -837,7 +893,14 @@ export async function fetchClosures(
       closedAt: rec.closedAt,
     });
   }
-  return { sourceVersion, records, rejected };
+  const folded = foldClosureDuplicates(records);
+  return {
+    sourceVersion,
+    records: folded.records,
+    rejected,
+    duplicateKeys: folded.duplicateKeys,
+    duplicateRows: folded.duplicateRows,
+  };
 }
 
 /**
@@ -911,6 +974,8 @@ export async function runClosuresPass(
     async (run, tally, stats) => {
       stats.rejected_rows = fetched.rejected.count;
       if (fetched.rejected.count > 0) stats.rejected_sample = fetched.rejected.sample;
+      stats.duplicate_keys = fetched.duplicateKeys ?? 0;
+      stats.duplicate_rows_folded = fetched.duplicateRows ?? 0;
 
       for (const batch of chunks(fetched.records, INGEST_BATCH_SIZE)) {
         await db.run(async ({ tx, orgId }) => {

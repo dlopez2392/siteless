@@ -12,13 +12,16 @@ import {
   closuresQuery,
   fetchClosures,
   fetchPermits,
+  foldClosureDuplicates,
   IngestOrgRequiredError,
   parseIngestArgs,
   permitsQuery,
   permitToIngest,
   seededClusters,
+  type ClosureIngest,
 } from '../../scripts/ingest-comptroller';
 import { nameNorm } from '@/lib/normalize';
+import { closureRowToSourceRecord, type ClosureRow } from '@/lib/socrata/closures';
 import { fetchStatewideNameFrequency } from '@/lib/socrata/statewide-names';
 import closuresPage from './msw/fixtures/socrata-3kx8-page.json';
 import socrataRecordings from './msw/fixtures/socrata-recordings.json';
@@ -197,5 +200,65 @@ describe('release recorded (the Comptroller half)', () => {
     expect(closures.rejected.sample[0]?.key).toBe('32006170057-5');
     expect(closures.records.length).toBe(closuresPage.length - 1);
     for (const r of closures.records) expect(r.sourceVersion).toBe(closureVersion);
+  });
+});
+
+/**
+ * 03-20 desk run, measured live 2026-09-22: `3kx8-uryv` carries 21,509 RGV rows over only
+ * 21,467 distinct `tp_number-loc_number` keys — 18 keys on 60 rows, differing in
+ * `out_of_business_date` (one outlet, 17426217984-1, has nine quarterly dates). Written one row
+ * at a time, a duplicate key flips its own stored payload inside a single run (`changed 42` on a
+ * FIRST run), and `$order=tp_number,loc_number` does not order rows within a key, so a second run
+ * can never report `unchanged` for them. The feed is folded to one record per key first.
+ */
+describe('closure feed duplicate keys (03-20)', () => {
+  const row = (tp: string, loc: string, date: string): ClosureRow => ({
+    tp_number: tp,
+    loc_number: loc,
+    loc_name: 'SYNTHETIC CLOSED OUTLET',
+    loc_county: '108',
+    out_of_business_date: date,
+  });
+  const rec = (r: ClosureRow): ClosureIngest => {
+    const s = closureRowToSourceRecord(r, '2026-09-21T15:48:35.000Z');
+    return {
+      externalId: s.externalId,
+      sourceVersion: s.sourceVersion,
+      payload: s.payload,
+      closedAt: s.closedAt,
+    };
+  };
+  const dupDates = [
+    '2023-04-01T00:00:00.000',
+    '2024-10-01T00:00:00.000',
+    '2022-10-01T00:00:00.000',
+  ];
+
+  it('closure feed duplicate keys fold to one record, latest date, order-independent', () => {
+    const dups = dupDates.map((d) => rec(row('17426217984', '1', d)));
+    const other = rec(row('32043411274', '6', '2024-05-01T00:00:00.000'));
+    const forward = foldClosureDuplicates([...dups, other]);
+    const backward = foldClosureDuplicates([other, ...[...dups].reverse()]);
+
+    expect(forward.records.map((r) => r.externalId).sort()).toEqual([
+      '17426217984-1',
+      '32043411274-6',
+    ]);
+    expect(forward.duplicateKeys).toBe(1);
+    expect(forward.duplicateRows).toBe(3);
+    const kept = forward.records.find((r) => r.externalId === '17426217984-1');
+    expect(kept?.payload.out_of_business_date).toBe('2024-10-01T00:00:00.000');
+    // The same stored payload whatever order Socrata hands the rows over in.
+    const keptBack = backward.records.find((r) => r.externalId === '17426217984-1');
+    expect(keptBack?.payload).toEqual(kept?.payload);
+  });
+
+  it('closure feed duplicate keys with an equal date resolve identically in either order', () => {
+    const a = rec({ ...row('32029393843', '4', '2025-04-02T00:00:00.000'), loc_name: 'NAME A' });
+    const b = rec({ ...row('32029393843', '4', '2025-04-02T00:00:00.000'), loc_name: 'NAME B' });
+    const ab = foldClosureDuplicates([a, b]).records;
+    const ba = foldClosureDuplicates([b, a]).records;
+    expect(ab).toHaveLength(1);
+    expect(ab[0]?.payload).toEqual(ba[0]?.payload);
   });
 });

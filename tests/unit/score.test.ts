@@ -21,6 +21,7 @@ import { describe, expect, it } from 'vitest';
 import {
   AUTO_MERGE_SCORE,
   DEFAULT_WEIGHTS,
+  PHONE_LIFT_MIN_NAME_SIM,
   REVIEW_CEILING,
   REVIEW_SCORE,
   distanceMeters,
@@ -110,7 +111,16 @@ const MATCH_TYPES = new Set(['overture', 'census_exact', 'census_non_exact', nul
 describe('merge-pairs fixture', () => {
   it('merge-pairs fixture is well-formed', () => {
     expect(PAIRS.map((p) => p.id)).toEqual([
-      'P01', 'P02', 'P03', 'P04', 'P05', 'P06', 'P07', 'P08', 'P09', 'P10',
+      'P01',
+      'P02',
+      'P03',
+      'P04',
+      'P05',
+      'P06',
+      'P07',
+      'P08',
+      'P09',
+      'P10',
     ]);
     for (const p of PAIRS) {
       for (const s of [p.a, p.b]) {
@@ -187,8 +197,22 @@ describe('score() structural rules', () => {
     // The same two towns with every other feature at its maximum: same phone, same full
     // address, same cluster, identical name. Still distinct.
     const maxed: CandidatePair = {
-      a: { ...p.a, phoneE164: '+19565550199', phoneBlockable: true, streetNum: '1', streetNorm: 'synthetic st', postal: '78520' },
-      b: { ...p.b, phoneE164: '+19565550199', phoneBlockable: true, streetNum: '1', streetNorm: 'synthetic st', postal: '78520' },
+      a: {
+        ...p.a,
+        phoneE164: '+19565550199',
+        phoneBlockable: true,
+        streetNum: '1',
+        streetNorm: 'synthetic st',
+        postal: '78520',
+      },
+      b: {
+        ...p.b,
+        phoneE164: '+19565550199',
+        phoneBlockable: true,
+        streetNum: '1',
+        streetNorm: 'synthetic st',
+        postal: '78520',
+      },
       nameSim: 1,
     };
     const rm = score(maxed);
@@ -200,7 +224,12 @@ describe('score() structural rules', () => {
     const phone = '+19565550123';
     const r = score({
       a: side({ phoneE164: phone, phoneBlockable: true, streetNorm: 'synthetic n st' }),
-      b: side({ phoneE164: phone, phoneBlockable: true, streetNorm: 'synthetic s st', lat: 26.2018 }),
+      b: side({
+        phoneE164: phone,
+        phoneBlockable: true,
+        streetNorm: 'synthetic s st',
+        lat: 26.2018,
+      }),
       nameSim: 0.65,
     });
     // name 19 + phone 30 + address 15 + distance 10 + cluster 5 = 79; R3 lifts it to 95.
@@ -211,9 +240,28 @@ describe('score() structural rules', () => {
     expect(r.band).toBe('merge');
   });
 
+  it('phone lift needs name sim 0.30', () => {
+    // 03-20 desk run (danlo, 2026-09-23): 7,099 phone pairs were lifted to exactly 80, and
+    // 6,247 of them had name sim < 0.3 — two listings sharing one number. Below the floor a
+    // shared phone + ZIP is NOT lifted: the pair keeps its raw score. P07's records, raw 29.
+    expect(PHONE_LIFT_MIN_NAME_SIM).toBe(0.3);
+    const below = score({ ...pairOf(fixture('P07')), nameSim: 0.29 });
+    expect(rawSum(below)).toBe(29);
+    expect(below.signals).toEqual(['phone']);
+    expect(below.features.rule).toBeUndefined();
+    expect(below.score).toBe(29);
+    expect(below.band).toBe('ignore');
+
+    const at = score({ ...pairOf(fixture('P07')), nameSim: 0.3 });
+    expect(rawSum(at)).toBe(29);
+    expect(at.features.rule).toBe('phone_locality_review');
+    expect(at.score).toBe(80);
+    expect(at.band).toBe('review');
+  });
+
   it('phone locality — sim < 0.60 is clamped to the review band', () => {
-    // Lower edge: P07, raw 29, lifted to 80.
-    const r7 = score(pairOf(fixture('P07')));
+    // Lower edge: P07's records at the lift floor (sim 0.30), raw 29, lifted to 80.
+    const r7 = score({ ...pairOf(fixture('P07')), nameSim: 0.3 });
     expect(rawSum(r7)).toBe(29);
     expect(r7.features.rule).toBe('phone_locality_review');
     expect(r7.score).toBe(80);
@@ -253,8 +301,19 @@ describe('score() structural rules', () => {
     const phone = '+19565550177';
     const chain = 'synthetic valley tire';
     const r = score({
-      a: side({ phoneE164: phone, phoneBlockable: true, chainKey: chain, streetNorm: 'synthetic n st' }),
-      b: side({ phoneE164: phone, phoneBlockable: true, chainKey: chain, streetNorm: 'synthetic s st', lat: 26.2018 }),
+      a: side({
+        phoneE164: phone,
+        phoneBlockable: true,
+        chainKey: chain,
+        streetNorm: 'synthetic n st',
+      }),
+      b: side({
+        phoneE164: phone,
+        phoneBlockable: true,
+        chainKey: chain,
+        streetNorm: 'synthetic s st',
+        lat: 26.2018,
+      }),
       nameSim: 0.72,
     });
     expect(r.features.rule).toBe('phone_locality_name');
@@ -288,7 +347,12 @@ describe('score() structural rules', () => {
   });
 
   it('a Census Non_Exact location never satisfies the geo gate', () => {
-    const a = side({ source: 'tx_comptroller', locationMatchType: 'census_non_exact', lat: 26.2, lng: -98.23 });
+    const a = side({
+      source: 'tx_comptroller',
+      locationMatchType: 'census_non_exact',
+      lat: 26.2,
+      lng: -98.23,
+    });
     const b = side({ lat: 26.2001, lng: -98.23 });
     const d = distanceMeters(26.2, -98.23, 26.2001, -98.23);
     expect(Math.round(d)).toBe(11); // well inside the 100 m tier, so only Non_Exact can refuse it
