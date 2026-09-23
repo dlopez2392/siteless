@@ -262,6 +262,40 @@ describe('review queue — the google item kind', () => {
       }
     }));
 
+  it('a listing skipped this session sinks below every undecided item', () =>
+    // 04-24: "Skip" on a listing writes nothing (0029 has no skip column), so the screen carries
+    // the ids it skipped (`?skip=`) and the queue sinks them — D-13's rule for a skipped pair:
+    // leave it pending, move on, and let it resurface once the rest is worked.
+    withTxRollback(async (tx) => {
+      const c = asPg(tx);
+      const s = await seedAll(c, 85);
+      const high = await tentative(c, s, s.spine.ortiz, 'ChIJ_ortiz_skip_high', 93);
+      const low = await tentative(c, s, s.spine.garza, 'ChIJ_garza_skip_low', 82);
+      await actAs(c, CLAIMS_A);
+
+      // Nothing skipped: the highest listing, then (google filter) the order is by score.
+      const fresh = (await readReviewQueue(tx, 'google')).top as GoogleListingView;
+      expect(fresh.attachmentId).toBe(high);
+
+      // The 93 skipped: the 82 is next, below it but not skipped.
+      const next = await readReviewQueue(tx, 'google', [high]);
+      expect((next.top as GoogleListingView).attachmentId).toBe(low);
+      // Still pending, still counted — a skip is not a decision.
+      expect(next.remaining).toBe(2);
+
+      // In the mixed queue the skipped 93 falls below the 85 pair as well.
+      expect((await readReviewQueue(tx, 'all', [high])).top?.kind).toBe('pair');
+
+      // Everything skipped: the skipped ones resurface, highest first — never an empty screen
+      // while listings are still pending.
+      const again = await readReviewQueue(tx, 'google', [high, low]);
+      expect((again.top as GoogleListingView).attachmentId).toBe(high);
+
+      // An id that is not a listing of this org changes nothing.
+      const foreign = await readReviewQueue(tx, 'google', ['00000000-0000-4000-8000-000000000000']);
+      expect((foreign.top as GoogleListingView).attachmentId).toBe(high);
+    }));
+
   it('existing pair behaviour is unchanged', () =>
     withTxRollback(async (tx) => {
       const c = asPg(tx);

@@ -1,5 +1,10 @@
-import { cleanup, render, screen, within } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+const push = vi.fn();
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push, refresh: vi.fn(), replace: vi.fn(), back: vi.fn(), prefetch: vi.fn() }),
+}));
 
 /**
  * `/review`'s Google listing item (04-UI-SPEC § Screen 3; D-05, D-08, D-11; Executor Rules 28,
@@ -14,6 +19,21 @@ import { afterEach, describe, expect, it } from 'vitest';
  */
 import { GoogleListingCard } from '@/components/review/google-listing-card';
 import {
+  ReviewDuplicatesClear,
+  ReviewGoogleClear,
+  ReviewQueueClear,
+} from '@/components/review/review-empty';
+import { ReviewFilter } from '@/components/review/review-filter';
+import {
+  parseReviewKind,
+  parseSkipped,
+  reviewEmptyKind,
+  reviewHref,
+  reviewRemainingText,
+  SKIPPED_MAX,
+  withSkipped,
+} from '@/lib/ui/review-kind';
+import {
   GOOGLE_MAPS_LINK_SR_SUFFIX,
   GOOGLE_MAPS_TAG,
   REVIEW_GOOGLE_CARD_BODY,
@@ -22,6 +42,7 @@ import {
   REVIEW_GOOGLE_OPEN_MAPS,
   REVIEW_GOOGLE_REASON_SCORE,
   REVIEW_GOOGLE_REASON_TIE,
+  REVIEW_CLEAR_BODY_WITH_GOOGLE,
   REVIEW_SIDE_LABEL,
   SOURCE_TAG,
 } from '@/lib/ui/copy';
@@ -210,5 +231,145 @@ describe('google listing card', () => {
       expect(rest).toMatch(/^[\s\d.,:·()]*$/);
       unmount();
     }
+  });
+});
+
+const A = '11111111-1111-4111-8111-111111111111';
+const B = '55555555-5555-4555-8555-555555555555';
+
+describe('review filter and queue lines', () => {
+  beforeEach(() => {
+    push.mockReset();
+  });
+
+  it('the review filter reflects the URL', async () => {
+    // The page parses `?kind=` and hands the filter its value; anything unknown reads as all.
+    expect(parseReviewKind('google')).toBe('google');
+    expect(parseReviewKind(['duplicates', 'google'])).toBe('duplicates');
+    expect(parseReviewKind('GOOGLE')).toBe('all');
+    expect(parseReviewKind(undefined)).toBe('all');
+
+    render(<ReviewFilter kind="google" skipped={[A]} />);
+    const group = screen.getByTestId('review-filter');
+    expect(within(group).getAllByRole('radio')).toHaveLength(3);
+
+    const google = screen.getByTestId('review-filter-google');
+    expect(google).toHaveAttribute('aria-checked', 'true');
+    expect(google).toHaveTextContent('Google');
+    expect(google).toHaveAccessibleName('Google listings');
+    expect(screen.getByTestId('review-filter-all')).toHaveAttribute('aria-checked', 'false');
+    expect(screen.getByTestId('review-filter-all')).toHaveTextContent('All');
+    // 44px toggles.
+    for (const id of ['review-filter-all', 'review-filter-duplicates', 'review-filter-google']) {
+      expect(screen.getByTestId(id)).toHaveClass('min-h-11');
+    }
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('review-filter-duplicates'));
+    });
+    expect(push).toHaveBeenCalledTimes(1);
+    // The session's skipped listings travel with the filter.
+    expect(push).toHaveBeenCalledWith(`/review?kind=duplicates&skip=${A}`);
+
+    // Pressing the selected toggle again is not "no filter": nothing navigates.
+    push.mockReset();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('review-filter-duplicates'));
+    });
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  it('the remaining count names both kinds', () => {
+    const counts = { pairs: 3, google: 2 };
+    expect(reviewRemainingText('all', { remaining: 5, counts })).toBe(
+      '5 left to review · 3 duplicate pairs, 2 Google listings',
+    );
+    expect(reviewRemainingText('all', { remaining: 2, counts: { pairs: 1, google: 1 } })).toBe(
+      '2 left to review · 1 duplicate pair, 1 Google listing',
+    );
+    expect(reviewRemainingText('google', { remaining: 2, counts })).toBe(
+      '2 Google listings left to review',
+    );
+    expect(reviewRemainingText('google', { remaining: 1, counts })).toBe(
+      '1 Google listing left to review',
+    );
+    // Duplicates keep the inherited Phase 3 line.
+    expect(reviewRemainingText('duplicates', { remaining: 3, counts })).toBe(
+      '3 pairs left to review',
+    );
+    expect(
+      reviewRemainingText('all', { remaining: 1284, counts: { pairs: 1284, google: 0 } }),
+    ).toBe('1,284 left to review · 1,284 duplicate pairs, 0 Google listings');
+  });
+
+  it('the google empty state offers the duplicates', () => {
+    const counts = { pairs: 3, google: 0 };
+    expect(reviewEmptyKind('google', { counts, ingested: true })).toBe('google-clear');
+    render(<ReviewGoogleClear pairs={3} href={reviewHref('duplicates', [A])} />);
+    const empty = screen.getByTestId('review-google-clear');
+    expect(within(empty).getByRole('heading', { level: 2 })).toHaveTextContent(
+      'No Google listings to review',
+    );
+    expect(empty).toHaveTextContent(
+      'Every tentative Google listing has a decision. 3 duplicate pairs are still waiting.',
+    );
+    const action = within(empty).getByRole('link', { name: 'Show duplicates' });
+    expect(action).toHaveAttribute('href', `/review?kind=duplicates&skip=${A}`);
+    expect(empty.querySelector('[data-icon="map-pin-check"]')).not.toBeNull();
+  });
+
+  it('the duplicates empty state offers the Google listings', () => {
+    expect(reviewEmptyKind('duplicates', { counts: { pairs: 0, google: 1 }, ingested: true })).toBe(
+      'duplicates-clear',
+    );
+    render(<ReviewDuplicatesClear listings={1} href={reviewHref('google')} />);
+    const empty = screen.getByTestId('review-duplicates-clear');
+    expect(empty).toHaveTextContent('No duplicate pairs to review');
+    expect(empty).toHaveTextContent(
+      'Every duplicate pair has a decision. 1 Google listing is still waiting.',
+    );
+    expect(within(empty).getByRole('link', { name: 'Show Google listings' })).toHaveAttribute(
+      'href',
+      '/review?kind=google',
+    );
+  });
+
+  it('queue clear covers both kinds, and a filter with nothing of either kind is queue clear', () => {
+    expect(reviewEmptyKind('all', { counts: { pairs: 0, google: 0 }, ingested: true })).toBe(
+      'queue-clear',
+    );
+    expect(reviewEmptyKind('google', { counts: { pairs: 0, google: 0 }, ingested: true })).toBe(
+      'queue-clear',
+    );
+    expect(reviewEmptyKind('google', { counts: { pairs: 0, google: 0 }, ingested: false })).toBe(
+      'nothing-yet',
+    );
+    render(<ReviewQueueClear />);
+    expect(screen.getByTestId('review-queue-clear')).toHaveTextContent(
+      REVIEW_CLEAR_BODY_WITH_GOOGLE,
+    );
+  });
+
+  it('the review URL carries only valid skipped listing ids', () => {
+    // Anything but a uuid is dropped before it can reach SQL; duplicates collapse.
+    expect(parseSkipped(`${A},not-a-uuid,${A.toUpperCase()}, ${B}`)).toEqual([A, B]);
+    expect(parseSkipped([A, `${B},x`])).toEqual([A, B]);
+    expect(parseSkipped(undefined)).toEqual([]);
+    expect(parseSkipped("1' or '1'='1")).toEqual([]);
+
+    // Skipping appends at the newest end; past the cap the oldest fall off.
+    expect(withSkipped([A], B)).toEqual([A, B]);
+    expect(withSkipped([A, B], A)).toEqual([B, A]);
+    const many = Array.from(
+      { length: SKIPPED_MAX },
+      (_, i) => `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`,
+    );
+    const capped = withSkipped(many, B);
+    expect(capped).toHaveLength(SKIPPED_MAX);
+    expect(capped.at(-1)).toBe(B);
+    expect(capped[0]).toBe(many[1]);
+
+    expect(reviewHref('google')).toBe('/review?kind=google');
+    expect(reviewHref('all', [A, B])).toBe(`/review?kind=all&skip=${A},${B}`);
   });
 });

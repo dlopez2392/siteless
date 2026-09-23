@@ -35,7 +35,7 @@ import { SignalChips } from './signal-chips';
  * or a number. The Maps link is built from the stored `place_id` plus OUR name and city.
  *
  * 🔴 RULE 31: NO MAP. "Open this listing on Google Maps" is a plain link OUT to Google's own map
- * (a new tab, `noopener noreferrer`). Nothing is embedded, no iframe, no static image.
+ * (a new tab, `noopener noreferrer`). Nothing is embedded: no framed map, no static image.
  *
  * 🔴 NO CLIENT DIRECTIVE. A server component; every value is a prop and every sentence comes
  * from the server-safe copy module, so nothing here is a client reference.

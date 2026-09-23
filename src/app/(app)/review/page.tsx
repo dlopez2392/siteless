@@ -1,81 +1,86 @@
 import { Suspense } from 'react';
 import { CandidatePair } from '@/components/review/candidate-pair';
+import { GoogleListingCard } from '@/components/review/google-listing-card';
 import { ReviewActions, ReviewAdvance, ReviewHelpers } from '@/components/review/review-actions';
-import { ReviewNothingYet, ReviewQueueClear } from '@/components/review/review-empty';
+import {
+  ReviewDuplicatesClear,
+  ReviewGoogleClear,
+  ReviewNothingYet,
+  ReviewQueueClear,
+} from '@/components/review/review-empty';
+import { ReviewFilter } from '@/components/review/review-filter';
 import { ReviewSkeleton } from '@/components/review/review-skeleton';
 import { ThumbBar } from '@/components/review/thumb-bar';
 import { Skeleton } from '@/components/ui/skeleton';
 import { orgClaims } from '@/lib/auth/require-org';
+import { REVIEW_ORDERING_NOTE, REVIEW_SCORE_LINE, REVIEW_TITLE } from '@/lib/ui/copy';
 import {
-  REVIEW_CLEAR_HEADING,
-  REVIEW_EMPTY_HEADING,
-  REVIEW_ORDERING_NOTE,
-  REVIEW_REMAINING,
-  REVIEW_SCORE_LINE,
-  REVIEW_TITLE,
-} from '@/lib/ui/copy';
-import { formatCount } from '@/lib/ui/review-format';
-import { listReviewQueue, type ReviewQueue } from '@/server/queries/review-queue';
+  REVIEW_EMPTY_LIVE,
+  parseReviewKind,
+  parseSkipped,
+  reviewEmptyKind,
+  reviewHref,
+  reviewRemainingText,
+  withSkipped,
+} from '@/lib/ui/review-kind';
+import { listReviewQueue, type ReviewFilter as ReviewKind } from '@/server/queries/review-queue';
 
 export const dynamic = 'force-dynamic';
 
 /**
- * `/review` — DEDUP-01's human half (03-UI-SPEC § 1; D-13, D-15, D-16). The 80–94 band, worked
- * to zero one pair at a time, highest score first, from a phone.
+ * `/review` — DEDUP-01's human half (03-UI-SPEC § 1; D-13, D-15, D-16), and since Phase 4 the
+ * place a tentative Google listing gets its human decision (04-UI-SPEC § Screen 3; D-05, D-08).
+ * ONE score-ordered queue of two item kinds, worked to zero one item at a time, from a phone.
  *
  * 🔴 `requireOrg()` IS ALREADY ENFORCED by `src/app/(app)/layout.tsx` (its first statement).
  * This page reads `orgClaims()` only to scope its own query, and opens exactly ONE `withOrg`
  * (`listReviewQueue`) — `src/db/client.ts` pools with `max: 1`, so a transaction opened inside
  * another waits on the connection the outer one holds and the request HANGS.
  *
- * 🔴 THE HEADING PAINTS BEFORE THE DATA. The Suspense fallback renders the same `PageHeading`,
- * so first paint is the real title and a skeleton pair — never a blank page or a centred
- * spinner.
+ * 🔴 THE HEADING AND THE FILTER PAINT BEFORE THE DATA. The URL is read outside the Suspense
+ * boundary (no database), so first paint is the real title, the real filter and a skeleton item
+ * — never a blank page or a centred spinner.
  *
- * Hierarchy (UI-SPEC § 1): "Review queue" → the remaining count (Body 16/600 tabular, in the
- * `aria-live` region) + "Highest score first" → the pair → the chip band → the actions. The
- * count and the score are deliberately quiet: the focal point is the two names.
+ * URL STATE (`src/lib/ui/review-kind.ts`): `?kind=` is the filter (anything unknown is `all`);
+ * `?skip=` is the Google listings skipped this session. A listing skip writes nothing, so the
+ * URL is what lets the queue sink it and show the next item.
+ *
+ * Hierarchy: "Review queue" → the filter → the remaining count (Body 16/600 tabular, in the
+ * `aria-live` region) + "Highest score first" → the item → the actions. The count and the score
+ * are deliberately quiet: the focal point is the business name.
  *
  * 🔴 ONE LIVE REGION FOR THE COUNT AND THE END STATE. `review-remaining` holds the count while
- * pairs remain; when the queue empties the same node holds "Queue clear" (visually hidden — the
- * Empty heading shows it), so reaching the end is ANNOUNCED, not merely rendered. The node
- * stays at the same position in the tree across a refresh, which is what lets a screen reader
- * hear the change.
+ * items remain; when the (filtered) queue empties the same node holds the empty state's heading
+ * (visually hidden — the Empty heading shows it), so reaching the end is ANNOUNCED, not merely
+ * rendered. The node stays at the same position in the tree across a refresh.
  */
+
+type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
 function PageHeading() {
   return <h1 className="text-xl font-semibold leading-tight">{REVIEW_TITLE}</h1>;
 }
 
-/** The key the "Queue clear" state animates in under, in place of a candidate id. */
-const QUEUE_CLEAR_KEY = 'queue-clear';
+/** The key an empty state animates in under, in place of an item id. */
+const EMPTY_KEY = 'queue-empty';
 
-function liveText({ top, remaining, ingested }: ReviewQueue): string {
-  if (top) return REVIEW_REMAINING(remaining, formatCount(remaining));
-  return ingested ? REVIEW_CLEAR_HEADING : REVIEW_EMPTY_HEADING;
-}
-
-async function ReviewRegion() {
+async function ReviewRegion({ kind, skipped }: { kind: ReviewKind; skipped: readonly string[] }) {
   const claims = await orgClaims();
-  // 04-21: the queue now carries a second item kind (tentative Google listings). Until 04-24
-  // renders it, this screen reads the `duplicates` filter — the Phase 3 queue exactly — so a
-  // Google item can never reach a pair-shaped card; the narrowing below states that for tsc.
-  const queue = await listReviewQueue(claims, 'duplicates');
-  const { ingested } = queue;
-  const top = queue.top?.kind === 'pair' ? queue.top : null;
+  const queue = await listReviewQueue(claims, kind, skipped);
+  const { top } = queue;
+  const empty = top ? null : reviewEmptyKind(kind, queue);
 
   return (
     <div className="flex flex-col gap-4 lg:gap-6">
       <div className="flex items-start justify-between gap-4">
         <div className="flex min-w-0 flex-col gap-1">
-          <PageHeading />
           <p
             data-testid="review-remaining"
             aria-live="polite"
             aria-atomic="true"
             className={top ? 'text-base font-semibold tabular-nums' : 'sr-only'}
           >
-            {liveText(queue)}
+            {empty ? REVIEW_EMPTY_LIVE[empty] : reviewRemainingText(kind, queue)}
           </p>
           {top ? (
             <p className="text-sm font-normal text-muted-foreground">{REVIEW_ORDERING_NOTE}</p>
@@ -93,19 +98,48 @@ async function ReviewRegion() {
         ) : null}
       </div>
 
-      {top || ingested ? (
-        <ReviewAdvance candidateId={top ? top.candidateId : QUEUE_CLEAR_KEY}>
-          {top ? <CandidatePair pair={top} /> : <ReviewQueueClear />}
-        </ReviewAdvance>
-      ) : (
+      {empty === 'nothing-yet' ? (
         <ReviewNothingYet />
+      ) : (
+        <ReviewAdvance
+          candidateId={
+            top ? (top.kind === 'google' ? top.attachmentId : top.candidateId) : EMPTY_KEY
+          }
+        >
+          {top?.kind === 'google' ? (
+            <GoogleListingCard item={top} />
+          ) : top ? (
+            <CandidatePair pair={top} />
+          ) : empty === 'google-clear' ? (
+            <ReviewGoogleClear
+              pairs={queue.counts.pairs}
+              href={reviewHref('duplicates', skipped)}
+            />
+          ) : empty === 'duplicates-clear' ? (
+            <ReviewDuplicatesClear
+              listings={queue.counts.google}
+              href={reviewHref('google', skipped)}
+            />
+          ) : (
+            <ReviewQueueClear />
+          )}
+        </ReviewAdvance>
       )}
 
       {/* C-WR-06: in the scrolling flow, before the bar's spacer, so on a phone it sits just
           above the fixed buttons; from 640px up `sm:order-last` puts it beneath them. */}
-      {top ? <ReviewHelpers className="sm:order-last" /> : null}
+      {top ? <ReviewHelpers kind={top.kind} className="sm:order-last" /> : null}
 
-      {top ? (
+      {top?.kind === 'google' ? (
+        <ThumbBar>
+          <ReviewActions
+            kind="google"
+            attachmentId={top.attachmentId}
+            businessName={top.business.displayName}
+            skipHref={reviewHref(kind, withSkipped(skipped, top.attachmentId))}
+          />
+        </ThumbBar>
+      ) : top ? (
         <ThumbBar>
           <ReviewActions candidateId={top.candidateId} />
         </ThumbBar>
@@ -118,12 +152,11 @@ function ReviewLoading() {
   return (
     <div className="flex flex-col gap-4 lg:gap-6">
       <div className="flex flex-col gap-1">
-        <PageHeading />
         <Skeleton className="h-5 w-48" />
         <Skeleton className="h-4 w-32" />
       </div>
       <ReviewSkeleton />
-      {/* Real buttons in their real positions, disabled until a pair exists to decide. */}
+      {/* Real buttons in their real positions, disabled until an item exists to decide. */}
       <ThumbBar>
         <ReviewActions candidateId={null} />
       </ThumbBar>
@@ -131,10 +164,20 @@ function ReviewLoading() {
   );
 }
 
-export default function ReviewPage() {
+export default async function ReviewPage({ searchParams }: { searchParams: SearchParams }) {
+  const params = await searchParams;
+  const kind = parseReviewKind(params.kind);
+  const skipped = parseSkipped(params.skip);
+
   return (
-    <Suspense fallback={<ReviewLoading />}>
-      <ReviewRegion />
-    </Suspense>
+    <div className="flex flex-col gap-4 lg:gap-6">
+      <div className="flex flex-col gap-4">
+        <PageHeading />
+        <ReviewFilter kind={kind} skipped={skipped} />
+      </div>
+      <Suspense fallback={<ReviewLoading />}>
+        <ReviewRegion kind={kind} skipped={skipped} />
+      </Suspense>
+    </div>
   );
 }
