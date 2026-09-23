@@ -150,8 +150,9 @@ export function RunAutoRefresh({
       const said = announcementFor(status, costMicroUsd, stoppedReason);
       if (said) parts.push(said);
     }
-    const firstTruncation = !truncationAnnounced && seenTruncated === 0 && truncatedCount > 0;
-    if (firstTruncation) {
+    // `truncationAnnounced` starts true when the report LOADS truncated — that warning was on
+    // screen from the first paint, so it is not a transition and is never announced.
+    if (!truncationAnnounced && truncatedCount > 0) {
       parts.push(RUN_ANNOUNCE_TRUNCATED(truncatedCount));
       setTruncationAnnounced(true);
     }
