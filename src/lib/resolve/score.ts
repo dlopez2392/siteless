@@ -83,13 +83,21 @@ export const REVIEW_SCORE = 80;
  *  is exactly one below the merge threshold. */
 export const REVIEW_CEILING = AUTO_MERGE_SCORE - 1;
 
-/** pg_trgm blocking threshold. Measured: 0.45 -> 33,333 pairs, 0.60 -> 14,485.
+/** pg_trgm blocking threshold. Research: 0.45 -> 33,333 pairs, 0.60 -> 14,485. CONFIRMED
+ *  UNCHANGED by danlo 2026-09-23 on the 03-20 desk run: the real B3 pass produced 51,664
+ *  trigram pairs, and raising this to 0.60 would drop 29,760 of them, none of which scores
+ *  >= 80 (without a shared phone, sim < 0.6 tops out at 14 + 30 + 15 + 5 = 64). The review
+ *  queue is driven by the phone lift (see PHONE_LIFT_MIN_NAME_SIM), not by this threshold.
  *  // TUNED BY THE DESK RUN */
 export const BLOCK_SIMILARITY_THRESHOLD = 0.45;
-/** D-04 funnel cutoff. Measured distribution: 61.9 % of Overture TX rows are >= 0.9; this
- *  excludes 8.3 %. Rows below it stay in the spine and never enter the lead funnel.
+/** D-04 funnel cutoff. Rows below it stay in the spine and never enter the lead funnel.
+ *  Set to 0.3 by danlo 2026-09-23 on the 03-20 desk run (was 0.5). Evidence: 20 rows sampled
+ *  per 0.1 band, plus a junk proxy (no street, or a postcode missing or outside 785xx) of
+ *  3.4 % at 0.3–0.4 and 3.3 % at 0.4–0.5, against 6.8 % at 0.5–0.6. Junk climbs only below
+ *  0.2 (25 %, 58 %). 0.3 excludes 2,680 of 56,944 Texas-side rows (4.7 %). The old comment's
+ *  "8.3 %" was the share below 0.4; 0.5 actually excluded 6,163 (10.8 %).
  *  // TUNED BY THE DESK RUN */
-export const OVERTURE_CONFIDENCE_CUTOFF = 0.5;
+export const OVERTURE_CONFIDENCE_CUTOFF = 0.3;
 
 // ─── The weight table (03-RESEARCH § The weight table) ──────────────────────────────────────
 
@@ -356,7 +364,9 @@ export function score(pair: CandidatePair, w: Weights = DEFAULT_WEIGHTS): ScoreR
   }
 
   // R4 (D-07) — exact phone + same ZIP + a dissimilar name: RGV phone reuse. Review, never merge.
-  if (phoneLocality && nameSim < w.phoneLocalityNameSim) {
+  // Only at or above the lift floor (03-20): below it the name is so unlike that the shared
+  // number is an owner or a switchboard, not an identity, and the pair keeps its raw score.
+  if (phoneLocality && nameSim >= w.phoneLiftMinNameSim && nameSim < w.phoneLocalityNameSim) {
     s = clamp(s, 80, 94);
     f.rule = 'phone_locality_review';
   }
