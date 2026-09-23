@@ -208,10 +208,10 @@ Plans:
 - [x] 04-10-PLAN.md — msw Places harness (RegExp path, 501 discipline, mask-aware) and synthetic fixtures
 
 **Wave 2** *(blocked on Wave 1)*
-- [ ] 04-07-PLAN.md — Every Phase 4 string, stopped-reason and run-kind maps, Places formatters; copy gaps settled as a UI-SPEC amendment
-- [ ] 04-11-PLAN.md — 0028: release_reservation, run-search progress, the siteless_cron purge, transient stats; withCronRole
-- [ ] 04-12-PLAN.md — The one builder, zod response, ReservedCall brand, the one sanctioned client; guards moved onto it
-- [ ] 04-13-PLAN.md — Run planning: one pure function for full sweep / this week's partition / change check
+- [x] 04-07-PLAN.md — Every Phase 4 string, stopped-reason and run-kind maps, Places formatters; copy gaps settled as a UI-SPEC amendment
+- [x] 04-11-PLAN.md — 0028: release_reservation, run-search progress, the siteless_cron purge, transient stats; withCronRole
+- [x] 04-12-PLAN.md — The one builder, zod response, ReservedCall brand, the one sanctioned client; guards moved onto it
+- [x] 04-13-PLAN.md — Run planning: one pure function for full sweep / this week's partition / change check
 
 **Wave 3** *(blocked on Wave 2)*
 - [ ] 04-14-PLAN.md — Shared run chrome: RunStatusBadge, RunAutoRefresh, /spend stopped-reason fix and run links, nav
