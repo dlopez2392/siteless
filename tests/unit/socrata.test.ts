@@ -299,7 +299,11 @@ describe('jrea-zgmq: active sales tax permits', () => {
     const raw = permitRow('32006259231', '1');
     expect(raw.taxpayer_address).toBe('PO BOX 1502');
 
-    const record = comptrollerRowToSourceRecord(permitRowSchema.parse(raw), SOURCE_VERSION, CLUSTERS);
+    const record = comptrollerRowToSourceRecord(
+      permitRowSchema.parse(raw),
+      SOURCE_VERSION,
+      CLUSTERS,
+    );
     expect(record.street).toBe('34389 OLD ALICE RD');
     // zod strips every column the transform does not read, so the mailing address cannot
     // ride into the durable payload by accident.
@@ -327,8 +331,11 @@ describe('jrea-zgmq: active sales tax permits', () => {
     // differently. `hi` is EXCLUSIVE, so a range ending at 722410 does not contain it.
     const edge = [{ key: 'edge', naicsRanges: [{ lo: 722000, hi: 722410 }] }];
     expect(
-      comptrollerRowToSourceRecord(permitRowSchema.parse(permitRow('32006204898', '2')), SOURCE_VERSION, edge)
-        .clusterKey,
+      comptrollerRowToSourceRecord(
+        permitRowSchema.parse(permitRow('32006204898', '2')),
+        SOURCE_VERSION,
+        edge,
+      ).clusterKey,
     ).toBeNull();
     const inclusiveLo = [{ key: 'lo', naicsRanges: [{ lo: 722410, hi: 722411 }] }];
     expect(
@@ -414,7 +421,9 @@ describe('3kx8-uryv: the closure feed', () => {
     const closed = closuresFixture.filter((r) => r !== active);
     expect(closed).toHaveLength(49);
     for (const raw of closed) {
-      expect(closureRowSchema.safeParse(raw).success, `${raw.tp_number}-${raw.loc_number}`).toBe(true);
+      expect(closureRowSchema.safeParse(raw).success, `${raw.tp_number}-${raw.loc_number}`).toBe(
+        true,
+      );
     }
   });
 
