@@ -394,15 +394,23 @@ place count, and — while the sidecar says `synthetic: true` — that every id 
 `places-match-page.json` uses exactly the spine's names, street addresses and phones, so the
 matcher has something real to find. Change one side and the other must change with it.
 
-| Place id                    | Serves as                                                                                                           | Expected against the spine                                                                                             |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `synthetic-match-ortiz`     | `Ortiz Plumbing`, `1200 N 10th St, McAllen, TX 78501, USA`, 26.2159/−98.2336, `(956) 631-0001`, no site             | ortiz — exact; host class `none`                                                                                       |
-| `synthetic-match-garza`     | `Garza Electric LLC`, `4100 N 23rd St, McAllen, TX 78504, USA`, 26.2490/−98.2389, `(956) 631-0002`, `business.site` | garza — `dead` site                                                                                                    |
-| `synthetic-match-rio`       | `Rio Roofing`, **pure SAB** (no address, no location), `(956) 631-0003`, facebook                                   | ties rio and rioCo (same phone) — `social`                                                                             |
-| `synthetic-match-valley`    | `Valley Locksmith`, **pure SAB**, `(956) 631-0004`, `.example`                                                      | valley — the SAB phone+city path; `other`                                                                              |
-| `synthetic-match-tentative` | `Ortiz Plumbing and Drain`, `… Ste 5`, 26.2161/−98.2335, `(956) 555-0199`                                           | a near-miss of ortiz, meant to score 80–94; 04-18 pins the real score and may adjust this record once, documenting why |
-| `synthetic-match-nothing`   | `Synthetic Nobody Services`, `9 Synthetic Rd`, no phone                                                             | matches nothing                                                                                                        |
-| `synthetic-match-mexico`    | `Synthetic Taller`, Reynosa, Tamps., 26.07/−98.29                                                                   | outside Texas                                                                                                          |
+| Place id                    | Serves as                                                                                                           | Expected against the spine                                 |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| `synthetic-match-ortiz`     | `Ortiz Plumbing`, `1200 N 10th St, McAllen, TX 78501, USA`, 26.2159/−98.2336, `(956) 631-0001`, no site             | ortiz — exact; host class `none`                           |
+| `synthetic-match-garza`     | `Garza Electric LLC`, `4100 N 23rd St, McAllen, TX 78504, USA`, 26.2490/−98.2389, `(956) 631-0002`, `business.site` | garza — `dead` site                                        |
+| `synthetic-match-rio`       | `Rio Roofing`, **pure SAB** (no address, no location), `(956) 631-0003`, facebook                                   | ties rio and rioCo (same phone) — `social`                 |
+| `synthetic-match-valley`    | `Valley Locksmith`, **pure SAB**, `(956) 631-0004`, `.example`                                                      | valley — the SAB phone+city path; `other`                  |
+| `synthetic-match-tentative` | `Ortiz Plumbing TX`, `… Ste 5`, 26.2161/−98.2335, `(956) 555-0199`                                                  | a near-miss of ortiz: **82** (pinned by 04-18 — see below) |
+| `synthetic-match-nothing`   | `Synthetic Nobody Services`, `9 Synthetic Rd`, no phone                                                             | matches nothing                                            |
+| `synthetic-match-mexico`    | `Synthetic Taller`, Reynosa, Tamps., 26.07/−98.29                                                                   | outside Texas                                              |
+
+**The one adjustment (04-18).** `synthetic-match-tentative` was first `Ortiz Plumbing and Drain`.
+`nameNorm` drops the `and`, and pg_trgm puts `ortiz plumbing drain` at 0.714 against
+`ortiz plumbing`: name 24 + address 30 (the suite is on one side only, so no unit conflict) +
+distance 15 (24 m) + cluster 5 = **74**, below the review band, so it came back `unmatched`. Renamed
+to `Ortiz Plumbing TX` (similarity 0.833 — below the 0.85 name-signal bar, so still two signals):
+name 32 + 30 + 15 + 5 = **82**. Everything else about the record is unchanged. The score is pinned
+in `tests/db/places-search-tile.test.ts`.
 
 `PLACES_SENTINELS` (exported by `places.ts`) is every `displayName.text`, `formattedAddress`,
 `nationalPhoneNumber` and `websiteUri` these files serve, read out of the files at load. The
