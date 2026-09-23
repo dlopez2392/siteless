@@ -165,7 +165,7 @@ Plans:
 
 **Wave 5** *(blocked on Wave 4)*
 - [x] 03-14-PLAN.md — `scripts/resolve.ts`: block → score → auto-merge → enqueue, cluster-aware
-- [ ] 03-15-PLAN.md — Three query modules and two server actions
+- [x] 03-15-PLAN.md — Three query modules and two server actions
 
 **Wave 6** *(blocked on Wave 5)*
 - [ ] 03-16-PLAN.md — `/review`: the candidate pair, the chip band, three actions, no optimistic advance
