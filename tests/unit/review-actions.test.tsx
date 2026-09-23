@@ -20,10 +20,12 @@ vi.mock('sonner', () => ({ toast: vi.fn() }));
 
 import { toast } from 'sonner';
 import { recordReviewDecision } from '@/server/actions/record-review-decision';
-import { ReviewActions } from '@/components/review/review-actions';
+import { ReviewActions, ReviewHelpers } from '@/components/review/review-actions';
 import {
   REVIEW_ALREADY_DECIDED,
   REVIEW_DECISION_FAILED,
+  REVIEW_DIFFERENT_HELPER,
+  REVIEW_SKIP_HELPER,
   TOAST_DISTINCT,
   TOAST_MERGED,
 } from '@/lib/ui/copy';
@@ -187,6 +189,30 @@ describe('review actions', () => {
     fireEvent.click(screen.getByTestId('review-action-same'));
     expect(action).toHaveBeenCalledTimes(1);
     await answer({ ok: true, data: { remaining: 0, merged: null } });
+  });
+
+  it('the Different and Skip helper sentences are shown and describe their buttons', () => {
+    // C-WR-06: "Different" is permanent and deliberately unconfirmed (Rule 23); its helper is
+    // the only disclosure the spec gives, and it was rendered by nothing.
+    render(
+      <div>
+        <ReviewHelpers />
+        <ReviewActions candidateId={CANDIDATE} />
+      </div>,
+    );
+    const helpers = screen.getByTestId('review-helpers');
+    expect(helpers).toHaveTextContent(REVIEW_DIFFERENT_HELPER);
+    expect(helpers).toHaveTextContent(REVIEW_SKIP_HELPER);
+    // Visible text, not screen-reader-only: Label 14/400 muted.
+    expect(helpers.closest('.sr-only')).toBeNull();
+    expect(helpers).toHaveClass('text-sm', 'font-normal', 'text-muted-foreground');
+
+    expect(screen.getByTestId('review-action-different')).toHaveAccessibleDescription(
+      REVIEW_DIFFERENT_HELPER,
+    );
+    expect(screen.getByTestId('review-action-skip')).toHaveAccessibleDescription(REVIEW_SKIP_HELPER);
+    // "Same business" is reversible by Unmerge and carries no helper.
+    expect(screen.getByTestId('review-action-same')).toHaveAccessibleDescription('');
   });
 
   it('the loading bar is real and disabled', () => {
