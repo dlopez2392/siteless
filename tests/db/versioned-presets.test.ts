@@ -98,10 +98,20 @@ async function makeVersion(
   return id;
 }
 
-async function makeRun(c: Client, orgId: string, versionId: string): Promise<string> {
+/**
+ * `status` defaults to the column default ('queued'). 🔴 Since drizzle/0027 an org holds at
+ * most ONE queued/running run (`runs_one_active_per_org`, 23505), so a test seeding several
+ * runs in one org seeds the extras as history ('complete').
+ */
+async function makeRun(
+  c: Client,
+  orgId: string,
+  versionId: string,
+  status: 'queued' | 'complete' = 'queued',
+): Promise<string> {
   const { rows } = await c.query<{ id: string }>(
-    'insert into runs (org_id, search_version_id) values ($1, $2) returning id',
-    [orgId, versionId],
+    'insert into runs (org_id, search_version_id, status) values ($1, $2, $3) returning id',
+    [orgId, versionId, status],
   );
   const id = rows[0]?.id;
   if (!id) throw new Error('makeRun: no row returned');
@@ -506,8 +516,10 @@ describe('versioned search presets', () => {
         geoKind: 'radius',
         geoPayload: RADIUS_PAYLOAD,
       });
-      await makeRun(c, a, v1);
-      await makeRun(c, a, v1);
+      // Finished runs: three ACTIVE runs in one org would be refused by
+      // runs_one_active_per_org (drizzle/0027). The count is over every run, whatever status.
+      await makeRun(c, a, v1, 'complete');
+      await makeRun(c, a, v1, 'complete');
       await makeRun(c, a, v2);
 
       const counts = await c.query<{ search_version_id: string; n: number }>(
