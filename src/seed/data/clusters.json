@@ -11,12 +11,11 @@
         "plumber",
         "electrician",
         "roofing_contractor",
-        "general_contractor",
         "painter",
         "locksmith",
         "moving_company"
       ],
-      "placesTypesNote": "Phase 4 validates every type against the Places API (New) type table before the first paid call. The estimator prices cells = clusters x geography units and never reads this list, so a wrong entry here changes no Phase 2 number."
+      "placesTypesNote": "Validated against the Places API (New) Table A snapshot in src/lib/places/place-types.ts (2026-09-23). general_contractor was removed: it is Table B only and cannot be sent as includedType. Phase 4 validates every type before any paid call; tests/unit/place-types.test.ts enforces it."
     },
     {
       "key": "food_hospitality",
@@ -24,7 +23,7 @@
       "sortOrder": 2,
       "naicsRanges": [{ "lo": 721000, "hi": 723000 }],
       "placesTypes": ["restaurant", "cafe", "bar", "bakery", "meal_takeaway", "hotel"],
-      "placesTypesNote": "Phase 4 validates every type against the Places API (New) type table before the first paid call. The estimator prices cells = clusters x geography units and never reads this list, so a wrong entry here changes no Phase 2 number."
+      "placesTypesNote": "Validated against the Places API (New) Table A snapshot in src/lib/places/place-types.ts (2026-09-23). general_contractor was removed: it is Table B only and cannot be sent as includedType. Phase 4 validates every type before any paid call; tests/unit/place-types.test.ts enforces it."
     },
     {
       "key": "personal_care_health",
@@ -43,7 +42,7 @@
         "doctor",
         "physiotherapist"
       ],
-      "placesTypesNote": "Phase 4 validates every type against the Places API (New) type table before the first paid call. The estimator prices cells = clusters x geography units and never reads this list, so a wrong entry here changes no Phase 2 number."
+      "placesTypesNote": "Validated against the Places API (New) Table A snapshot in src/lib/places/place-types.ts (2026-09-23). general_contractor was removed: it is Table B only and cannot be sent as includedType. Phase 4 validates every type before any paid call; tests/unit/place-types.test.ts enforces it."
     },
     {
       "key": "auto_retail",
@@ -62,7 +61,7 @@
         "furniture_store",
         "clothing_store"
       ],
-      "placesTypesNote": "Phase 4 validates every type against the Places API (New) type table before the first paid call. The estimator prices cells = clusters x geography units and never reads this list, so a wrong entry here changes no Phase 2 number."
+      "placesTypesNote": "Validated against the Places API (New) Table A snapshot in src/lib/places/place-types.ts (2026-09-23). general_contractor was removed: it is Table B only and cannot be sent as includedType. Phase 4 validates every type before any paid call; tests/unit/place-types.test.ts enforces it."
     }
   ]
 }
