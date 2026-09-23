@@ -16,10 +16,37 @@ import * as nodeFs from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { PAYLOAD_BUILDERS } from '@/lib/export/registry';
 import type { PublicBusiness } from '@/lib/export/public-business';
-import { makeBusiness } from './fixtures/business';
+import { makeBusiness, NAME_NORM_CANARY, STREET_NORM_CANARY } from './fixtures/business';
 
 const CANARY = 'INTERNAL-CANARY-7f3a2b';
 const EXPORT_DIR = 'src/lib/export';
+
+/**
+ * Phase 3 plan 05: the resolver's three match-key columns are INTERNAL (D-12, UI-SPEC
+ * Rule 17). A compile-time assertion, because the excess-property check below only fires
+ * when somebody WRITES one of these into the literal — it cannot notice PublicBusiness
+ * itself being widened to include them. Remove any of the three from the Omit<> in
+ * src/lib/export/public-business.ts and tsc fails on this line.
+ */
+type InternalKeysOmitted = Extract<
+  keyof PublicBusiness,
+  'internalNotes' | 'nameNorm' | 'streetNorm' | 'phoneBlockable'
+> extends never
+  ? true
+  : never;
+const internalKeysOmitted: InternalKeysOmitted = true;
+
+/** Key spellings a builder would emit if it spread a row, in both casings. */
+const INTERNAL_KEY_NAMES = [
+  'internalNotes',
+  'internal_notes',
+  'nameNorm',
+  'name_norm',
+  'streetNorm',
+  'street_norm',
+  'phoneBlockable',
+  'phone_blockable',
+];
 
 describe('internal annotations never leave the building', () => {
   it('no registered payload builder emits an internal annotation', () => {
@@ -32,11 +59,18 @@ describe('internal annotations never leave the building', () => {
     // this red rather than making every other consumer's scan vacuous.
     expect(makeBusiness().internalNotes).toContain(CANARY);
     expect(fixture.internalNotes).toContain('owner is hostile');
+    // Same guard for the three Phase 3 internal columns: a fixture that quietly dropped
+    // their canaries would make the scan below vacuous for exactly those columns.
+    expect(fixture.nameNorm).toContain(NAME_NORM_CANARY);
+    expect(fixture.streetNorm).toContain(STREET_NORM_CANARY);
+    expect(fixture.phoneBlockable).toBe(true);
+    expect(internalKeysOmitted).toBe(true);
 
     // What a builder is actually handed. Written out field by field rather than
     // destructured on purpose: when a column is added to BusinessLike this object stops
     // compiling, and somebody has to decide public-or-internal instead of inheriting a
-    // spread. Excess-property checking rejects internalNotes here.
+    // spread. Excess-property checking rejects internalNotes here — and, since Phase 3
+    // plan 05, nameNorm, streetNorm and phoneBlockable too.
     const publicBusiness: PublicBusiness = {
       id: fixture.id,
       orgId: fixture.orgId,
@@ -60,6 +94,11 @@ describe('internal annotations never leave the building', () => {
       // re-wrapped the note would slip past a whole-value scan alone.
       expect(payload.json, payload.name).not.toContain(CANARY);
       expect(payload.json, payload.name).not.toContain('owner is hostile');
+      expect(payload.json, payload.name).not.toContain(NAME_NORM_CANARY);
+      expect(payload.json, payload.name).not.toContain(STREET_NORM_CANARY);
+      for (const key of INTERNAL_KEY_NAMES) {
+        expect(payload.json, `${payload.name} emits ${key}`).not.toContain(`"${key}"`);
+      }
     }
 
     const everything = payloads.map((p) => p.json).join('\n');

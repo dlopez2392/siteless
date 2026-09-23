@@ -35,7 +35,23 @@ export type BusinessLike = {
   phoneE164: string | null;
   city: string | null;
   status: string;
+  /**
+   * INTERNAL (D-12, UI-SPEC Rule 17). The normalized match key — lowercased, unaccented,
+   * legal suffixes stripped. It reads like a name and is exactly the "nearest string to
+   * hand" a builder reaches for, which is why it is named here and omitted below.
+   */
+  nameNorm: string | null;
+  /** INTERNAL. The USPS-folded street match key; the display address is `street` + `unit`. */
+  streetNorm: string | null;
+  /** INTERNAL. A blocking-key eligibility flag, meaningless to anybody outside the resolver. */
+  phoneBlockable: boolean;
 };
 
-/** What every outbound payload builder receives: the row minus the operator's annotation. */
-export type PublicBusiness = Omit<BusinessLike, 'internalNotes'>;
+/**
+ * What every outbound payload builder receives: the row minus everything internal — the
+ * operator's annotation and the resolver's three match-key columns (Phase 3 plan 05).
+ */
+export type PublicBusiness = Omit<
+  BusinessLike,
+  'internalNotes' | 'nameNorm' | 'streetNorm' | 'phoneBlockable'
+>;
