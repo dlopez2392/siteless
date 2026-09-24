@@ -117,14 +117,20 @@ points from. `toPageRecord` drops exactly these two keys before the write. The u
 "persisted place features carry no nameSim or distanceM" pins that. The writer test in
 `tests/db/places-writer.test.ts` reads the stored row back and asserts neither key is there.
 
-**The database CHECK was not changed.** `app.places_features_ok` still admits `nameSim` and
-`distanceM` as numbers (13 keys). It is a numbers-only wall, not the keep-out for these two. If
-the application regressed, the database would accept either number. It would still refuse any
-text.
+**The database CHECK now matches the legal line (0030, review finding A-WR-06).** Until 0030,
+`app.places_features_ok` still admitted `nameSim` and `distanceM` as numbers (13 keys), so the
+keep-out for those two was TypeScript only. Since 0030 it admits exactly the 11 keys above and
+refuses `nameSim` and `distanceM` like any other unknown key. It also refuses a non-integer under
+a points key (`name`, `phone`, `address`, `distance`, `cluster`). If the application regressed,
+the database would now refuse either continuous value, not just text. Named tests in
+`tests/db/places-writer.test.ts`: "features carrying nameSim is 23514", "features carrying
+distanceM is 23514", "a non-integer point value is 23514". The constraint was dropped and
+re-added in 0030, so every existing row was re-checked against it. Production held no
+`place_attachments` rows when 0030 was written.
 
-No text from Google can be stored here. The database refuses any non-numeric value or unknown key
-(M36), and `toPageRecord` refuses the same shapes before the write. Since `dc8e057` it also
-refuses a non-integer under a points key.
+No text from Google can be stored here. The database refuses any non-numeric value, any
+non-integer point and any key outside the 11 (M36, A-WR-06), and `toPageRecord` refuses the same
+shapes before the write.
 
 ### 1.2 `place_observations` — 14 columns (append-only history of what one run saw)
 
@@ -367,8 +373,10 @@ How this is enforced, not merely intended:
 - **Matching works on normalized keys.** `src/lib/places/match.ts` `PlaceForMatch` carries
   normalized keys, not display text. `toPageRecord` (`src/lib/places/page-record.ts`) rebuilds
   every object key by key and **throws** on any feature key or value outside the allow-list.
-- **The database enforces numbers-only.** CHECK `pa_features_numeric` (`app.places_features_ok`)
-  refuses any non-numeric feature even if the application regresses (M36). The observation table
+- **The database enforces the 11-key, integer-points line.** CHECK `pa_features_numeric`
+  (`app.places_features_ok`, tightened in 0030) refuses any non-numeric feature, any non-integer
+  point and any key outside the 11 — including `nameSim` and `distanceM` — even if the
+  application regresses (M36, A-WR-06). The observation table
   has no text column that could hold Google text: `host_class` and `sku` are CHECK-constrained
   enums.
 - **Sentinel scans.** The workflow lane test (`tests/workflow/places-sweep.test.ts`, M45 / 04-22)

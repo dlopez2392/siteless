@@ -18,7 +18,9 @@ import { orgPolicies, orgScoped, tstz } from './_helpers';
  * `features` holds the score's integer points, its `signals` / `rule` enums and the 0|1 listing
  * flags — never Places text (no displayName, no formattedAddress), and since 2026-09-23 never the
  * continuous `nameSim` / `distanceM` either (memory-only; src/lib/places/page-record.ts drops
- * them). That is the legal line (D-13).
+ * them). That is the legal line (D-13), and since drizzle/0030 (A-WR-06) the table CHECK
+ * `pa_features_numeric` → `app.places_features_ok` enforces exactly it: the 11 keys, integer
+ * points, anything else 23514.
  *
  * `authenticated` holds SELECT only (drizzle/0027). Every write is a SECURITY DEFINER that
  * resolves the org and the actor from the claims, so `decided_by` cannot be forged.

@@ -611,6 +611,52 @@ describe('pa_features_numeric (T-3-11 / T-4-05, M36)', () => {
         constraint: 'pa_features_numeric',
       });
     }));
+
+  // A-WR-06. The legal line is the 11 persisted keys (page-record.ts FEATURE_KEYS) with INTEGER
+  // points; the continuous nameSim / distanceM are memory-only. The CHECK is the wall behind
+  // toPageRecord, so each is refused at the table, through the writer, as the user. The
+  // positive control is "record_places_page attaches, observes and records outcomes" (the same
+  // record without the mutation writes).
+  it('features carrying nameSim is 23514', () =>
+    withRollback(async (c) => {
+      const s = await setup(c);
+      await actAs(c, CLAIMS_A);
+      const record = page(1, [listing('ChIJ-ortiz', [cand(s.spine.ortiz, 97)])]);
+      (record.places[0]!.matches[0]!.features as unknown as Record<string, unknown>).nameSim = 0.93;
+      const attempt = writePage(c, s.searchId, record);
+      await expect(attempt).rejects.toMatchObject({
+        code: '23514',
+        constraint: 'pa_features_numeric',
+      });
+    }));
+
+  it('features carrying distanceM is 23514', () =>
+    withRollback(async (c) => {
+      const s = await setup(c);
+      await actAs(c, CLAIMS_A);
+      const record = page(1, [listing('ChIJ-ortiz', [cand(s.spine.ortiz, 97)])]);
+      (record.places[0]!.matches[0]!.features as unknown as Record<string, unknown>).distanceM =
+        12;
+      const attempt = writePage(c, s.searchId, record);
+      await expect(attempt).rejects.toMatchObject({
+        code: '23514',
+        constraint: 'pa_features_numeric',
+      });
+    }));
+
+  it('a non-integer point value is 23514', () =>
+    withRollback(async (c) => {
+      const s = await setup(c);
+      await actAs(c, CLAIMS_A);
+      const record = page(1, [listing('ChIJ-ortiz', [cand(s.spine.ortiz, 97)])]);
+      // A continuous similarity smuggled in under an allow-listed points key.
+      (record.places[0]!.matches[0]!.features as unknown as Record<string, unknown>).name = 29.7;
+      const attempt = writePage(c, s.searchId, record);
+      await expect(attempt).rejects.toMatchObject({
+        code: '23514',
+        constraint: 'pa_features_numeric',
+      });
+    }));
 });
 
 describe('app.record_change_check (D-16)', () => {
