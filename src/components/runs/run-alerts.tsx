@@ -6,6 +6,7 @@ import { CopyCommandButton } from '@/components/sources/copy-command-button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { GOOGLE_QUOTA_REQUESTS_PER_DAY } from '@/lib/budget/second-wall';
 import { formatLocal } from '@/lib/time';
 import {
   PLACES_ACTION,
@@ -57,13 +58,6 @@ import type { RunReport } from '@/server/queries/run-report';
  * receive plain strings; the Show/Hide label switch is CSS on Radix's `data-state`, so no state
  * lives here and a refresh cannot close a list the user opened.
  */
-
-/**
- * Google Cloud → Places API (New) → Requests per day (D-19; `docs/runbooks/google-quota.md`,
- * and the second-wall card's copy). Siteless does not read the quota back from Google, so the
- * stop alert names the value the runbook sets. Change both together.
- */
-export const GOOGLE_DAILY_QUOTA_REQUESTS = 100;
 
 /** A run that has waited this long in `queued` gets the muted "still waiting" alert. */
 const QUEUED_LONG_MS = 2 * 60 * 1000;
@@ -279,7 +273,10 @@ function stopAlertOf({
           tone="warning"
           testId="run-stop-alert"
           data={data}
-          text={RUN_STOP_DAILY_QUOTA(GOOGLE_DAILY_QUOTA_REQUESTS, tiles.searched, notSearched)}
+          // The value the runbook sets (D-19) — Siteless does not read the quota back from
+          // Google. ONE constant, shared with the second-wall card (04-31), so the number a
+          // stopped run names and the number /settings/budget names cannot drift apart.
+          text={RUN_STOP_DAILY_QUOTA(GOOGLE_QUOTA_REQUESTS_PER_DAY, tiles.searched, notSearched)}
         >
           <Actions>
             <SpendAction />

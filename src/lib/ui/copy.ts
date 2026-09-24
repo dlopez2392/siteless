@@ -1860,14 +1860,52 @@ export const SOURCES_TRANSIENT_LOAD_FAILED =
 
 /* --- Settings → Budget — the second-wall card (§ Screen 6; Rule 41) ----------------------
  *
- * The "not set yet" state's plain strings, lifted from `second-wall-card.tsx` as they stand;
- * its two derivation paragraphs carry inline <strong> runs and stay with the component's own
- * markup plan (04-31). The "set" state is the checkpoint's static copy — the app cannot read
- * GCP and never claims to. */
+ * The "not set yet" state's strings, lifted from `second-wall-card.tsx` verbatim (04-31). The
+ * two paragraphs with inline emphasis are EMPHASIS RUNS, not markup: the card maps each
+ * `strong` run to a <strong>, so every word on the card lives here and the card spells none
+ * (tests/unit/second-wall-card.test.tsx walks its source for prose). The "set" state is the
+ * checkpoint's static copy — the app cannot read GCP and never claims to. */
+
+/** One run of a paragraph with inline emphasis; `strong` runs render as <strong>. */
+export type EmphasisRun = { readonly text: string; readonly strong?: true };
 
 export const SECOND_WALL_TITLE = 'Google Cloud daily quota — not set yet';
 export const SECOND_WALL_NEEDS_BADGE = 'Needs danlo';
 export const SECOND_WALL_CONSOLE_LINK = 'Open the Google Cloud quotas console';
+
+export const SECOND_WALL_BODY =
+  "The $50.00 cap is Siteless's own meter and it is the wall that matters. A per-API daily " +
+  'quota in Google Cloud is the independent second wall, and it can only be set once the ' +
+  "Google Cloud project and the Places API (New) key exist — they don't yet.";
+
+/** The recommendation and its arithmetic (docs/runbooks/google-quota.md § The derivation). */
+export const SECOND_WALL_DERIVATION: readonly EmphasisRun[] = [
+  { text: 'Set ' },
+  { text: 'Places API (New) → 100 requests/day', strong: true },
+  {
+    text:
+      '. Derivation: a $50.00 cap buys 1,428 paid Text Search Enterprise requests at ' +
+      '$35.00/1,000, plus 1,000 free = 2,428/month ≈ 80/day. Rounded to 100/day so a weekly ' +
+      'partition can burst. The quota does not replace the meter — it bounds a runaway loop to ' +
+      'about $3.50/day instead of $50.00 in an hour.',
+  },
+];
+
+/** 🔴 The honesty line — the point of the card, in BOTH states: the quota bounds a day, only
+ *  the meter bounds the month. */
+export const SECOND_WALL_LIMIT: readonly EmphasisRun[] = [
+  { text: 'What it does ' },
+  { text: 'not', strong: true },
+  {
+    text:
+      ' do: 100/day × 30 days is 3,000 requests, which is $70/month — more than the $50.00 ' +
+      'cap. The quota bounds a runaway ',
+  },
+  { text: 'day', strong: true },
+  { text: "; only Siteless's own meter bounds the " },
+  { text: 'month', strong: true },
+  { text: '. That is what “second wall, not the primary meter” means.' },
+];
 
 export const SECOND_WALL_SET_TITLE = 'Google Cloud daily quota — set';
 export const SECOND_WALL_SET_BADGE = 'Set';

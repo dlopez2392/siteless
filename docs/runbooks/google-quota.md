@@ -5,10 +5,75 @@
 independent one that bounds a **runaway day**, set in a console Siteless does not control
 and cannot be talked out of by a bug in Siteless. Keep both. They stop different things.
 
-> **Names only.** This file never carries a key, a project id or a billing account. The
-> Google Cloud project and the Places API (New) key **do not exist yet**; nothing in `src/`
-> reads a Google credential and no test depends on one (`tests/unit/no-google-credential.test.ts`
-> enforces that), so this runbook blocks nothing in Phase 2.
+> **Names only.** This file never carries a key, a project id or a billing account. Exactly one
+> module in `src/` reads the Places key — `src/lib/places/client.ts`, server-only — and
+> `tests/unit/no-google-credential.test.ts` fails if any other file names it. No test depends
+> on the key existing: CI replays anonymized fixtures and never calls Google.
+
+## D-03 — first-time setup (danlo)
+
+Done by hand, once, by danlo: it needs his Google account and a billing account, and there is
+no `gcloud` CLI at the desk. Claude does **not** do these steps and never sees the key. Do them
+**in this order** — each step is a prerequisite of the next (quota editing is unavailable until
+billing is attached; an API key can only be restricted to an API that is enabled).
+
+1. **Create the Google Cloud project.** <https://console.cloud.google.com/projectcreate> →
+   Project name `siteless` → **Create**. Then pick it in the project selector at the top of the
+   console — every step below acts on the **selected** project, so check the name there before
+   each one.
+2. **Enable Places API (New).** **APIs & Services → Library** → search **"Places API (New)"** →
+   open it → **Enable**.
+   🔴 Not the one called just **"Places API"** — that is the legacy API, which Siteless does not
+   call and which Google is retiring. The one Siteless calls has **(New)** in its name.
+3. **Attach billing.** **Billing** (left menu) → **Link a billing account** → choose or create
+   the account → **Set account**. The Google Maps Platform may also prompt for it the moment
+   you enable the API — either path is the same link. Optional, and **not** a cap: a budget
+   alert under **Billing → Budgets & alerts** (see "What it does not do" below).
+4. **Set the daily quota.** Follow [The console path](#the-console-path) below:
+   **Places API (New) → `Requests per day` = `100`**. Take a screenshot of the quota page
+   showing `100`, and note the **date** you set it — the settings card prints it.
+5. **Create the key, API-restricted.** **APIs & Services → Credentials** →
+   **+ Create credentials → API key**. On the key's edit page:
+   - **Name:** `siteless-places-server`.
+   - **Application restrictions: None.** Vercel functions have **no fixed egress IP**, so an
+     IP-address restriction would refuse Siteless's own production server; a website
+     (HTTP-referrer) restriction does not apply to a server-side key. The compensating controls
+     are: the key is used **server-only**, by **one sanctioned reader**
+     (`src/lib/places/client.ts`), under the **100/day quota** and Siteless's **own meter**.
+   - **API restrictions: Restrict key** → tick **Places API (New)** and **nothing else** →
+     **OK** → **Save**.
+
+   If enabling the API (step 2) popped up an auto-created "Maps Platform API Key", either
+   restrict that one exactly as above or delete it — there must be **one** Places key, and it
+   must be restricted.
+6. **Store the key — two places, by name only.** Copy the key from **Show key** and put it:
+   - in **`.env.local`** at the repo root (`C:\Users\danlo\prospector\.env.local`, which
+     `.gitignore` already excludes) as one line, no quotes, no spaces:
+     `GOOGLE_PLACES_API_KEY=<the key>`. This is what the desk scripts read
+     (`scripts/record-places-fixtures.ts` loads `.env.local`); and
+   - in **Vercel → `siteless` → Settings → Environment Variables → Add**: Key
+     `GOOGLE_PLACES_API_KEY`, the key as the value, **Sensitive** on, environment
+     **Production** only (Preview only if danlo decides Preview deployments may spend;
+     never Development).
+
+   🔴 **Never `NEXT_PUBLIC_`** — that prefix ships the value to every browser. 🔴 **Do not add
+   `PLACES_MODE` in Vercel** — unset is `off`, and with `off` production sends no Places request
+   even though the key is present; the mode flip is a later, separate decision (04-32).
+   🔴 Never paste the key into a chat, a commit, a PR, an issue or a screenshot. Nothing asks
+   for it: the checks are "is the variable **present**" (an exit code), never its value.
+7. **Rotation** (a suspected leak, or routine): create a new key with the **same** API
+   restriction (step 5) → replace the value in `.env.local` and in Vercel Production →
+   **redeploy** (a running deployment keeps the old value until then) → confirm a request
+   succeeds → **delete** the old key in **APIs & Services → Credentials**.
+
+🔴 **The quota counts IDs-only requests too.** Text Search Essentials (IDs only) is **$0**, but
+each request still spends one of the 100 per day (04-RESEARCH assumption A3 — confirm on the
+first real day's metrics). A change check is free and still not unlimited.
+
+After step 6 Claude verifies the key with **one** IDs-only request made **through the product's
+own meter and client** against the **local** database (reserved and ledgered at `$0`, units 1) —
+never a raw `curl` that would bypass the meter — then records the date on the settings card
+(`GOOGLE_QUOTA_SET_ON` in `src/lib/budget/second-wall.ts`) and closes BUDG-03 (plan 04-31).
 
 ## The value
 
@@ -100,6 +165,9 @@ allowance refreshes on a third schedule again.
   round-up was too tight, not that the sweep is wrong. Raise it deliberately, and update the
   runaway bound on the settings card in the same change.
 
-The value is reversible in the console at any time and nothing in the codebase reads it —
-it is documented here and rendered on `/settings/budget` so the number and its reasoning
-never drift apart.
+The value is reversible in the console at any time and nothing in the codebase reads it
+**from Google**. It is recorded once, as `GOOGLE_QUOTA_REQUESTS_PER_DAY = 100` in
+`src/lib/budget/second-wall.ts` — read by the second-wall card on `/settings/budget` and by the
+run-stop alert a `google_daily_quota` stop shows (`src/components/runs/run-alerts.tsx`) — and the
+card's prose in `src/lib/ui/copy.ts` (`SECOND_WALL_*`) spells the same 100 and $3.50. Change the
+console, that constant, the copy and this runbook **together**.

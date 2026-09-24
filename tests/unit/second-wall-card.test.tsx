@@ -107,9 +107,10 @@ describe('the second-wall card', () => {
     expectFlagSized(badge);
     expect(within(card).queryByText(SECOND_WALL_NEEDS_BADGE)).toBeNull();
 
-    // A floating calendar date, anchored at noon UTC: a midnight-UTC anchor renders the 24th in
-    // America/Chicago (the suite runs in UTC, the app formats in Chicago — the pair that
-    // discriminates). The whole body is the Copy Table string, exact.
+    // A floating calendar date, anchored at noon UTC: a midnight-UTC anchor renders the 24th,
+    // because the app formats in America/Chicago while the suite's process zone is UTC — one
+    // instant, two zones, and only the noon anchor gives both the same day. The whole body is
+    // the Copy Table string, exact.
     const body = within(card).getByTestId('budget-second-wall-body');
     expect(body).toHaveTextContent(SECOND_WALL_SET_BODY('Sep 25, 2026'));
     expect(body.textContent).toContain('Requests per day = 100, set on Sep 25, 2026.');
