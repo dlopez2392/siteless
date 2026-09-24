@@ -869,3 +869,153 @@ grant execute on function app.mark_run_search(uuid, jsonb) to authenticated;
 comment on function app.mark_run_search(uuid, jsonb) is
   'D-15 / D-16 / T-4-10 / A-WR-10. Moves one search''s progress through an allow-listed key set (status, saturated, subdivided, truncated, truncated_why, inflight_reservation_id, inflight_request_id; anything else 22023), coalesce(new, old) per key; JSON null clears the in-flight pair. An in-flight reservation must be this org''s and this run''s (42501). Status done updates the tile: is_leaf = not subdivided, saturated, truncated, and last_swept_* (enterprise) or last_checked_at (ids_only); an enterprise search closing unsubdivided also retires (is_leaf = false) every stored descendant of its tile, so an older, deeper tree never overlaps the new leaf.';
 --> statement-breakpoint
+
+-- ===========================================================================
+-- 9. A-WR-08 — app.settle_reservation locks the reservation at the read.
+-- ===========================================================================
+--
+-- 0019's settle read settled_at / released_at WITHOUT a lock and computed v_hold (how much
+-- budget the reservation still holds) from that snapshot. app.release_reservation (0028) and
+-- the page-view self-heal app.release_expired_reservations (0018) both lock the row and
+-- decrement reserved_micro_usd by est. If one of them committed between the settle's SELECT
+-- and its UPDATE, the settle subtracted est a SECOND time:
+--   * other holds existed → reserved understated, the meter over-admits by one page price;
+--   * no other hold → bp_non_negative raised, the exception block swallowed it and rolled back
+--     the whole balance update, so spent_micro_usd missed a real charge (only a budget_overrun
+--     event remained).
+-- Phase 4 made it reachable: settleInFlight (src/lib/places/meter.ts) settles a crashed
+-- attempt's reservation on replay — exactly when its 10-minute TTL is expiring.
+--
+-- After the unlocked tenancy / sku / provider read (a foreign caller must never hold another
+-- org's row), the settle now re-reads settled_at / released_at `for update of r`, re-checking
+-- the org on that row. A concurrent release waits for the settle to commit and then sees it
+-- settled (release_reservation frees 0; the self-heal's `skip locked` skips it); a settle that
+-- arrives second waits for the release and re-reads released_at, so v_hold is 0.
+-- Named test: tests/db/budget-concurrency.test.ts "a settle racing a release of the same hold
+-- counts the hold once" (two committing connections, the settle observed waiting on the lock).
+--
+-- Also: search_path gains pg_temp (the 0019 statement had `public` only), and the grants are
+-- re-asserted with every role named. Otherwise the 0019 body, unchanged — the ledger row still
+-- goes in first and outside the exception block (WR-03).
+create or replace function app.settle_reservation(
+  p_reservation uuid, p_request_id text, p_actual_micro bigint, p_units integer,
+  p_sku text, p_provider text, p_lead uuid default null)
+returns boolean language plpgsql security definer set search_path = public, pg_temp as $$
+declare v_org uuid; v_res_org uuid; v_period uuid; v_est bigint; v_run uuid;
+        v_settled timestamptz; v_released timestamptz; v_hold bigint; v_ins int;
+        v_sku text; v_provider text;
+begin
+  v_org := app.current_org_id();
+  if v_org is null then
+    raise exception 'settle_reservation: no current org' using errcode = '42501';
+  end if;
+  if p_actual_micro is null or p_actual_micro < 0 then
+    raise exception 'settle_reservation: negative actual' using errcode = '22023';
+  end if;
+  if p_units is null or p_units <= 0 then
+    raise exception 'settle_reservation: non-positive units' using errcode = '22023';
+  end if;
+
+  -- Loaded as the owner, so RLS does not hide it — which is exactly why the org is then
+  -- compared EXPLICITLY. A definer that reads without re-checking tenancy is how a
+  -- cross-tenant write gets written (T-2-10). The join is what makes `provider` derivable:
+  -- budget_periods is keyed (org, provider, month), so the period a reservation points at
+  -- names exactly one provider.
+  select r.org_id, r.budget_period_id, r.est_micro_usd, r.run_id, r.settled_at, r.released_at,
+         r.sku, b.provider
+    into v_res_org, v_period, v_est, v_run, v_settled, v_released, v_sku, v_provider
+    from cost_reservations r
+    join budget_periods b on b.id = r.budget_period_id
+   where r.id = p_reservation;
+  if v_res_org is null then
+    raise exception 'settle_reservation: no such reservation' using errcode = '22023';
+  end if;
+  if v_res_org is distinct from v_org then
+    raise exception 'settle_reservation: reservation belongs to another org'
+      using errcode = '42501';
+  end if;
+
+  -- Checked against the derived values, and the message names neither side's value: a
+  -- refusal here is a caller bug, not a fact about another tenant's data.
+  if p_sku is distinct from v_sku then
+    raise exception 'settle_reservation: sku does not match the reservation'
+      using errcode = '22023';
+  end if;
+  if p_provider is distinct from v_provider then
+    raise exception 'settle_reservation: provider does not match the reservation'
+      using errcode = '22023';
+  end if;
+
+  -- 🔴 A-WR-08. LOCK, THEN RE-READ THE STATE. The read above establishes tenancy and derives
+  -- sku/provider without locking (a foreign caller must not be able to hold another org's
+  -- row). This one locks THIS org's row and re-reads settled_at / released_at under the lock:
+  -- a release or self-heal that got there first has committed and is seen here (v_hold = 0);
+  -- one that comes later waits for this transaction and then finds the row settled.
+  select r.settled_at, r.released_at into v_settled, v_released
+    from cost_reservations r
+   where r.id = p_reservation and r.org_id = v_org
+     for update of r;
+  if not found then
+    raise exception 'settle_reservation: no such reservation' using errcode = '22023';
+  end if;
+
+  -- 🔴 HOW MUCH BUDGET THIS RESERVATION IS STILL HOLDING — not, blindly, its estimate. The
+  -- self-heal may already have released this row and decremented reserved_micro_usd by est;
+  -- subtracting est a second time would drive it negative and abort on bp_non_negative. Same
+  -- for a second settle of an already-settled reservation under a different request_id.
+  v_hold := case when v_settled is null and v_released is null then v_est else 0::bigint end;
+
+  -- 🔴 THE LEDGER ROW GOES IN FIRST AND OUTSIDE THE BLOCK BELOW. The idempotency is the
+  -- UNIQUE on request_id plus `do nothing` plus `get diagnostics`: a replayed settlement
+  -- inserts no row, returns false, and moves NO balance.
+  --
+  -- v_provider and v_sku, never the parameters: the values checked above are the values
+  -- written, so the row cannot disagree with the reservation it settles even if this
+  -- function's guards are later loosened.
+  insert into cost_ledger (org_id, budget_period_id, reservation_id, run_id, lead_id,
+                           provider, sku, units, micro_usd, request_id)
+       values (v_org, v_period, p_reservation, v_run, p_lead,
+               v_provider, v_sku, p_units, p_actual_micro, p_request_id)
+  on conflict (request_id) do nothing;
+  get diagnostics v_ins = row_count;
+  if v_ins = 0 then
+    -- A replay. Nothing moves, nothing is double-counted.
+    return false;
+  end if;
+
+  update cost_reservations set settled_at = now()
+   where id = p_reservation and settled_at is null;
+
+  begin
+    update budget_periods
+       set reserved_micro_usd = reserved_micro_usd - v_hold,
+           spent_micro_usd    = spent_micro_usd + p_actual_micro
+     where id = v_period;
+  exception when check_violation then
+    -- The cap refused to absorb a charge that has already happened. The ledger row above
+    -- stands — it is what /spend and every provider total are summed from — and the period
+    -- row stays inside its constraint, with the divergence on the record rather than in
+    -- nobody's hands. Through app.emit_event, never a direct insert: `authenticated` holds no
+    -- INSERT on events (migration 0011) and emit_event takes neither org nor actor, so
+    -- attribution cannot be forged (T-2-11).
+    perform app.emit_event('budget_periods', v_period, 'budget_overrun',
+                           jsonb_build_object(
+                             'micro_usd', p_actual_micro,
+                             'reservation_id', p_reservation,
+                             'request_id', p_request_id));
+  end;
+  return true;
+end $$;
+--> statement-breakpoint
+
+revoke execute on function app.settle_reservation(uuid, text, bigint, integer, text, text, uuid)
+  from public, anon, service_role;
+--> statement-breakpoint
+
+grant execute on function app.settle_reservation(uuid, text, bigint, integer, text, text, uuid)
+  to authenticated;
+--> statement-breakpoint
+
+comment on function app.settle_reservation(uuid, text, bigint, integer, text, text, uuid) is
+  'WR-03 / A-WR-08. provider and sku are DERIVED from the reservation and its period and written from those values; the caller''s own are checked and refused with 22023 on a mismatch. The reservation row is LOCKED at the read (for update), so a concurrent release or self-heal is serialised with the settle and the hold leaves reserved_micro_usd exactly once. The ledger insert precedes the balance update and sits outside its exception block, so a late settle after a self-heal records the charge and emits budget_overrun instead of aborting and losing a row for money that was really spent.';
+--> statement-breakpoint

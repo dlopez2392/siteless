@@ -561,6 +561,55 @@ describe('app.plan_run_searches / app.mark_run_search (D-15, D-16, T-4-06, T-4-1
     }));
 });
 
+describe('drizzle/0030 definer grants', () => {
+  // Every function 0030 re-issues or adds, read off the catalog. 0000_bootstrap's default
+  // privileges grant EXECUTE to authenticated, anon AND service_role explicitly, so each is
+  // revoked by name; the definers keep authenticated, the audit trigger function keeps no one.
+  // search_path is pinned with pg_temp on every one (a definer with an attacker-influenced
+  // search_path runs as the owner).
+  it('every definer 0030 re-issues is executable by authenticated only, search_path pinned', () =>
+    withRollback(async (c) => {
+      const fns = [
+        'app.settle_reservation(uuid,text,bigint,integer,text,text,uuid)',
+        'app.plan_run_searches(uuid,jsonb)',
+        'app.mark_run_search(uuid,jsonb)',
+        'app.record_places_page(uuid,jsonb)',
+        'app.record_change_check(uuid,jsonb,jsonb,text,integer)',
+        'app.decide_place_attachment(uuid,text)',
+        'app.log_place_attachment_event()',
+      ];
+      const r = await c.query<{ fn: string; role: string; can: boolean }>(
+        `select f.fn, r.role, has_function_privilege(r.role, f.fn, 'EXECUTE') as can
+           from unnest($1::text[]) as f(fn)
+          cross join unnest(array['authenticated','anon','service_role']) as r(role)
+          order by 1, 2`,
+        [fns],
+      );
+      expect(r.rows).toHaveLength(fns.length * 3);
+      for (const x of r.rows) {
+        const expected = x.role === 'authenticated' && !x.fn.includes('log_place_attachment_event');
+        expect({ fn: x.fn, role: x.role, can: x.can }).toEqual({
+          fn: x.fn,
+          role: x.role,
+          can: expected,
+        });
+      }
+      const cfg = await c.query<{ fn: string; definer: boolean; cfg: string[] | null }>(
+        `select p.oid::regprocedure::text as fn, p.prosecdef as definer, p.proconfig as cfg
+           from pg_proc p where p.oid = any($1::text[]::regprocedure[]) order by 1`,
+        [fns],
+      );
+      expect(cfg.rows).toHaveLength(fns.length);
+      for (const x of cfg.rows) {
+        expect({ fn: x.fn, definer: x.definer, cfg: x.cfg }).toEqual({
+          fn: x.fn,
+          definer: true,
+          cfg: ['search_path=public, pg_temp'],
+        });
+      }
+    }));
+});
+
 describe('app.purge_expired_place_coordinates (D-12, M38, M39, T-4-07)', () => {
   /** Org A: one expired and one fresh coordinate; org B: one expired. All as the owner. */
   async function seedPurgeWorld(c: Client) {
