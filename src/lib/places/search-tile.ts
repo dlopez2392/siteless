@@ -222,7 +222,8 @@ async function persistPage(
 
   const record = toPageRecord({
     page: a.page,
-    sku: a.call.sku === 'ts_essentials' ? 'ts_essentials' : 'ts_enterprise',
+    // Passed through unmapped: toPageRecord refuses anything but ts_enterprise (A-WR-07).
+    sku: a.call.sku,
     resultsSoFar: a.resultsSoFar,
     items,
   });

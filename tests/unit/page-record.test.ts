@@ -281,10 +281,21 @@ describe('page record', () => {
     expect(
       toPageRecord({
         page: 1,
-        sku: 'ts_essentials',
+        sku: 'ts_enterprise',
         resultsSoFar: 1,
         items: [{ ...item(SENTINEL_PLACE), lat: 26.2, lng: null }],
       }).places[0],
     ).toMatchObject({ lat: null, lng: null });
+  });
+
+  it('a page record is an Enterprise page or nothing', () => {
+    // A-WR-07 (TS half; 0030 refuses it in the writer too). An IDs-only (Essentials) page
+    // carries no websiteUri, so every observation written from one would be a false
+    // "no website" in an append-only table.
+    for (const sku of ['ts_essentials', 'ts_pro']) {
+      expect(() =>
+        toPageRecord({ page: 1, sku, resultsSoFar: 1, items: [] }),
+      ).toThrow(new PageRecordRefusal('toPageRecord: sku must be ts_enterprise'));
+    }
   });
 });
