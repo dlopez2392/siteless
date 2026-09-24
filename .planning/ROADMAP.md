@@ -241,7 +241,7 @@ Plans:
 - [x] 04-28-PLAN.md — Attribution registry, local run-report e2e with computed tag styles, budget-banner guard, full phase gate
 
 **Wave 9** *(checkpoint)*
-- [ ] 04-29-PLAN.md — D-01 legal gate recorded against the schema-generated persistence list
+- [x] 04-29-PLAN.md — D-01 legal gate recorded against the schema-generated persistence list
 
 **Wave 10** *(checkpoint)*
 - [ ] 04-30-PLAN.md — Production migration 0026–0029 and deploy with Places off
