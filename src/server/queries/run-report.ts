@@ -1,7 +1,7 @@
 import 'server-only';
 import { sql } from 'drizzle-orm';
 import { withOrg, type OrgClaims } from '@/db/with-org';
-import { periodResetInstant } from '@/lib/budget/period';
+import { periodResetInstant, periodStart } from '@/lib/budget/period';
 import { instantOf, requireInstant } from '@/lib/instant';
 import type { HostClass } from '@/lib/places/host-class';
 import {
@@ -75,9 +75,18 @@ export type RunReport = {
     estimateMicroUsdLo: number | null;
     estimateMicroUsdHi: number | null;
     ceilingRequests: number;
-    /** The CURRENT month's Places cap and the instant it resets (the stop alert's copy). */
+    /**
+     * 🔴 C-CR-04: the Places cap of the RUN'S OWN budget month — the month (APP_TZ) its
+     * `created_at` falls in, which is the period `queueRun` reserved against — and the instant
+     * that month reset. Never the month the report happens to be opened in: a run stopped at
+     * September's cap and read on Oct 2 must not say "can run after the cap resets on Nov 1".
+     */
     capMicroUsd: number;
     capResetMs: number;
+    /** 'YYYY-MM-01' of the run's budget month. */
+    capPeriodStart: string;
+    /** False once that month is over — the alerts then speak in the past tense. */
+    capPeriodIsCurrent: boolean;
   };
   requests: {
     /** Always both rows, Enterprise first, even at zero. */
@@ -223,7 +232,14 @@ type RawChanges = {
   changed_tiles: number;
 };
 
-export async function readRunReport(tx: Tx, runId: string): Promise<RunReport | null> {
+/**
+ * `now` exists so the month-boundary test can pin "when the report was opened"; callers leave it.
+ */
+export async function readRunReport(
+  tx: Tx,
+  runId: string,
+  now: Date = new Date(),
+): Promise<RunReport | null> {
   // A malformed id is an unknown run, not a 22P02 that aborts the transaction.
   if (!UUID.test(runId)) return null;
 
@@ -264,7 +280,13 @@ export async function readRunReport(tx: Tx, runId: string): Promise<RunReport | 
   );
   if (!run) return null;
 
-  const period = await readCurrentPeriod(tx, 'places');
+  // 🔴 C-CR-04. The RUN'S budget month, taken in APP_TZ by `periodStart` (never the process or
+  // session zone), from the run's `created_at` — the instant `queueRun` reserved against. The
+  // period row is read through the same get-or-create the rest of the app uses; for a run's own
+  // month it already exists (its reservation was made there), so this is a read.
+  const createdAt = requireInstant(run.created_ms, 'runs.created_at');
+  const period = await readCurrentPeriod(tx, 'places', createdAt);
+  const capPeriodIsCurrent = period.periodStart === periodStart(now);
 
   // ---- Requests by SKU: both rows always (static structure) -------------------------------
   const skuRows = rowsOf<RawSku>(
@@ -462,7 +484,7 @@ export async function readRunReport(tx: Tx, runId: string): Promise<RunReport | 
       presetId: run.preset_id,
       presetName: run.preset_name,
       versionNumber: run.version,
-      createdMs: requireInstant(run.created_ms, 'runs.created_at').getTime(),
+      createdMs: createdAt.getTime(),
       startedMs: instantOf(run.started_ms)?.getTime() ?? null,
       finishedMs: instantOf(run.finished_ms)?.getTime() ?? null,
       costMicroUsd,
@@ -474,6 +496,8 @@ export async function readRunReport(tx: Tx, runId: string): Promise<RunReport | 
       ceilingRequests: run.ceiling_requests,
       capMicroUsd: intOf(period.capMicroUsd.toString(), 'the monthly cap'),
       capResetMs: periodResetInstant(period.periodStart).getTime(),
+      capPeriodStart: period.periodStart,
+      capPeriodIsCurrent,
     },
     requests: {
       rows: skuRows.map((r) => ({

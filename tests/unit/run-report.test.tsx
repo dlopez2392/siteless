@@ -33,6 +33,8 @@ import { RunReportView } from '@/components/runs/run-report-view';
 import {
   RUN_OUTCOMES_NONE_REACHED_BODY,
   RUN_OUTCOMES_NONE_REACHED_HEADING,
+  RUN_REFUSED_PAST,
+  RUN_STOP_CAP_PAST,
 } from '@/lib/ui/copy';
 import { STOPPED_REASONS, type RunStatus, type StoppedReason } from '@/lib/ui/run-tone';
 
@@ -78,6 +80,8 @@ function reportOf(over: Over = {}): RunReport {
       ceilingRequests: 108,
       capMicroUsd: 50_000_000,
       capResetMs: Date.UTC(2026, 9, 1, 5, 0, 0),
+      capPeriodStart: '2026-09-01',
+      capPeriodIsCurrent: true,
     },
     requests: {
       rows: [
@@ -290,6 +294,59 @@ describe('run report — header and alerts (04-23 Task 2)', () => {
     expect(within(alert).getByTestId('run-stop-ask-admin')).toHaveTextContent(
       'Ask an admin to raise the cap',
     );
+  });
+
+  it("a cap stop or refusal from a month that has ended speaks in the past tense", () => {
+    // Opened in the run's own month: the present tense, with the reset date.
+    const { unmount } = renderReport(
+      reportOf({ run: { status: 'partial', stoppedReason: 'budget_cap_reached' } }),
+    );
+    const now = screen.getByTestId('run-stop-alert');
+    expect(now.textContent).toContain('Stopped at your $50.00 monthly cap');
+    expect(now.textContent).toContain('after the cap resets on Oct 1');
+    unmount();
+
+    // The same stop read after September ended: September's cap, no reset to wait for.
+    const past = renderReport(
+      reportOf({
+        run: {
+          status: 'partial',
+          stoppedReason: 'budget_cap_reached',
+          capMicroUsd: 40_000_000,
+          capPeriodStart: '2026-09-01',
+          capPeriodIsCurrent: false,
+        },
+        tiles: { total: 68, searched: 40 },
+      }),
+    );
+    const stop = screen.getByTestId('run-stop-alert');
+    expect(stop).toHaveAttribute('data-period', 'past');
+    expect(stop.textContent).toContain(
+      RUN_STOP_CAP_PAST(40_000_000, 2_310_000, 40, 28, 'September 2026'),
+    );
+    expect(stop.textContent).not.toMatch(/resets on|your \$/i);
+    expect(within(stop).getByTestId('run-stop-open-preset')).toHaveAttribute(
+      'href',
+      `/presets/${PRESET_ID}`,
+    );
+    expect(within(stop).queryByTestId('run-stop-raise-cap')).toBeNull();
+    past.unmount();
+
+    renderReport(
+      reportOf({
+        run: {
+          status: 'refused',
+          stoppedReason: 'budget_cap_reached',
+          costMicroUsd: 0,
+          capPeriodStart: '2026-08-01',
+          capPeriodIsCurrent: false,
+        },
+      }),
+    );
+    const refused = screen.getByTestId('run-stop-alert');
+    expect(refused.textContent).toContain(RUN_REFUSED_PAST(50_000_000, 'August 2026'));
+    expect(refused.textContent).not.toContain('Your $50.00 cap is spent');
+    expect(within(refused).getByTestId('run-stop-open-preset')).toBeInTheDocument();
   });
 
   it('the ceiling line shows the dollar and request ceilings', () => {

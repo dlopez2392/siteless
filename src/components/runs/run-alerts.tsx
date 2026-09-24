@@ -6,6 +6,7 @@ import { CopyCommandButton } from '@/components/sources/copy-command-button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { periodLabel } from '@/lib/budget/period';
 import { GOOGLE_QUOTA_REQUESTS_PER_DAY } from '@/lib/budget/second-wall';
 import { formatLocal } from '@/lib/time';
 import {
@@ -17,8 +18,10 @@ import {
   RUN_OPEN_PRESET,
   RUN_QUEUED_LONG,
   RUN_REFUSED,
+  RUN_REFUSED_PAST,
   RUN_STOP_ACTION,
   RUN_STOP_CAP,
+  RUN_STOP_CAP_PAST,
   RUN_STOP_DAILY_QUOTA,
   RUN_STOP_ESTIMATE,
   RUN_TILE_ROW,
@@ -190,6 +193,12 @@ function resetDateLabel(ms: number): string {
   return formatLocal(new Date(ms), { month: 'short', day: 'numeric' });
 }
 
+/** "September 2026" for a 'YYYY-MM-01' period start. Anchored at NOON UTC on the 1st, which is
+ *  the 1st in every American zone — a midnight-UTC anchor renders the previous month. */
+function monthLabelOf(periodStartIso: string): string {
+  return periodLabel(new Date(`${periodStartIso}T12:00:00Z`));
+}
+
 /** The stop / refusal / failure alert for this run, or null when its status has none. */
 function stopAlertOf({
   run,
@@ -203,6 +212,48 @@ function stopAlertOf({
   const reason = run.stoppedReason;
   const data = { 'data-reason': reason ?? '' };
   const notSearched = Math.max(0, tiles.total - tiles.searched);
+
+  // 🔴 C-CR-04. The cap and reset below are the RUN'S budget month's (run-report.ts). Once that
+  // month is over, "your cap is spent" and "after the cap resets on …" are false about now, so
+  // both alerts switch to the past tense and the way out is the preset, not the cap.
+  const pastMonth = run.capPeriodIsCurrent ? null : monthLabelOf(run.capPeriodStart);
+
+  if (run.status === 'refused' && pastMonth !== null) {
+    return (
+      <RunAlert
+        tone="destructive"
+        testId="run-stop-alert"
+        data={{ ...data, 'data-period': 'past' }}
+        text={RUN_REFUSED_PAST(run.capMicroUsd, pastMonth)}
+      >
+        <Actions>
+          <PresetAction run={run} />
+        </Actions>
+      </RunAlert>
+    );
+  }
+
+  if (run.status === 'partial' && reason === 'budget_cap_reached' && pastMonth !== null) {
+    return (
+      <RunAlert
+        tone="warning"
+        testId="run-stop-alert"
+        data={{ ...data, 'data-period': 'past' }}
+        text={RUN_STOP_CAP_PAST(
+          run.capMicroUsd,
+          run.costMicroUsd,
+          tiles.searched,
+          notSearched,
+          pastMonth,
+        )}
+      >
+        <Actions>
+          <PresetAction run={run} />
+          <SpendAction />
+        </Actions>
+      </RunAlert>
+    );
+  }
 
   if (run.status === 'refused') {
     return (

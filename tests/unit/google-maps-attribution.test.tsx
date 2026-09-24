@@ -115,6 +115,8 @@ const REPORT: RunReport = {
     ceilingRequests: 8,
     capMicroUsd: 50_000_000,
     capResetMs: Date.UTC(2026, 9, 1, 5, 0, 0),
+    capPeriodStart: '2026-09-01',
+    capPeriodIsCurrent: true,
   },
   requests: {
     rows: [

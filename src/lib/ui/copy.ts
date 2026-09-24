@@ -1052,6 +1052,40 @@ export function RUN_STOP_CAP(
   );
 }
 
+/**
+ * C-CR-04: `partial` · `budget_cap_reached`, read after the run's budget month has ENDED. The cap
+ * named is that month's; there is no reset date to wait for — the month's budget has already
+ * reset, so the rest can run now. `month` is pre-formatted ("September 2026").
+ * Actions: `RUN_OPEN_PRESET(name)`, `RUN_STOP_ACTION.openSpend`.
+ */
+export function RUN_STOP_CAP_PAST(
+  cap: MicroUsd,
+  cost: MicroUsd,
+  searched: number,
+  notSearched: number,
+  month: string,
+) {
+  return (
+    `Stopped at the ${formatUsd(cap)} monthly cap for ${month} after ${formatUsd(cost)}. ` +
+    `Siteless refused the next request before it left, so nothing past the cap was charged. ` +
+    `The ${counted(searched, 'tile', 'tiles')} already searched ${searched === 1 ? 'is' : 'are'} ` +
+    `complete. ${month}'s budget has since reset, so the ${formatCount(notSearched)} not ` +
+    `searched can run now — start the run again from its preset.`
+  );
+}
+
+/**
+ * C-CR-04: `refused`, read after the run's budget month has ENDED — the cap that refused it was
+ * that month's, and this month's meter may well be at $0. `month` pre-formatted.
+ * Action: `RUN_OPEN_PRESET(name)`.
+ */
+export function RUN_REFUSED_PAST(capMicroUsd: bigint | number, month: string) {
+  return (
+    `This run was refused. The ${formatUsd(capMicroUsd)} cap for ${month} was spent, so ` +
+    `Siteless didn't call anything and nothing was charged. That month's budget has since reset.`
+  );
+}
+
 /** `partial` · `exceeded_estimate` (warning). `ceiling` is 2 × `hi` (RUN_CEILING_MULTIPLIER). */
 export function RUN_STOP_ESTIMATE(
   lo: MicroUsd,

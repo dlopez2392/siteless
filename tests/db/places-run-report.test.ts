@@ -480,6 +480,73 @@ describe('run report (D-17, criterion 3)', () => {
       expect(r.outcomes).toMatchObject({ found: 0, attached: 0, tentative: 0, unmatched: 0 });
     }));
 
+  /**
+   * C-CR-04: the stop and refusal alerts quote the cap of the RUN'S OWN budget month, never the
+   * month the report happens to be opened in.
+   *
+   * 🔴 ONE INSTANT, TWO ZONES, OPPOSITE VERDICTS. 2026-10-01T04:30:00Z is Sep 30, 11:30 PM in the
+   * RGV (CDT, UTC−5) and Oct 1 in UTC. This lane runs in UTC (vitest.db.config.ts, asserted
+   * below), so an implementation that took the month in the process zone — or in the database
+   * session's — would pick October's $75 and go red. The app's zone and locale are pinned inside
+   * `periodStart` (APP_TZ, APP_LOCALE); the second half of the pair (05:30Z, Oct 1 in both zones)
+   * proves the boundary moves at LOCAL midnight rather than never.
+   */
+  it("run report quotes the cap of the run's own budget month, not the current one", () =>
+    withTxRollback(async (tx) => {
+      // Precondition that makes the pair discriminating: the process zone is not the app's.
+      expect(Intl.DateTimeFormat().resolvedOptions().timeZone).toBe('UTC');
+
+      const c = asPg(tx);
+      const s = await setup(c, { status: 'partial' });
+      // Owner-side seeds (authenticated has no write grant on budget_periods, 0015): September's
+      // cap was $40, then it was raised to $75 for October.
+      await c.query(
+        `insert into budget_periods (org_id, provider, period_start, cap_micro_usd)
+         values ($1, 'places', '2026-09-01', 40000000), ($1, 'places', '2026-10-01', 75000000)`,
+        [s.a],
+      );
+      await c.query(
+        `update runs set stopped_reason = 'budget_cap_reached', created_at = $2::timestamptz,
+                         finished_at = $2::timestamptz where id = $1`,
+        [s.runId, '2026-10-01T04:30:00Z'],
+      );
+      await actAs(c, CLAIMS_A);
+
+      // Opened on Oct 2: the run belongs to SEPTEMBER in the RGV.
+      const openedAt = new Date('2026-10-02T15:00:00Z');
+      const september = await readRunReport(tx, s.runId, openedAt);
+      expect(september?.run).toMatchObject({
+        capMicroUsd: 40_000_000,
+        capPeriodStart: '2026-09-01',
+        capPeriodIsCurrent: false,
+        // Local midnight Oct 1 in CDT is 05:00Z — not UTC midnight, not a fixed −6h.
+        capResetMs: Date.UTC(2026, 9, 1, 5, 0, 0),
+      });
+
+      // Opened in September itself, the same run's period is the current one.
+      const sameMonth = await readRunReport(tx, s.runId, new Date('2026-09-30T23:00:00-05:00'));
+      expect(sameMonth?.run).toMatchObject({
+        capMicroUsd: 40_000_000,
+        capPeriodStart: '2026-09-01',
+        capPeriodIsCurrent: true,
+      });
+
+      // The other half of the pair: an hour later it is October in BOTH zones.
+      await actAsOwner(c);
+      await c.query('update runs set created_at = $2::timestamptz where id = $1', [
+        s.runId,
+        '2026-10-01T05:30:00Z',
+      ]);
+      await actAs(c, CLAIMS_A);
+      const october = await readRunReport(tx, s.runId, openedAt);
+      expect(october?.run).toMatchObject({
+        capMicroUsd: 75_000_000,
+        capPeriodStart: '2026-10-01',
+        capPeriodIsCurrent: true,
+        capResetMs: Date.UTC(2026, 10, 1, 5, 0, 0),
+      });
+    }));
+
   it('run report is tenant-scoped', () =>
     withTxRollback(async (tx) => {
       const c = asPg(tx);
