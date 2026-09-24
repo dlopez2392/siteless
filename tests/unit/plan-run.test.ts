@@ -276,6 +276,43 @@ describe('plan-run', () => {
     );
   });
 
+  it('no Places type is searched by two clusters', () => {
+    // B-WR-09: the tile key names (unit, type, quad path) — not the cluster. Two clusters listing
+    // one type would plan ONE run_searches row for two roots: the tile searched and billed twice,
+    // the second pass scored as cluster B and written under cluster A.
+    const owner = new Map<string, string>();
+    const shared: string[] = [];
+    for (const c of SEED.clusters.clusters) {
+      for (const t of c.placesTypes) {
+        const first = owner.get(t);
+        if (first !== undefined && first !== c.key) shared.push(`${t} (${first}, ${c.key})`);
+        owner.set(t, c.key);
+      }
+    }
+    expect(shared).toEqual([]);
+
+    // And the planner refuses such a seed rather than planning the duplicate.
+    const overlapping: SeedTables = {
+      ...SEED,
+      clusters: {
+        ...SEED.clusters,
+        clusters: SEED.clusters.clusters.map((c) =>
+          c.key === 'auto_retail' ? { ...c, placesTypes: [...c.placesTypes, 'plumber'] } : c,
+        ),
+      },
+    };
+    const both: PresetSpec = { ...MCALLEN_HOME, clusterKeys: ['home_services', 'auto_retail'] };
+    const plan = () =>
+      planRootSearches({
+        spec: both,
+        seed: overlapping,
+        shapes: SHAPES,
+        kind: 'full_sweep',
+        now: NOW,
+      });
+    expect(plan).toThrow(/plumber/);
+  });
+
   it('two radius presets in one county with the same radius never share a tile key', () => {
     // B-CR-03: "5 mi around McAllen" and "5 mi around Edinburg" are both county 48215. place_tiles
     // is keyed per (org, tile_key) and shared across presets, so a shared key would make preset

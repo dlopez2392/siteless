@@ -164,5 +164,21 @@ export function planRootSearches(a: {
       );
     }
   }
+
+  // B-WR-09. The tile key names (unit, type, quad path) — NOT the cluster. Two clusters listing
+  // one Places type would give two roots one key: plan_run_searches returns one search id for
+  // both, the tile is searched (and billed) twice, and the second pass is written under the
+  // first cluster. Refused, naming the type (ours, from clusters.json), never planned.
+  const seen = new Set<string>();
+  const dup = new Set<string>();
+  for (const r of roots) {
+    if (seen.has(r.tileKey)) dup.add(r.placesType);
+    seen.add(r.tileKey);
+  }
+  if (dup.size > 0) {
+    throw new Error(
+      `planRootSearches: Places type(s) searched by two clusters in one unit: ${[...dup].join(', ')}`,
+    );
+  }
   return roots;
 }

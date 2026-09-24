@@ -56,7 +56,23 @@ export type QueueState = {
   stopped: StopReason | null;
 };
 
+/**
+ * B-WR-09. One search id is one `run_searches` row; queued twice it is searched — and billed —
+ * twice, and `applyResult` would drop only the first. Refused (the ids are ours; nothing from a
+ * Places response is in the message).
+ */
+function assertOnce(searches: readonly PlannedSearch[]): void {
+  const ids = new Set<string>();
+  for (const s of searches) {
+    if (ids.has(s.searchId)) {
+      throw new Error(`reducer: search ${s.searchId} (${s.tileKey}) would be queued twice`);
+    }
+    ids.add(s.searchId);
+  }
+}
+
 export function initialQueue(roots: PlannedSearch[]): QueueState {
+  assertOnce(roots);
   return {
     pending: [...roots],
     searched: 0,
@@ -98,12 +114,11 @@ export function applyResult(s: QueueState, search: PlannedSearch, r: SearchResul
   switch (r.next.action) {
     case 'done':
       return next;
-    case 'subdivide':
-      return {
-        ...next,
-        pending: [...pending, ...r.next.children],
-        subdivided: next.subdivided + 1,
-      };
+    case 'subdivide': {
+      const queued = [...pending, ...r.next.children];
+      assertOnce(queued);
+      return { ...next, pending: queued, subdivided: next.subdivided + 1 };
+    }
     case 'truncate':
       return { ...next, truncated: next.truncated + 1 };
   }

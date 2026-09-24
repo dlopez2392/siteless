@@ -44,9 +44,12 @@ export async function placesSweep(input: SweepInput): Promise<SweepOutcome> {
   }
   if (plan.kind === 'not_runnable') return { status: 'not_runnable', reason: plan.reason };
 
-  let state = initialQueue(plan.searches);
+  // Inside the try: a queue that refuses its plan (B-WR-09, one search queued twice) fails the
+  // run through finishRun like any other failure, rather than escaping the workflow.
+  let state = initialQueue([]);
   let failure: FailReason | null = null;
   try {
+    state = initialQueue(plan.searches);
     for (let s = nextSearch(state); s; s = nextSearch(state)) {
       const r =
         plan.runKind === 'change_check' ? await checkTile(input, s) : await searchTile(input, s);
