@@ -1985,12 +1985,13 @@ export function SOURCES_TRANSIENT_PURGE_STUCK(
   count: number,
   expiredHours: number,
 ) {
+  const one = count === 1;
   return (
     `${counted(count, 'coordinate is', 'coordinates are')} past 30 days and still on disk. ` +
-    `The oldest expired ${counted(expiredHours, 'hour', 'hours')} ago, but the daily purge ` +
-    `last ran ${date} (${counted(hours, 'hour', 'hours')} ago) and didn't remove it. The ` +
-    `database already refuses to read them. Run the purge by hand at the desk, and check the ` +
-    `Vercel cron log for the purge job.`
+    `${one ? 'It' : 'The oldest'} expired ${counted(expiredHours, 'hour', 'hours')} ago, but ` +
+    `the daily purge last ran ${date} (${counted(hours, 'hour', 'hours')} ago) and didn't ` +
+    `remove it. The database already refuses to read ${one ? 'it' : 'them'}. Run the purge by ` +
+    `hand at the desk, and check the Vercel cron log for the purge job.`
   );
 }
 

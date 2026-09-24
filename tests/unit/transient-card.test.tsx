@@ -314,6 +314,18 @@ describe('the transient card', () => {
     expect(stale.textContent).not.toContain('past 30 days');
   });
 
+  it('the stuck sentence reads in the singular for one coordinate', () => {
+    const one = SOURCES_TRANSIENT_PURGE_STUCK('Sep 22, 10:30 PM', 3, 1, 40);
+    expect(one).toContain(
+      '1 coordinate is past 30 days and still on disk. It expired 40 hours ago',
+    );
+    expect(one).toContain('refuses to read it.');
+    expect(one).not.toMatch(/\bthem\b|oldest/);
+    const four = SOURCES_TRANSIENT_PURGE_STUCK('Sep 22, 10:30 PM', 3, 4, 40);
+    expect(four).toContain('4 coordinates are past 30 days and still on disk. The oldest expired');
+    expect(four).toContain('refuses to read them.');
+  });
+
   it('the overdue alert names a purge that never ran', () => {
     const now = PURGED_AT;
     render(
