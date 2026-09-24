@@ -15,10 +15,18 @@
  * `…/v1/places:searchText` as `places` + a route PARAM `:searchText`, which also matches
  * `/v1/placesXYZ`. The anchored RegExp below matches exactly one URL.
  *
- * 🔴 501, NEVER A PAGE, when the request is not one the real builder may send: no
- * `X-Goog-FieldMask`, no `X-Goog-Api-Key`, or `includePureServiceAreaBusinesses` not `true`
- * (PLACE-05, M26). The Socrata handler's discipline: a best-effort page would make a builder
- * regression look right.
+ * 🔴 501, NEVER A PAGE, when the request is not one the real builder may send (B-WR-10): no
+ * `X-Goog-FieldMask`, no `X-Goog-Api-Key`, a mask field the product never requests, or a body
+ * that breaks any invariant request.ts fixes — `includePureServiceAreaBusinesses: true`
+ * (PLACE-05, M26), `strictTypeFiltering: true`, `pageSize: 20`, `regionCode: 'US'`,
+ * `languageCode: 'en'`, a Table A `includedType` spelled as the `textQuery`, an ordered
+ * rectangle, no other key. A later page must be EXACTLY the page-1 body its token was issued
+ * for, plus the token (M49 — Google answers INVALID_ARGUMENT otherwise). And a request NO ROUTE
+ * claims is refused too: a test that wants an empty page routes to `PLACES_PAGES.empty`. The
+ * Socrata handler's discipline: a best-effort page would make a builder regression look right.
+ *
+ * 🔴 `regionCode: 'US'` OMITS THE COUNTRY (B-CR-01). Google leaves `, USA` off a US address when
+ * the region matches; the handler does the same to any fixture that still carries it.
  *
  * 🔴 THE MASK DECIDES WHAT IS SERVED. Each place is reduced to the fields the request's
  * `X-Goog-FieldMask` names (`places.<field>` → `<field>`; `nextPageToken` only when masked),
@@ -27,6 +35,8 @@
 import { readdirSync, readFileSync } from 'node:fs';
 
 import { http, HttpResponse, type JsonBodyType } from 'msw';
+
+import { isTableAType } from '@/lib/places/place-types';
 
 import { assertAnonymizedPage, NEVER_KEPT } from '../../../scripts/lib/anonymize-places';
 
@@ -191,11 +201,17 @@ export const PLACES_SENTINELS: readonly string[] = Object.freeze(
 /** Every request the handler SERVED (a 501 refusal is not logged), in order. */
 export const placesRequests: PlacesRequest[] = [];
 
+/** Every refusal's reason, in order — so a test that went red on a 501 can say why. */
+export const placesRefusals: string[] = [];
+
 let routes: PlacesRoute[] = [];
 const remaining = new Map<PlacesRoute, number>();
 let hook: ((r: PlacesRequest) => Promise<void> | void) | null = null;
+/** Page tokens this handler issued → the page-1 bodies (canonical JSON) it issued them for. */
+const issued = new Map<string, Set<string>>();
 
-/** Replace the route table. First route whose `when` is true answers; none → `{}`. */
+/** Replace the route table. First route whose `when` is true answers; none → a 501 refusal
+ *  (B-WR-10: route to `PLACES_PAGES.empty` explicitly for a zero-result page). */
 export function setPlacesRoutes(next: PlacesRoute[]): void {
   routes = [...next];
   remaining.clear();
@@ -215,18 +231,121 @@ export function resetPlaces(): void {
   routes = [];
   remaining.clear();
   placesRequests.length = 0;
+  placesRefusals.length = 0;
+  issued.clear();
   hook = null;
 }
 
 function refuse(message: string): HttpResponse<string> {
+  placesRefusals.push(message);
   return new HttpResponse(`msw places: ${message}`, { status: 501 });
+}
+
+/** The Text Search fields the product ever requests (src/lib/budget/field-mask-tier.ts). A mask
+ *  naming anything else — `types`, `businessStatus`, a Pro field — is a request we never price. */
+const KNOWN_FIELDS = new Set([
+  'id',
+  'displayName',
+  'formattedAddress',
+  'location',
+  'pureServiceAreaBusiness',
+  'websiteUri',
+  'nationalPhoneNumber',
+  'rating',
+  'userRatingCount',
+]);
+
+/** Every key request.ts may put on a body. */
+const BODY_KEYS = new Set([
+  'textQuery',
+  'includedType',
+  'strictTypeFiltering',
+  'locationRestriction',
+  'includePureServiceAreaBusinesses',
+  'pageSize',
+  'regionCode',
+  'languageCode',
+  'pageToken',
+]);
+
+/** JSON with sorted keys, so two equal bodies compare equal whatever their key order. */
+function canonical(v: unknown): string {
+  if (Array.isArray(v)) return `[${v.map(canonical).join(',')}]`;
+  if (v !== null && typeof v === 'object') {
+    const o = v as Json;
+    return `{${Object.keys(o)
+      .sort()
+      .map((k) => `${JSON.stringify(k)}:${canonical(o[k])}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(v);
+}
+
+function isFiniteNumber(v: unknown): v is number {
+  return typeof v === 'number' && Number.isFinite(v);
+}
+
+/**
+ * The whole request contract request.ts fixes (B-WR-10), not only the service-area flag. Returns
+ * what is wrong, or null. The harness answers a violation with a 501 — as Google would answer
+ * INVALID_ARGUMENT — never a page that makes the regression look right.
+ */
+function contractViolation(json: Json): string | null {
+  for (const key of Object.keys(json)) {
+    if (!BODY_KEYS.has(key)) return `unexpected body key ${JSON.stringify(key)}`;
+  }
+  if (json.includePureServiceAreaBusinesses !== true) {
+    return 'includePureServiceAreaBusinesses is not true (PLACE-05)';
+  }
+  if (json.strictTypeFiltering !== true) return 'strictTypeFiltering is not true';
+  if (json.pageSize !== 20) return 'pageSize is not 20';
+  if (json.regionCode !== 'US') return 'regionCode is not US';
+  if (json.languageCode !== 'en') return 'languageCode is not en';
+  if (typeof json.includedType !== 'string' || !isTableAType(json.includedType)) {
+    return 'includedType is not a Table A type';
+  }
+  if (json.textQuery !== json.includedType.replaceAll('_', ' ')) {
+    return 'textQuery is not the includedType, spelled';
+  }
+  type Corner = { latitude?: unknown; longitude?: unknown };
+  const rect = (
+    json.locationRestriction as { rectangle?: { low?: Corner; high?: Corner } } | undefined
+  )?.rectangle;
+  const low = rect?.low;
+  const high = rect?.high;
+  if (
+    !low ||
+    !high ||
+    !isFiniteNumber(low.latitude) ||
+    !isFiniteNumber(low.longitude) ||
+    !isFiniteNumber(high.latitude) ||
+    !isFiniteNumber(high.longitude) ||
+    low.latitude >= high.latitude ||
+    low.longitude >= high.longitude
+  ) {
+    return 'locationRestriction.rectangle is not an ordered low/high rectangle';
+  }
+  if (json.pageToken !== undefined && typeof json.pageToken !== 'string') {
+    return 'pageToken is not a string';
+  }
+  return null;
+}
+
+/** `regionCode: 'US'` makes Google omit the country from a US address (B-CR-01): a fixture that
+ *  still carries it is served the way Google would serve it. */
+function asRegionUs(place: Json): Json {
+  if (typeof place.formattedAddress !== 'string') return place;
+  return {
+    ...place,
+    formattedAddress: place.formattedAddress.replace(/,\s*(USA|United States)\s*$/, ''),
+  };
 }
 
 function project(page: Json, fields: ReadonlySet<string>, withToken: boolean): Json {
   const out: Json = {};
   if (Array.isArray(page.places)) {
     out.places = (page.places as Json[]).map((place) =>
-      Object.fromEntries(Object.entries(place).filter(([key]) => fields.has(key))),
+      Object.fromEntries(Object.entries(asRegionUs(place)).filter(([key]) => fields.has(key))),
     );
   }
   if (withToken && typeof page.nextPageToken === 'string') out.nextPageToken = page.nextPageToken;
@@ -250,9 +369,8 @@ export const placesHandler = http.post(PLACES_ENDPOINT, async ({ request }) => {
 
   if (!mask) return refuse('no X-Goog-FieldMask header (every request must name its fields)');
   if (!key) return refuse('no X-Goog-Api-Key header');
-  if (json.includePureServiceAreaBusinesses !== true) {
-    return refuse('includePureServiceAreaBusinesses is not true (PLACE-05)');
-  }
+  const violation = contractViolation(json);
+  if (violation) return refuse(violation);
 
   const entries = mask
     .split(',')
@@ -267,23 +385,35 @@ export const placesHandler = http.post(PLACES_ENDPOINT, async ({ request }) => {
       entry.length > 'places.'.length &&
       !entry.includes('*')
     ) {
-      fields.add(entry.slice('places.'.length).split('.')[0] as string);
+      const field = entry.slice('places.'.length).split('.')[0] as string;
+      if (!KNOWN_FIELDS.has(field)) return refuse(`field ${JSON.stringify(field)} is never masked`);
+      fields.add(field);
     } else {
       // A wildcard would bill the highest SKU; anything else is not a Text Search field.
       return refuse(`unrecorded field-mask entry ${JSON.stringify(entry)}`);
     }
   }
 
-  const logged: PlacesRequest = { body: json, mask, hasKey: true };
-  placesRequests.push(logged);
-  await hook?.(logged);
-
   const { pageToken, ...routable } = json;
+  // M49: a later page is page 1's body plus the token the harness issued for THAT body.
+  if (pageToken !== undefined) {
+    const bodies = issued.get(pageToken as string);
+    if (!bodies) return refuse(`pageToken ${JSON.stringify(pageToken)} was never issued`);
+    if (!bodies.has(canonical(routable))) {
+      return refuse('a later page whose body differs from page 1 (Google: INVALID_ARGUMENT)');
+    }
+  }
+
   const route = routes.find(
     (r) => (!('error' in r) || (remaining.get(r) ?? 0) > 0) && r.when(routable),
   );
+  // B-WR-10: never a best-effort page. An unrecognised request is a test that did not say what
+  // Google should answer — or a builder regression (a wrong rectangle, type or body).
+  if (!route) return refuse('no route claims this request');
 
-  if (!route) return HttpResponse.json(project(empty as Json, fields, withToken));
+  const logged: PlacesRequest = { body: json, mask, hasKey: true };
+  placesRequests.push(logged);
+  await hook?.(logged);
 
   if ('error' in route) {
     remaining.set(route, (remaining.get(route) ?? 1) - 1);
@@ -303,5 +433,12 @@ export const placesHandler = http.post(PLACES_ENDPOINT, async ({ request }) => {
       `route ${route.name} has no page ${index + 1} (it recorded ${route.pages.length})`,
     );
   }
-  return HttpResponse.json(project(page, fields, withToken) as JsonBodyType);
+  const served = project(page, fields, withToken);
+  if (typeof served.nextPageToken === 'string') {
+    // Remember which body this token was issued for: the next page must be that body + token.
+    const bodies = issued.get(served.nextPageToken) ?? new Set<string>();
+    bodies.add(canonical(routable));
+    issued.set(served.nextPageToken, bodies);
+  }
+  return HttpResponse.json(served as JsonBodyType);
 });

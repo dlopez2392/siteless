@@ -102,7 +102,17 @@ describe('the Places client (criterion 1, D-03)', () => {
 
   it('searchText returns a last page with a null token', async () => {
     setPlacesRoutes([{ name: 'saturated', when: () => true, pages: PLACES_PAGES.saturated }]);
-    const req = buildNextPage(enterprisePage(), 'saturated:p3');
+    // Walked to page 3: the harness serves a token only for the body it issued it to (B-WR-10).
+    const first = enterprisePage();
+    let token = '';
+    for (let n = 0; n < 2; n += 1) {
+      const r = n === 0 ? first : buildNextPage(first, token);
+      const page = await searchText(reservedFor(r), r);
+      if (!page.ok || page.nextPageToken === null) throw new Error('expected a next page');
+      token = page.nextPageToken;
+    }
+    expect(token).toBe('saturated:p3');
+    const req = buildNextPage(first, token);
 
     const outcome = await searchText(reservedFor(req), req);
     if (!outcome.ok) throw new Error(`expected page 3, got ${JSON.stringify(outcome)}`);
@@ -111,7 +121,8 @@ describe('the Places client (criterion 1, D-03)', () => {
   });
 
   it('searchText parses an empty search as zero places', async () => {
-    // No route → the harness serves places-empty.json, which is `{}`.
+    // Routed explicitly to places-empty.json, which is `{}` (an unrouted request is a 501).
+    setPlacesRoutes([{ name: 'empty', when: () => true, pages: PLACES_PAGES.empty }]);
     const req = enterprisePage();
     const outcome = await searchText(reservedFor(req), req);
     expect(outcome).toEqual({ ok: true, places: [], nextPageToken: null });

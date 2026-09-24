@@ -92,7 +92,18 @@ function sameRect(a: Rect | null, b: Rect): boolean {
 const isType = (t: string) => (b: Json) => b.includedType === t;
 const isRoot = (b: Json) => sameRect(rectOf(b), MCALLEN_BBOX);
 
-/** Plumber root → the saturated 60 (3 pages); every plumber child → 12; anything else empty. */
+/**
+ * Every other request → a zero-result page. The harness refuses a request no route claims
+ * (B-WR-10: an empty 200 by default would let a builder regression complete green), so a test
+ * that means "the other types find nothing" says so with this route, LAST.
+ */
+const EMPTY_ELSEWHERE: PlacesRoute = {
+  name: 'everything-else-empty',
+  when: () => true,
+  pages: PLACES_PAGES.empty,
+};
+
+/** Plumber root → the saturated 60 (3 pages); every plumber child → 12. */
 const SATURATED_ROUTES: PlacesRoute[] = [
   {
     name: 'plumber-root-saturated',
@@ -215,7 +226,7 @@ afterAll(async () => {
 describe('places-sweep workflow', () => {
   it('a saturated tile subdivides and the run completes', async () => {
     const w = await world();
-    setPlacesRoutes(SATURATED_ROUTES);
+    setPlacesRoutes([...SATURATED_ROUTES, EMPTY_ELSEWHERE]);
 
     const outcome = await sweep(w);
     expect(outcome).toEqual({ status: 'complete', reason: null });
@@ -349,7 +360,7 @@ describe('places-sweep workflow', () => {
       capMicroUsd: PRICE_BOOK.ts_enterprise.microUsdPerRequest - 1,
       admissionHoldMicroUsd: 1,
     });
-    setPlacesRoutes(SATURATED_ROUTES);
+    setPlacesRoutes([...SATURATED_ROUTES, EMPTY_ELSEWHERE]);
 
     const outcome = await sweep(w);
     expect(outcome).toEqual({ status: 'partial', reason: 'budget_cap_reached' });
@@ -371,7 +382,7 @@ describe('places-sweep workflow', () => {
 
   it('the run stops at its request ceiling', async () => {
     const w = await world({ ceilingRequests: 4 });
-    setPlacesRoutes(SATURATED_ROUTES);
+    setPlacesRoutes([...SATURATED_ROUTES, EMPTY_ELSEWHERE]);
 
     const outcome = await sweep(w);
     expect(outcome).toEqual({ status: 'partial', reason: 'exceeded_estimate' });
@@ -438,6 +449,7 @@ describe('places-sweep workflow', () => {
     setPlacesRoutes([
       { name: 'down-once', when: isType('plumber'), error: 'unavailable', times: 1 },
       { name: 'plumber-child', when: isType('plumber'), pages: PLACES_PAGES.child12 },
+      EMPTY_ELSEWHERE,
     ]);
 
     const outcome = await sweep(w);
@@ -586,6 +598,7 @@ describe('places-sweep workflow', () => {
         when: (b) => isType('plumber')(b) && sameRect(rectOf(b), r0!),
         pages: PLACES_PAGES.idsOnly,
       },
+      EMPTY_ELSEWHERE,
     ]);
 
     const outcome = await sweep(w);
@@ -675,6 +688,7 @@ describe('places-sweep workflow', () => {
 
   it('the admission hold is released when the run begins', async () => {
     const w = await world();
+    setPlacesRoutes([EMPTY_ELSEWHERE]);
     const before = await q<{ reserved: string }>(
       `select reserved_micro_usd::text as reserved from budget_periods
         where org_id = $1 and provider = 'places'`,
@@ -749,6 +763,7 @@ describe('places-sweep workflow', () => {
     // T-4-03 / Pitfall 5: the kill lever for a run pinned to an old deployment is the row
     // itself. The operator fails the run while its first request is in flight.
     const w = await world();
+    setPlacesRoutes([EMPTY_ELSEWHERE]);
     let killed = false;
     onPlacesRequest(async () => {
       if (killed) return;
@@ -775,7 +790,7 @@ describe('places-sweep workflow', () => {
   it('a run another org cannot see is never executed', async () => {
     const victim = await world();
     const attacker = await world();
-    setPlacesRoutes(SATURATED_ROUTES);
+    setPlacesRoutes([...SATURATED_ROUTES, EMPTY_ELSEWHERE]);
 
     // T-4-06 / M46: the attacker's org, the victim's run id.
     const run = await start(placesSweep, [
@@ -794,13 +809,16 @@ describe('places-sweep workflow', () => {
   it('no step returns Places content', async () => {
     // Two runs whose steps handled Places text in memory: the saturated tree and the match page.
     const saturated = await world();
-    setPlacesRoutes(SATURATED_ROUTES);
+    setPlacesRoutes([...SATURATED_ROUTES, EMPTY_ELSEWHERE]);
     const a = await start(placesSweep, [saturated.input]);
     const outA = await a.returnValue;
     resetPlaces();
 
     const matched = await world();
-    setPlacesRoutes([{ name: 'match', when: isType('plumber'), pages: PLACES_PAGES.matchPage }]);
+    setPlacesRoutes([
+      { name: 'match', when: isType('plumber'), pages: PLACES_PAGES.matchPage },
+      EMPTY_ELSEWHERE,
+    ]);
     const b = await start(placesSweep, [matched.input]);
     const outB = await b.returnValue;
     expect(outA.status).toBe('complete');
