@@ -251,7 +251,10 @@ describe('plan-run', () => {
       now: NOW,
     });
     expect(roots).toHaveLength(6);
-    expect(roots.map((r) => r.tileKey)).toEqual(HOME_TYPES.map((t) => `radius:48215/5mi|${t}|r`));
+    // B-CR-03: the key names the circle's centre (5 decimals) as well as its radius.
+    expect(roots.map((r) => r.tileKey)).toEqual(
+      HOME_TYPES.map((t) => `radius:48215/26.20340,-98.23000/5mi|${t}|r`),
+    );
     for (const r of roots) {
       expect(r.unitKind).toBe('radius');
       expect(r.shape).toEqual({ kind: 'circle', lat: 26.2034, lng: -98.23, radiusM });
@@ -271,6 +274,31 @@ describe('plan-run', () => {
     expect(missingGeometry(cellsForRun(spec, SEED, 'full_sweep', NOW).cells, spec, SHAPES)).toEqual(
       [],
     );
+  });
+
+  it('two radius presets in one county with the same radius never share a tile key', () => {
+    // B-CR-03: "5 mi around McAllen" and "5 mi around Edinburg" are both county 48215. place_tiles
+    // is keyed per (org, tile_key) and shared across presets, so a shared key would make preset
+    // B's change check search preset A's rectangle and diff against a merged membership.
+    const around = (lat: number, lng: number): PresetSpec => ({
+      name: `5 miles from ${lat}, ${lng}`,
+      clusterKeys: ['home_services'],
+      geo: { kind: 'radius', lat, lng, countyFips: '48215', radiusMiles: 5 },
+    });
+    const plan = (spec: PresetSpec) =>
+      planRootSearches({ spec, seed: SEED, shapes: SHAPES, kind: 'full_sweep', now: NOW });
+    const mcallen = plan(around(26.2034, -98.23));
+    const edinburg = plan(around(26.3017, -98.1633));
+
+    const keysA = new Set(mcallen.flatMap((r) => [r.tileKey, r.cellKey]));
+    const keysB = edinburg.flatMap((r) => [r.tileKey, r.cellKey]);
+    expect(keysB.filter((k) => keysA.has(k))).toEqual([]);
+    // … and the key follows the geometry: the same circle always gives the same key, and a
+    // different rectangle never hides behind one.
+    expect(plan(around(26.2034, -98.23)).map((r) => r.tileKey)).toEqual(
+      mcallen.map((r) => r.tileKey),
+    );
+    for (const r of edinburg) expect(r.tileKey.includes('\u0000')).toBe(false);
   });
 
   it('a unit without geometry is named, not guessed', () => {

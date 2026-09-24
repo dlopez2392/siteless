@@ -99,6 +99,19 @@ export function placesTypesFor(clusterKey: string, seed: SeedTables): readonly s
   return cluster.placesTypes;
 }
 
+/**
+ * B-CR-03. A radius unit's id names its GEOMETRY: county, centre (5 decimals, ~1 m — stable for
+ * one geocoded address, distinct for any two a person would type) and radius. The id flows into
+ * the tile keys and cell keys, and `place_tiles` is keyed per (org, tile_key) across every run
+ * and preset — so "5 mi around McAllen" and "5 mi around Edinburg" (both county 48215) must
+ * never share one, or the second preset's change check would search the first one's rectangle
+ * and diff against a merged membership. `,`, `.` and `-` pass the step wire untouched (wire.ts
+ * escapes only `%`, `/` and U+0000).
+ */
+export function radiusUnitId(countyFips: string, lat: number, lng: number, miles: number): string {
+  return `${countyFips}${SEP}${lat.toFixed(5)},${lng.toFixed(5)}${SEP}${miles}mi`;
+}
+
 const countyClusterKey = (fips: string, cluster: string) => fips + SEP + cluster;
 const cityKey = (countyFips: string, name: string) => countyFips + SEP + name;
 
@@ -268,9 +281,12 @@ export function expandCells(spec: PresetSpec, seed: SeedTables): Cell[] {
     }
 
     // radius
-    const { countyFips, radiusMiles } = spec.geo;
+    const { countyFips, radiusMiles, lat, lng } = spec.geo;
     if (!(radiusMiles > 0)) {
       throw new Error(`expandCells: radiusMiles must be greater than zero, got ${radiusMiles}`);
+    }
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      throw new Error('expandCells: a radius needs a finite centre');
     }
     // Area, not distance: halving the radius quarters the footprint. Capped at 1.0 because
     // the apportionment base is a whole county and a radius cannot contain more of a county
@@ -280,7 +296,7 @@ export function expandCells(spec: PresetSpec, seed: SeedTables): Cell[] {
       cellFor(
         clusterKey,
         'radius',
-        `${countyFips}${SEP}${radiusMiles}mi`,
+        radiusUnitId(countyFips, lat, lng, radiusMiles),
         countyClusterExact(countyFips, clusterKey, idx) * ratio,
       ),
     );
