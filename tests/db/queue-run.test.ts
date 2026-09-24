@@ -464,6 +464,106 @@ describe('queueRun', () => {
       expect((await runRow(tx, second.data.runId)).status).toBe('queued');
     }));
 
+  // A-WR-09. closeRun (steps.ts) is the only writer of runs.cost_micro_usd and matches only
+  // status = 'running', so a run reclaimed as abandoned kept cost 0 forever (the preset page
+  // read "$0.00" for a run that spent money). And a search's in-flight cursor — a request that
+  // may have been billed — was left for its hold to expire and be released with no ledger row.
+  // The reclaim now settles each still-open in-flight attempt AS CHARGED (settleInFlight's
+  // pessimistic rule, under the attempt's own request id), clears the cursor, and stamps the
+  // run's cost from the ledger.
+  it('an abandoned run is costed from the ledger and its in-flight attempt is charged', () =>
+    inWorld(async (tx, orgA) => {
+      const versionId = await seedVersion(tx, orgA, {});
+      const c = asPg(tx);
+      const first = await queueRun({ searchVersionId: versionId, kind: 'full_sweep' });
+      if (!first.ok) throw new Error(`expected ok, got ${first.code}: ${first.message}`);
+      const runId = first.data.runId;
+      const period = rowsOf<{ id: string }>(
+        await tx.execute(sql`
+          select budget_period_id as id from cost_reservations where id = ${first.data.reservationId}::uuid`),
+      )[0]!.id;
+
+      // As the owner: the run started, settled one billed page, then died mid-page and stopped
+      // reporting 40 minutes ago — one search still carries its in-flight cursor.
+      await c.query(
+        `update runs set status = 'running', started_at = now() - interval '45 minutes',
+                         heartbeat_at = now() - interval '40 minutes' where id = $1`,
+        [runId],
+      );
+      const paid = await c.query<{ id: string }>(
+        `insert into cost_reservations (org_id, budget_period_id, run_id, sku, est_micro_usd,
+                                        expires_at, settled_at)
+         values ($1, $2, $3, 'ts_enterprise', 35000, now() + interval '5 minutes', now())
+         returning id`,
+        [orgA, period, runId],
+      );
+      await c.query(
+        `insert into cost_ledger (org_id, budget_period_id, reservation_id, run_id, provider, sku,
+                                  units, micro_usd, request_id)
+         values ($1, $2, $3, $4, 'places', 'ts_enterprise', 1, 35000, 'a-wr-09-settled-page')`,
+        [orgA, period, paid.rows[0]!.id, runId],
+      );
+      const tile = await c.query<{ id: string }>(
+        `insert into place_tiles (org_id, tile_key, unit_kind, unit_id, places_type, quad_path, depth,
+                                  south, west, north, east)
+         values ($1, 'city:48215/McAllen|plumber|r', 'city', '48215/McAllen', 'plumber', 'r', 0,
+                 26.15, -98.3, 26.3, -98.18)
+         on conflict (org_id, tile_key) do update set updated_at = now() returning id`,
+        [orgA],
+      );
+      const hold = await c.query<{ id: string }>(
+        `insert into cost_reservations (org_id, budget_period_id, run_id, sku, est_micro_usd, expires_at)
+         values ($1, $2, $3, 'ts_enterprise', 35000, now() + interval '5 minutes') returning id`,
+        [orgA, period, runId],
+      );
+      await c.query(
+        `update budget_periods set reserved_micro_usd = reserved_micro_usd + 35000 where id = $1`,
+        [period],
+      );
+      const search = await c.query<{ id: string }>(
+        `insert into run_searches (org_id, run_id, tile_id, tile_key, cell_key, cluster_key,
+                                   places_type, kind, depth, status,
+                                   inflight_reservation_id, inflight_request_id)
+         values ($1, $2, $3, 'city:48215/McAllen|plumber|r', 'home_services/48215/McAllen',
+                 'home_services', 'plumber', 'enterprise', 0, 'searching', $4, 'a-wr-09-crashed-page')
+         returning id`,
+        [orgA, runId, tile.rows[0]!.id, hold.rows[0]!.id],
+      );
+
+      const second = await queueRun({ searchVersionId: versionId, kind: 'change_check' });
+      if (!second.ok) throw new Error(`expected ok, got ${second.code}: ${second.message}`);
+
+      const run = rowsOf<{ status: string; reason: string; cost: string }>(
+        await tx.execute(sql`
+          select status, stopped_reason as reason, cost_micro_usd::text as cost
+            from runs where id = ${runId}::uuid`),
+      )[0];
+      // The in-flight page is inside the free 1,000, so it settles at $0 — the cost is the
+      // settled page's, and it is no longer 0.
+      expect(run).toEqual({ status: 'failed', reason: 'abandoned', cost: '35000' });
+      const ledger = rowsOf<{ request_id: string; units: number; micro: string }>(
+        await tx.execute(sql`
+          select request_id, units, micro_usd::text as micro from cost_ledger
+           where run_id = ${runId}::uuid order by request_id`),
+      );
+      expect(ledger).toEqual([
+        { request_id: 'a-wr-09-crashed-page', units: 1, micro: '0' },
+        { request_id: 'a-wr-09-settled-page', units: 1, micro: '35000' },
+      ]);
+      const res = rowsOf<{ settled: boolean }>(
+        await tx.execute(sql`
+          select settled_at is not null as settled from cost_reservations
+           where id = ${hold.rows[0]!.id}::uuid`),
+      );
+      expect(res).toEqual([{ settled: true }]);
+      const cursor = rowsOf<{ res: string | null; req: string | null }>(
+        await tx.execute(sql`
+          select inflight_reservation_id::text as res, inflight_request_id as req
+            from run_searches where id = ${search.rows[0]!.id}::uuid`),
+      );
+      expect(cursor).toEqual([{ res: null, req: null }]);
+    }));
+
   it('queueRun refuses a version without geometry', () =>
     inWorld(async (tx, orgA) => {
       const versionId = await seedVersion(tx, orgA, { allCounties: true });
