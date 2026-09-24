@@ -764,3 +764,108 @@ grant execute on function app.plan_run_searches(uuid, jsonb) to authenticated;
 comment on function app.plan_run_searches(uuid, jsonb) is
   'D-15 / D-16 / T-4-06 / A-WR-11. Records each planned (type x tile) search for an active run of the caller''s org: upserts place_tiles per (org, tile_key) — writing the incoming rectangle, depth, quad path, unit and type over the stored ones, so a re-fetched outline or a re-keyed preset never leaves change checks on stale geometry — inserts run_searches do-nothing per (run, tile_key), returns (search_id, tile_key); a replay returns the same ids. 42501 foreign-or-missing run (one message), 55000 inactive run, 22023 a kind that disagrees with the run (change_check <=> ids_only).';
 --> statement-breakpoint
+
+-- ===========================================================================
+-- 8. A-WR-10 / B-WR-04 — app.mark_run_search retires a leaf's stale descendants.
+-- ===========================================================================
+--
+-- 0028 set only the closing search's own tile: is_leaf = not subdivided. When a root that an
+-- older sweep had split (children r0..r3 stored with is_leaf = true) is re-swept and no longer
+-- saturates, the root became a leaf AND the old children stayed leaves. storedLeaves selects
+-- every is_leaf tile under the root, so a change check listed the root and all four children:
+-- overlapping rectangles, extra requests against the 100/day quota and the run ceiling, and
+-- spurious new/gone verdicts from members recorded by the older sweep.
+--
+-- Now, when an ENTERPRISE search closes `done` with subdivided = false, every stored
+-- descendant of its tile in this org — same unit_kind, unit_id and places_type, a quad path
+-- that extends this one — is set is_leaf = false in the same call. Only the sweep defines the
+-- tree: an ids_only change check lists an existing leaf and retires nothing. A subdivided close
+-- retires nothing either (its children are this run's own, planned after it closes).
+-- Otherwise the 0028 body, unchanged.
+create or replace function app.mark_run_search(p_search uuid, p_state jsonb)
+returns void language plpgsql security definer set search_path = public, pg_temp as $$
+declare v_org uuid; v_run uuid; v_tile uuid; v_kind text; v_res uuid;
+        v_status text; v_saturated boolean; v_subdivided boolean; v_truncated boolean;
+        v_unit_kind text; v_unit_id text; v_type text; v_quad text;
+begin
+  v_org := app.current_org_id();
+  if v_org is null then
+    raise exception 'mark_run_search: no current org' using errcode = '42501';
+  end if;
+
+  select s.run_id, s.tile_id, s.kind into v_run, v_tile, v_kind
+    from run_searches s where s.id = p_search and s.org_id = v_org
+     for update of s;
+  if not found then
+    raise exception 'mark_run_search: search belongs to another org or does not exist'
+      using errcode = '42501';
+  end if;
+
+  if p_state is null or jsonb_typeof(p_state) <> 'object' then
+    raise exception 'mark_run_search: state must be a json object' using errcode = '22023';
+  end if;
+  if exists (select 1 from jsonb_object_keys(p_state) k
+              where k not in ('status', 'saturated', 'subdivided', 'truncated', 'truncated_why',
+                              'inflight_reservation_id', 'inflight_request_id')) then
+    raise exception 'mark_run_search: state carries a key that is not allowed'
+      using errcode = '22023';
+  end if;
+
+  if p_state ? 'inflight_reservation_id' and jsonb_typeof(p_state->'inflight_reservation_id') <> 'null' then
+    v_res := (p_state->>'inflight_reservation_id')::uuid;
+    perform 1 from cost_reservations r
+     where r.id = v_res and r.org_id = v_org and r.run_id = v_run;
+    if not found then
+      raise exception 'mark_run_search: reservation is not this run''s'
+        using errcode = '42501';
+    end if;
+  end if;
+
+  update run_searches s set
+         status        = coalesce(p_state->>'status', s.status),
+         saturated     = coalesce((p_state->>'saturated')::boolean, s.saturated),
+         subdivided    = coalesce((p_state->>'subdivided')::boolean, s.subdivided),
+         truncated     = coalesce((p_state->>'truncated')::boolean, s.truncated),
+         truncated_why = coalesce(p_state->>'truncated_why', s.truncated_why),
+         inflight_reservation_id = case when p_state ? 'inflight_reservation_id'
+                                        then v_res else s.inflight_reservation_id end,
+         inflight_request_id     = case when p_state ? 'inflight_request_id'
+                                        then p_state->>'inflight_request_id'
+                                        else s.inflight_request_id end
+   where s.id = p_search and s.org_id = v_org
+  returning s.status, s.saturated, s.subdivided, s.truncated
+       into v_status, v_saturated, v_subdivided, v_truncated;
+
+  if (p_state->>'status') = 'done' then
+    update place_tiles t set
+           is_leaf           = not v_subdivided,
+           saturated         = v_saturated,
+           truncated         = v_truncated,
+           last_swept_run_id = case when v_kind = 'enterprise' then v_run else t.last_swept_run_id end,
+           last_swept_at     = case when v_kind = 'enterprise' then now() else t.last_swept_at end,
+           last_checked_at   = case when v_kind = 'ids_only' then now() else t.last_checked_at end
+     where t.id = v_tile and t.org_id = v_org
+    returning t.unit_kind, t.unit_id, t.places_type, t.quad_path
+         into v_unit_kind, v_unit_id, v_type, v_quad;
+
+    -- A-WR-10 / B-WR-04. This tile is now a leaf of the current tree: no stored descendant of
+    -- it may stay one. Same org, unit and type; a quad path that strictly extends this one.
+    if v_kind = 'enterprise' and not v_subdivided and v_quad is not null then
+      update place_tiles d set is_leaf = false
+       where d.org_id = v_org and d.id <> v_tile and d.is_leaf
+         and d.unit_kind = v_unit_kind and d.unit_id = v_unit_id and d.places_type = v_type
+         and starts_with(d.quad_path, v_quad) and length(d.quad_path) > length(v_quad);
+    end if;
+  end if;
+end $$;
+--> statement-breakpoint
+
+revoke execute on function app.mark_run_search(uuid, jsonb) from public, anon, service_role;
+--> statement-breakpoint
+
+grant execute on function app.mark_run_search(uuid, jsonb) to authenticated;
+--> statement-breakpoint
+
+comment on function app.mark_run_search(uuid, jsonb) is
+  'D-15 / D-16 / T-4-10 / A-WR-10. Moves one search''s progress through an allow-listed key set (status, saturated, subdivided, truncated, truncated_why, inflight_reservation_id, inflight_request_id; anything else 22023), coalesce(new, old) per key; JSON null clears the in-flight pair. An in-flight reservation must be this org''s and this run''s (42501). Status done updates the tile: is_leaf = not subdivided, saturated, truncated, and last_swept_* (enterprise) or last_checked_at (ids_only); an enterprise search closing unsubdivided also retires (is_leaf = false) every stored descendant of its tile, so an older, deeper tree never overlaps the new leaf.';
+--> statement-breakpoint

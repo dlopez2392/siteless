@@ -475,6 +475,90 @@ describe('app.plan_run_searches / app.mark_run_search (D-15, D-16, T-4-06, T-4-1
       );
       expect(tiles.rows).toEqual([{ n: '1', ...after }]);
     }));
+
+  // A-WR-10 / B-WR-04. A search that closes WITHOUT subdividing makes its tile a leaf; every
+  // stored descendant of that tile — left is_leaf by an older, deeper tree — is retired in the
+  // same statement, so a change check never lists the root and its old children (overlapping
+  // rectangles, extra requests, stale diffs).
+  it('a search that closes unsubdivided retires its tile’s stale descendants', () =>
+    withRollback(async (c) => {
+      const { a, b } = await seedTwoOrgs(c);
+      const run = await seedPlacesRun(c, a);
+      const runB = await seedPlacesRun(c, b);
+      // As the owner: the stale tree of an older sweep (r split into r0, r0 into r00), a tile of
+      // ANOTHER type under the same path, and the same key in another org — all leaves.
+      const older = await seedPlacesRun(c, a, { status: 'complete' });
+      for (const [key, depth] of [
+        ['city:48215/McAllen|plumber|r0', 1],
+        ['city:48215/McAllen|plumber|r00', 2],
+        ['city:48215/McAllen|electrician|r0', 1],
+      ] as const) {
+        await seedRunSearch(c, a, older.runId, {
+          tileKey: key,
+          placesType: key.split('|')[1]!,
+          depth,
+        });
+      }
+      await seedRunSearch(c, b, runB.runId, {
+        tileKey: 'city:48215/McAllen|plumber|r0',
+        placesType: 'plumber',
+        depth: 1,
+      });
+      await actAs(c, CLAIMS_A);
+      const [s] = await plan(c, run.runId, [searchEl(TILE_ROOT)]);
+      await c.query('select app.mark_run_search($1, $2::jsonb)', [
+        s!.search_id,
+        JSON.stringify({ status: 'done', subdivided: false }),
+      ]);
+      await actAsOwner(c);
+      const leaves = await c.query<{ org: string; tile_key: string; is_leaf: boolean }>(
+        `select case when org_id = $1 then 'a' else 'b' end as org, tile_key, is_leaf
+           from place_tiles where org_id = any($2::uuid[]) order by 1, 2`,
+        [a, [a, b]],
+      );
+      expect(leaves.rows).toEqual([
+        { org: 'a', tile_key: 'city:48215/McAllen|electrician|r0', is_leaf: true },
+        { org: 'a', tile_key: 'city:48215/McAllen|plumber|r', is_leaf: true },
+        { org: 'a', tile_key: 'city:48215/McAllen|plumber|r0', is_leaf: false },
+        { org: 'a', tile_key: 'city:48215/McAllen|plumber|r00', is_leaf: false },
+        { org: 'b', tile_key: 'city:48215/McAllen|plumber|r0', is_leaf: true },
+      ]);
+    }));
+
+  it('a search that closes subdivided leaves its descendants alone', () =>
+    withRollback(async (c) => {
+      const { a } = await seedTwoOrgs(c);
+      const run = await seedPlacesRun(c, a);
+      await actAs(c, CLAIMS_A);
+      // This run's own tree: r subdivided, its child r0 planned and closed as a leaf FIRST
+      // would be the wrong order, so the child is planned after the parent closes, as the
+      // executor does — and a subdivided close must not touch it.
+      const [root] = await plan(c, run.runId, [searchEl(TILE_ROOT)]);
+      await c.query('select app.mark_run_search($1, $2::jsonb)', [
+        root!.search_id,
+        JSON.stringify({ status: 'done', subdivided: true }),
+      ]);
+      const [child] = await plan(c, run.runId, [
+        searchEl('city:48215/McAllen|plumber|r0', { depth: 1, parentTileKey: TILE_ROOT }),
+      ]);
+      await c.query('select app.mark_run_search($1, $2::jsonb)', [
+        child!.search_id,
+        JSON.stringify({ status: 'done', subdivided: false }),
+      ]);
+      // A replayed close of the subdivided parent (at-least-once delivery) retires nothing.
+      await c.query('select app.mark_run_search($1, $2::jsonb)', [
+        root!.search_id,
+        JSON.stringify({ status: 'done', subdivided: true }),
+      ]);
+      const leaves = await c.query<{ tile_key: string; is_leaf: boolean }>(
+        'select tile_key, is_leaf from place_tiles where org_id = $1 order by tile_key',
+        [a],
+      );
+      expect(leaves.rows).toEqual([
+        { tile_key: TILE_ROOT, is_leaf: false },
+        { tile_key: 'city:48215/McAllen|plumber|r0', is_leaf: true },
+      ]);
+    }));
 });
 
 describe('app.purge_expired_place_coordinates (D-12, M38, M39, T-4-07)', () => {
