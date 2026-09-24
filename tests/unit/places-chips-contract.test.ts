@@ -18,8 +18,10 @@ import {
   scoreSab,
   toPlaceForMatch,
   type BusinessCandidate,
+  type MatchDecision,
   type PlacesResultLike,
 } from '@/lib/places/match';
+import { toPageRecord } from '@/lib/places/page-record';
 import { placesChips } from '@/lib/ui/places-format';
 
 const SENTINEL_SAB: PlacesResultLike = {
@@ -65,17 +67,45 @@ describe('places chips contract', () => {
     expect(labels).toEqual(
       expect.arrayContaining(['service-area business', 'city match', 'no location on the listing']),
     );
-    // The resolver's own vector reaches the band through the same keys.
-    expect(labels).toContain('name 0.93');
+    // The resolver's own vector reaches the band through the same keys (0.93 ≥ 0.85: the name
+    // signal — named as a band, since the similarity itself is never persisted).
+    expect(labels).toContain('name match');
     expect(labels).toContain('same cluster');
     // The listing HAS a phone: the absence chip must not fire on a present value.
     expect(labels).not.toContain('no phone on the listing');
     // Nothing Google-authored is in the features, so nothing Google-authored can be a chip.
     expect(JSON.stringify(chips)).not.toContain('SENTINEL');
 
-    // The same features, carried through the decision the writer persists, give the same chips.
-    const decision = decide(place, [result]);
-    const persisted = decision.matches[0]?.features ?? result.features;
+    // The same features, carried through the writer's record (toPageRecord, which drops
+    // nameSim / distanceM), give the same chips. This fallback band scores below the review
+    // floor, so `decide` would carry no match; the record is built as if it were tentative —
+    // the features are what is under test, not the band.
+    expect(decide(place, [result]).matches).toEqual([]);
+    const decision: MatchDecision = {
+      placeId: place.placeId,
+      outcome: 'tentative',
+      matches: [
+        {
+          businessId: VALLEY_LOCKSMITH.id,
+          score: result.score,
+          status: 'tentative',
+          reason: 'score',
+          tieBusinessId: null,
+          features: result.features,
+        },
+      ],
+    };
+    const record = toPageRecord({
+      page: 1,
+      sku: 'ts_enterprise',
+      resultsSoFar: 1,
+      items: [
+        { decision, pureSab: true, hadWebsiteUri: false, hostClass: 'none', lat: null, lng: null },
+      ],
+    });
+    const persisted = record.places[0]?.matches[0]?.features;
+    expect(persisted).toBeDefined();
+    expect(persisted).not.toHaveProperty('nameSim');
     // Round-trip through JSON: the stored jsonb is what the queue reads back.
     expect(placesChips(JSON.parse(JSON.stringify(persisted)))).toEqual(chips);
   });

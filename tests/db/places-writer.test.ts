@@ -68,6 +68,19 @@ const FEATURES: PlaceFeatures = {
   listingLocation: 1,
 };
 
+/** What `place_attachments.features` holds of FEATURES: toPageRecord drops the two continuous,
+ *  Google-derived inputs (memory-only since 2026-09-23). */
+const PERSISTED_FEATURES = {
+  name: 30,
+  phone: 40,
+  address: 25,
+  distance: 0,
+  cluster: 5,
+  signals: ['name', 'phone', 'address'],
+  listingPhone: 1,
+  listingLocation: 1,
+};
+
 type Spine = Record<SpineKey, string>;
 
 type Setup = {
@@ -195,7 +208,7 @@ async function seedAttachment(
   const r = await c.query<{ id: string }>(
     `insert into place_attachments (org_id, business_id, place_id, status, reason, score, features)
      values ($1, $2, $3, $4, $5, $6, $7::jsonb) returning id`,
-    [orgId, businessId, placeId, status, reason, score, JSON.stringify({ nameSim: 1 })],
+    [orgId, businessId, placeId, status, reason, score, JSON.stringify({ name: 45 })],
   );
   return r.rows[0]!.id;
 }
@@ -226,7 +239,10 @@ describe('app.record_places_page (D-05, D-06, D-08, D-10, PLACE-02)', () => {
         score: 97,
         tie_business_id: null,
       });
-      expect(att[0]!.features).toEqual(FEATURES);
+      expect(att[0]!.features).toEqual(PERSISTED_FEATURES);
+      // Read back from the table, not from the record: neither continuous input was written.
+      expect(att[0]!.features).not.toHaveProperty('nameSim');
+      expect(att[0]!.features).not.toHaveProperty('distanceM');
 
       const obs = await c.query<{
         attachment_id: string;
@@ -361,7 +377,7 @@ describe('app.record_places_page (D-05, D-06, D-08, D-10, PLACE-02)', () => {
       expect(att).toEqual([
         expect.objectContaining({ status: 'attached', reason: 'confirmed', score: 97 }),
       ]);
-      expect(att[0]!.features).toEqual({ nameSim: 1 });
+      expect(att[0]!.features).toEqual({ name: 45 });
       // Still the business's listing: this run observed it, and the place is attached.
       expect(await observationsOf(c, 'ChIJ-ortiz')).toBe(1);
       expect(await outcomeOf(c, s.runId, 'ChIJ-ortiz')).toBe('attached');

@@ -175,17 +175,50 @@ describe('page record', () => {
     expect(() => withFeatures({ ...GOOD_FEATURES, displayName: 'x' })).toThrow(
       new Error('toPageRecord: feature displayName is not allow-listed'),
     );
-    // Positive control: the same record without the extra key is accepted as-is.
-    expect(withFeatures(GOOD_FEATURES).places[0]?.matches[0]?.features).toEqual(GOOD_FEATURES);
+    // Positive control: the same record without the extra key is accepted — minus the two
+    // memory-only keys, which are the one deliberate drop.
+    expect(withFeatures(GOOD_FEATURES).places[0]?.matches[0]?.features).toEqual({
+      name: 30,
+      phone: 40,
+      address: 25,
+      distance: 0,
+      cluster: 5,
+      signals: ['name', 'phone', 'address'],
+    });
+  });
+
+  it('persisted place features carry no nameSim or distanceM', () => {
+    // Through the real matcher, from the match page: the in-memory decision carries both
+    // continuous Google-derived inputs; the record the writer receives carries neither.
+    const items = [...(matchPage.places as Raw[]), SENTINEL_PLACE].map(item);
+    const inMemory = items.flatMap((i) => i.decision.matches.map((m) => m.features));
+    expect(inMemory.length).toBeGreaterThan(0);
+    expect(inMemory.every((f) => 'nameSim' in f && 'distanceM' in f)).toBe(true);
+
+    const record = toPageRecord({ page: 1, sku: 'ts_enterprise', resultsSoFar: 8, items });
+    const persisted = record.places.flatMap((pl) => pl.matches.map((m) => m.features));
+    expect(persisted.length).toBeGreaterThan(0);
+    for (const f of persisted) {
+      expect(f).not.toHaveProperty('nameSim');
+      expect(f).not.toHaveProperty('distanceM');
+      // What stays is the integer points (and the enums / flags beside them).
+      for (const k of ['name', 'phone', 'address', 'distance', 'cluster'] as const) {
+        expect(Number.isInteger(f[k]), k).toBe(true);
+      }
+    }
+    expect(JSON.stringify(record)).not.toMatch(/nameSim|distanceM/);
+    // Even a caller that hands over a bare vector with only the two keys gets neither back.
+    expect(withFeatures({ nameSim: 0.93, distanceM: 140 }).places[0]?.matches[0]?.features).toEqual(
+      {},
+    );
   });
 
   it('page record refuses a non-numeric feature value', () => {
     expect(() => withFeatures({ ...GOOD_FEATURES, name: 'Ortiz' })).toThrow(/feature name\b/);
-    expect(() => withFeatures({ ...GOOD_FEATURES, nameSim: Number.NaN })).toThrow(
-      /feature nameSim\b/,
-    );
-    expect(() => withFeatures({ ...GOOD_FEATURES, distanceM: '12' })).toThrow(
-      /feature distanceM\b/,
+    // Points are integers: a continuous value under a points key is refused, never rounded.
+    expect(() => withFeatures({ ...GOOD_FEATURES, name: 0.93 })).toThrow(/feature name\b/);
+    expect(() => withFeatures({ ...GOOD_FEATURES, distance: Number.NaN })).toThrow(
+      /feature distance\b/,
     );
     expect(() => withFeatures({ ...GOOD_FEATURES, signals: ['name', 'Ortiz'] })).toThrow(
       /feature signals\b/,
@@ -194,7 +227,8 @@ describe('page record', () => {
       /feature rule\b/,
     );
     expect(() => withFeatures({ ...GOOD_FEATURES, city: 2 })).toThrow(/feature city\b/);
-    // distanceM may be null (no location on one side); a valid rule and 0|1 flags pass.
+    // A null distanceM (no location on one side) is dropped like any other; a valid rule and
+    // 0|1 flags pass.
     expect(() =>
       withFeatures({
         ...GOOD_FEATURES,

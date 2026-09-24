@@ -239,7 +239,7 @@ describe('review queue — the google item kind', () => {
         tie: null,
       });
       // The stored features object, verbatim (the fixture's numeric allow-listed keys).
-      expect(top.features).toEqual({ name: 30, nameSim: 1 });
+      expect(top.features).toEqual({ name: 30 });
       // The spine side is the Phase 3 CandidateSideView of the business — the same shape the
       // pair renders, so SpineRecordCard can take either.
       expect(top.business).toMatchObject({

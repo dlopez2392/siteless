@@ -1,14 +1,13 @@
 import type { HostClass } from '@/lib/places/host-class';
+import { DISTANCE_TIERS } from '@/lib/resolve/score';
 import {
   HOST_CLASS_SENTENCE,
   HOST_CLASS_SHORT_LABEL,
   PLACES_CHIP,
+  PLACES_CHIP_WITHIN,
   REVIEW_CHIP,
-  REVIEW_CHIP_APART,
-  REVIEW_CHIP_NAME,
   RUN_WEBSITE_ROW,
 } from './copy';
-import { formatDistance } from './review-format';
 
 /**
  * Places-derived values, one formatter each (04-UI-SPEC § Screens 1, 3 and 5; Executor Rule 5):
@@ -84,9 +83,10 @@ function flag(value: unknown): 0 | 1 | null {
 }
 
 /**
- * The chips for one tentative Google listing, from `place_attachments.features` — the matcher's
- * `PlaceFeatures` (`src/lib/places/match.ts`): the resolver's numeric vector plus `city`, `sab`,
- * `listingPhone` and `listingLocation` as 0|1.
+ * The chips for one tentative Google listing, from `place_attachments.features` — what
+ * `toPageRecord` persists of the matcher's `PlaceFeatures` (`src/lib/places/match.ts`): the
+ * resolver's integer points, `signals` and `rule`, plus `city`, `sab`, `listingPhone` and
+ * `listingLocation` as 0|1. Never `nameSim` or `distanceM` (memory-only since 2026-09-23).
  *
  * `features` arrives as `unknown` stored jsonb, so every field is read defensively: a malformed
  * value drops its chip and the function never throws. A fact with no chip wording in the spec (a
@@ -110,27 +110,28 @@ export function placesChips(features: unknown): PlacesChip[] {
     chips.push({ key: 'no_listing_phone', label: PLACES_CHIP.noListingPhone, agrees: false });
   }
 
-  // Name: the database's trigram similarity, two decimals.
-  const nameSim = num(f.nameSim);
-  if (nameSim !== null) {
-    const namePoints = num(f.name) ?? 0;
-    chips.push({
-      key: 'name',
-      label: REVIEW_CHIP_NAME(nameSim.toFixed(2)),
-      agrees: namePoints > 0,
-    });
+  // Name: from the integer points and the `name` signal. The similarity figure itself is
+  // memory-only since 2026-09-23 (src/lib/places/page-record.ts), so the chip names the band:
+  // the signal (similarity ≥ 0.85), some points (above the 0.40 floor), or none.
+  const namePoints = num(f.name);
+  if (namePoints !== null) {
+    const signals = Array.isArray(f.signals) ? (f.signals as unknown[]) : [];
+    const label = signals.includes('name')
+      ? PLACES_CHIP.nameMatch
+      : namePoints > 0
+        ? PLACES_CHIP.nameSimilar
+        : PLACES_CHIP.nameDifferent;
+    chips.push({ key: 'name', label, agrees: namePoints > 0 });
   }
 
-  // Distance: metres apart when the listing has a pin; otherwise the listing-specific absence.
+  // Distance: the scorer's tier, as "within <tier>" — metres apart are memory-only too. Zero
+  // points is either beyond the last tier or a location too coarse to score, and the stored
+  // points cannot say which, so it gets no chip; a listing with no pin says so instead.
   // One fact, one chip — the inherited "no location on one side" never doubles it.
-  const distanceM = num(f.distanceM);
-  if (distanceM !== null) {
-    const distancePoints = num(f.distance) ?? 0;
-    chips.push({
-      key: 'distance',
-      label: REVIEW_CHIP_APART(formatDistance(distanceM)),
-      agrees: distancePoints > 0,
-    });
+  const distancePoints = num(f.distance);
+  const tier = DISTANCE_TIERS.find((t) => t.points === distancePoints);
+  if (distancePoints !== null && distancePoints > 0 && tier !== undefined) {
+    chips.push({ key: 'distance', label: PLACES_CHIP_WITHIN(tier.maxM), agrees: true });
   } else if (flag(f.listingLocation) === 0) {
     chips.push({ key: 'no_listing_location', label: PLACES_CHIP.noListingLocation, agrees: false });
   }

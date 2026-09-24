@@ -1571,13 +1571,31 @@ export const REVIEW_GOOGLE_CARD_BODY =
 export const REVIEW_GOOGLE_OPEN_MAPS = OPEN_LISTING_ON_GOOGLE_MAPS;
 export const REVIEW_GOOGLE_COMPARED = 'How it compared';
 
-/** The four Google-kind chips. The inherited ones are `REVIEW_CHIP` above. */
+/**
+ * The Google-kind chips. The inherited ones are `REVIEW_CHIP` above.
+ *
+ * The three name chips and `PLACES_CHIP_WITHIN` replace the inherited figure chips ("name 0.84",
+ * "140 m apart") on a Google listing only (2026-09-23): the similarity and the metres are
+ * memory-only there, so the chip names the scorer's band instead. Phase 3's pair review keeps
+ * its figures — both of its records are ours.
+ */
 export const PLACES_CHIP = {
   cityMatch: 'city match',
   sab: 'service-area business',
   noListingPhone: 'no phone on the listing',
   noListingLocation: 'no location on the listing',
+  /** The name signal: similarity ≥ 0.85. */
+  nameMatch: 'name match',
+  /** Some name points: similarity above the 0.40 floor, below the signal. */
+  nameSimilar: 'name similar',
+  /** No name points. */
+  nameDifferent: 'different name',
 } as const;
+
+/** "within 100 m", "within 500 m", "within 2 km" — a scorer distance tier's upper bound. */
+export function PLACES_CHIP_WITHIN(maxM: number) {
+  return `within ${maxM < 1000 ? `${maxM} m` : `${maxM / 1000} km`}`;
+}
 
 export function REVIEW_GOOGLE_REASON_SCORE(score: number) {
   return (

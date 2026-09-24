@@ -58,9 +58,7 @@ const TIE_BUSINESS = '33333333-3333-4333-8333-333333333333';
 /** The matcher's stored features for a service-area listing (src/lib/places/match.ts). */
 const FEATURES = {
   name: 38,
-  nameSim: 0.84,
   phone: 0,
-  distanceM: null,
   cluster: 5,
   city: 1,
   sab: 1,

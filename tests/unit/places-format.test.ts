@@ -74,7 +74,8 @@ describe('places-format', () => {
         'city match',
         'no phone on the listing',
         'no location on the listing',
-        'name 0.84',
+        // Name points, but not the name signal: the band, never a figure (nameSim is memory-only).
+        'name similar',
       ]),
     );
     expect(labels).toHaveLength(5);
@@ -99,16 +100,35 @@ describe('places-format', () => {
       cluster: 5,
       nameSim: 0.91,
       distanceM: 140,
-      signals: ['name', 'phone', 'distance'],
+      signals: ['name', 'phone'],
       listingPhone: 1,
       listingLocation: 1,
     };
     expect(placesChips(located).map((c) => c.label)).toEqual([
       'phone exact',
-      'name 0.91',
-      '140 m apart',
+      'name match',
+      'within 500 m',
       'same cluster',
     ]);
+    // The chips read the persisted keys only: dropping the two memory-only inputs (as
+    // toPageRecord does) changes nothing.
+    const stored = Object.fromEntries(
+      Object.entries(located).filter(([k]) => k !== 'nameSim' && k !== 'distanceM'),
+    );
+    expect(placesChips(stored)).toEqual(placesChips(located));
+    // Every distance tier reads as "within" its bound; zero points (beyond 2 km, or a location
+    // too coarse to score — the stored points cannot tell which) renders no distance chip.
+    const distanceLabel = (distance: number) =>
+      placesChips({ ...stored, distance }).find((c) => c.key === 'distance')?.label;
+    expect([15, 10, 4, 0].map(distanceLabel)).toEqual([
+      'within 100 m',
+      'within 500 m',
+      'within 2 km',
+      undefined,
+    ]);
+    // No name points → the disagreement chip.
+    const noName = placesChips({ ...stored, name: 0, signals: [] }).find((c) => c.key === 'name');
+    expect(noName).toEqual({ key: 'name', label: 'different name', agrees: false });
     // city: 0 is a measured non-match with no chip wording — it renders nothing, not a guess.
     expect(placesChips({ ...located, city: 0 }).map((c) => c.key)).not.toContain('city');
 
@@ -118,6 +138,8 @@ describe('places-format', () => {
     expect(placesChips(undefined)).toEqual([]);
     expect(placesChips([1, 2])).toEqual([]);
     expect(placesChips({ nameSim: 'x' })).toEqual([]);
+    expect(placesChips({ nameSim: 0.9, distanceM: 40 })).toEqual([]);
+    expect(placesChips({ name: 'x', distance: 'near' })).toEqual([]);
     expect(placesChips({ nameSim: Number.NaN, city: '1', sab: true, listingPhone: '0' })).toEqual(
       [],
     );

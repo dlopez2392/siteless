@@ -190,9 +190,7 @@ const LISTING: GoogleListingView = {
   reason: 'score',
   features: {
     name: 38,
-    nameSim: 0.84,
     phone: 0,
-    distanceM: null,
     cluster: 5,
     city: 1,
     sab: 1,

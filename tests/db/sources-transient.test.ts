@@ -84,7 +84,7 @@ async function seedHeldPlace(
   const a = await c.query<{ id: string }>(
     `insert into place_attachments (org_id, business_id, place_id, status, reason, score, features,
                                     first_seen_run_id, last_seen_run_id)
-     values ($1, $2, $3, 'attached', 'score', 95, '{"nameSim":1}'::jsonb, $4, $4)
+     values ($1, $2, $3, 'attached', 'score', 95, '{"name":30}'::jsonb, $4, $4)
      returning id`,
     [orgId, businessId, placeId, runId],
   );
