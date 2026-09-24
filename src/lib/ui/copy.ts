@@ -1987,44 +1987,87 @@ export const SECOND_WALL_BODY =
   'quota in Google Cloud is the independent second wall, and it can only be set once the ' +
   "Google Cloud project and the Places API (New) key exist — they don't yet.";
 
+/**
+ * 🔴 C-WR-09: THE QUOTA AND THE PRICE ARE INPUTS, NEVER LITERALS. The card passes
+ * `GOOGLE_QUOTA_REQUESTS_PER_DAY` (the one constant the run-stop alert also reads) and the Text
+ * Search Enterprise price and free allowance from the price book, so changing the quota moves
+ * this card and the stopped run's sentence together. The $50.00 anchor is the PROJECT budget
+ * the recommendation was derived against (the card's header says why it is not the live cap).
+ */
+export type SecondWallInputs = {
+  quotaPerDay: number;
+  /** µUSD per paid Text Search Enterprise request (35,000 = $35.00/1,000). */
+  microUsdPerRequest: number;
+  /** Free Enterprise requests per month (1,000). */
+  freePerMonth: number;
+  /** The project budget the recommendation is derived against (µUSD; $50.00). */
+  budgetMicroUsd: number;
+};
+
+/** Paid requests a quota-limited DAY can spend, in µUSD (100 × $0.035 = $3.50). */
+function perDayMicroUsd(i: SecondWallInputs): number {
+  return i.quotaPerDay * i.microUsdPerRequest;
+}
+
 /** The recommendation and its arithmetic (docs/runbooks/google-quota.md § The derivation). */
-export const SECOND_WALL_DERIVATION: readonly EmphasisRun[] = [
-  { text: 'Set ' },
-  { text: 'Places API (New) → 100 requests/day', strong: true },
-  {
-    text:
-      '. Derivation: a $50.00 cap buys 1,428 paid Text Search Enterprise requests at ' +
-      '$35.00/1,000, plus 1,000 free = 2,428/month ≈ 80/day. Rounded to 100/day so a weekly ' +
-      'partition can burst. The quota does not replace the meter — it bounds a runaway loop to ' +
-      'about $3.50/day instead of $50.00 in an hour.',
-  },
-];
+export function SECOND_WALL_DERIVATION(i: SecondWallInputs): readonly EmphasisRun[] {
+  const paid = Math.floor(i.budgetMicroUsd / i.microUsdPerRequest);
+  const monthly = paid + i.freePerMonth;
+  const daily = Math.floor(monthly / 30);
+  return [
+    { text: 'Set ' },
+    { text: `Places API (New) → ${formatCount(i.quotaPerDay)} requests/day`, strong: true },
+    {
+      text:
+        `. Derivation: a ${formatUsd(i.budgetMicroUsd)} cap buys ${formatCount(paid)} paid Text ` +
+        `Search Enterprise requests at ${formatUsd(i.microUsdPerRequest * 1000)}/1,000, plus ` +
+        `${formatCount(i.freePerMonth)} free = ${formatCount(monthly)}/month ≈ ` +
+        `${formatCount(daily)}/day. Rounded to ${formatCount(i.quotaPerDay)}/day so a weekly ` +
+        `partition can burst. The quota does not replace the meter — it bounds a runaway loop to ` +
+        `about ${formatUsd(perDayMicroUsd(i))}/day instead of ${formatUsd(i.budgetMicroUsd)} in ` +
+        `an hour.`,
+    },
+  ];
+}
 
 /** 🔴 The honesty line — the point of the card, in BOTH states: the quota bounds a day, only
  *  the meter bounds the month. */
-export const SECOND_WALL_LIMIT: readonly EmphasisRun[] = [
-  { text: 'What it does ' },
-  { text: 'not', strong: true },
-  {
-    text:
-      ' do: 100/day × 30 days is 3,000 requests, which is $70/month — more than the $50.00 ' +
-      'cap. The quota bounds a runaway ',
-  },
-  { text: 'day', strong: true },
-  { text: "; only Siteless's own meter bounds the " },
-  { text: 'month', strong: true },
-  { text: '. That is what “second wall, not the primary meter” means.' },
-];
+export function SECOND_WALL_LIMIT(i: SecondWallInputs): readonly EmphasisRun[] {
+  const requests = i.quotaPerDay * 30;
+  const monthMicroUsd = Math.max(0, requests - i.freePerMonth) * i.microUsdPerRequest;
+  // The comparison is computed, so a smaller quota can never be described as "more than".
+  const versus =
+    monthMicroUsd > i.budgetMicroUsd
+      ? 'more than'
+      : monthMicroUsd === i.budgetMicroUsd
+        ? 'exactly'
+        : 'less than';
+  return [
+    { text: 'What it does ' },
+    { text: 'not', strong: true },
+    {
+      text:
+        ` do: ${formatCount(i.quotaPerDay)}/day × 30 days is ${formatCount(requests)} ` +
+        `requests, which is ${formatUsd(monthMicroUsd)}/month — ${versus} the ` +
+        `${formatUsd(i.budgetMicroUsd)} cap. The quota bounds a runaway `,
+    },
+    { text: 'day', strong: true },
+    { text: "; only Siteless's own meter bounds the " },
+    { text: 'month', strong: true },
+    { text: '. That is what “second wall, not the primary meter” means.' },
+  ];
+}
 
 export const SECOND_WALL_SET_TITLE = 'Google Cloud daily quota — set';
 export const SECOND_WALL_SET_BADGE = 'Set';
 
 /** `date` is the day danlo set it, pre-formatted. */
-export function SECOND_WALL_SET_BODY(date: string) {
+export function SECOND_WALL_SET_BODY(date: string, i: SecondWallInputs) {
   return (
-    `Places API (New) → Requests per day = 100, set on ${date}. This is the second wall: even ` +
-    `if Siteless's own meter failed, Google stops Places requests after 100 a day — about $3.50 ` +
-    `of paid requests. The meter above is still the wall that matters.`
+    `Places API (New) → Requests per day = ${formatCount(i.quotaPerDay)}, set on ${date}. This ` +
+    `is the second wall: even if Siteless's own meter failed, Google stops Places requests ` +
+    `after ${formatCount(i.quotaPerDay)} a day — about ${formatUsd(perDayMicroUsd(i))} of paid ` +
+    `requests. The meter above is still the wall that matters.`
   );
 }
 
