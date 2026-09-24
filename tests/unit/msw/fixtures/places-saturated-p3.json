@@ -11,8 +11,6 @@
         "latitude": 26.21,
         "longitude": -98.245
       },
-      "types": ["plumber"],
-      "businessStatus": "OPERATIONAL",
       "nationalPhoneNumber": "(956) 555-0141",
       "rating": 4.2,
       "userRatingCount": 10
@@ -28,8 +26,6 @@
         "latitude": 26.22,
         "longitude": -98.245
       },
-      "types": ["plumber"],
-      "businessStatus": "OPERATIONAL",
       "nationalPhoneNumber": "(956) 555-0142",
       "websiteUri": "https://synthetic-042.example",
       "rating": 4.2,
@@ -46,8 +42,6 @@
         "latitude": 26.23,
         "longitude": -98.245
       },
-      "types": ["plumber"],
-      "businessStatus": "OPERATIONAL",
       "nationalPhoneNumber": "(956) 555-0143",
       "websiteUri": "https://synthetic-043.business.site",
       "rating": 4.2,
@@ -64,8 +58,6 @@
         "latitude": 26.24,
         "longitude": -98.245
       },
-      "types": ["plumber"],
-      "businessStatus": "OPERATIONAL",
       "nationalPhoneNumber": "(956) 555-0144",
       "websiteUri": "https://www.facebook.com/synthetic-044",
       "rating": 4.2,
@@ -82,8 +74,6 @@
         "latitude": 26.25,
         "longitude": -98.245
       },
-      "types": ["plumber"],
-      "businessStatus": "OPERATIONAL",
       "nationalPhoneNumber": "(956) 555-0145",
       "websiteUri": "https://synthetic-045.wixsite.com/site",
       "rating": 4.2,
@@ -100,8 +90,6 @@
         "latitude": 26.26,
         "longitude": -98.245
       },
-      "types": ["plumber"],
-      "businessStatus": "OPERATIONAL",
       "nationalPhoneNumber": "(956) 555-0146",
       "rating": 4.2,
       "userRatingCount": 10
@@ -117,8 +105,6 @@
         "latitude": 26.27,
         "longitude": -98.245
       },
-      "types": ["plumber"],
-      "businessStatus": "OPERATIONAL",
       "nationalPhoneNumber": "(956) 555-0147",
       "websiteUri": "https://synthetic-047.example",
       "rating": 4.2,
@@ -135,8 +121,6 @@
         "latitude": 26.16,
         "longitude": -98.245
       },
-      "types": ["plumber"],
-      "businessStatus": "OPERATIONAL",
       "nationalPhoneNumber": "(956) 555-0148",
       "websiteUri": "https://synthetic-048.business.site",
       "rating": 4.2,
@@ -153,8 +137,6 @@
         "latitude": 26.17,
         "longitude": -98.23
       },
-      "types": ["plumber"],
-      "businessStatus": "OPERATIONAL",
       "nationalPhoneNumber": "(956) 555-0149",
       "websiteUri": "https://www.facebook.com/synthetic-049",
       "rating": 4.2,
@@ -171,8 +153,6 @@
         "latitude": 26.18,
         "longitude": -98.23
       },
-      "types": ["plumber"],
-      "businessStatus": "OPERATIONAL",
       "nationalPhoneNumber": "(956) 555-0150",
       "websiteUri": "https://synthetic-050.wixsite.com/site",
       "rating": 4.2,
@@ -189,8 +169,6 @@
         "latitude": 26.19,
         "longitude": -98.23
       },
-      "types": ["plumber"],
-      "businessStatus": "OPERATIONAL",
       "nationalPhoneNumber": "(956) 555-0151",
       "rating": 4.2,
       "userRatingCount": 10
@@ -206,8 +184,6 @@
         "latitude": 26.2,
         "longitude": -98.23
       },
-      "types": ["plumber"],
-      "businessStatus": "OPERATIONAL",
       "nationalPhoneNumber": "(956) 555-0152",
       "websiteUri": "https://synthetic-052.example",
       "rating": 4.2,
@@ -224,8 +200,6 @@
         "latitude": 26.21,
         "longitude": -98.23
       },
-      "types": ["plumber"],
-      "businessStatus": "OPERATIONAL",
       "nationalPhoneNumber": "(956) 555-0153",
       "websiteUri": "https://synthetic-053.business.site",
       "rating": 4.2,
@@ -242,8 +216,6 @@
         "latitude": 26.22,
         "longitude": -98.23
       },
-      "types": ["plumber"],
-      "businessStatus": "OPERATIONAL",
       "nationalPhoneNumber": "(956) 555-0154",
       "websiteUri": "https://www.facebook.com/synthetic-054",
       "rating": 4.2,
@@ -260,8 +232,6 @@
         "latitude": 26.23,
         "longitude": -98.23
       },
-      "types": ["plumber"],
-      "businessStatus": "OPERATIONAL",
       "nationalPhoneNumber": "(956) 555-0155",
       "websiteUri": "https://synthetic-055.wixsite.com/site",
       "rating": 4.2,
@@ -278,8 +248,6 @@
         "latitude": 26.24,
         "longitude": -98.23
       },
-      "types": ["plumber"],
-      "businessStatus": "OPERATIONAL",
       "nationalPhoneNumber": "(956) 555-0156",
       "rating": 4.2,
       "userRatingCount": 10
@@ -295,8 +263,6 @@
         "latitude": 26.25,
         "longitude": -98.23
       },
-      "types": ["plumber"],
-      "businessStatus": "OPERATIONAL",
       "nationalPhoneNumber": "(956) 555-0157",
       "websiteUri": "https://synthetic-057.example",
       "rating": 4.2,
@@ -313,8 +279,6 @@
         "latitude": 26.26,
         "longitude": -98.23
       },
-      "types": ["plumber"],
-      "businessStatus": "OPERATIONAL",
       "nationalPhoneNumber": "(956) 555-0158",
       "websiteUri": "https://synthetic-058.business.site",
       "rating": 4.2,
@@ -331,8 +295,6 @@
         "latitude": 26.27,
         "longitude": -98.23
       },
-      "types": ["plumber"],
-      "businessStatus": "OPERATIONAL",
       "nationalPhoneNumber": "(956) 555-0159",
       "websiteUri": "https://www.facebook.com/synthetic-059",
       "rating": 4.2,
@@ -349,8 +311,6 @@
         "latitude": 26.16,
         "longitude": -98.23
       },
-      "types": ["plumber"],
-      "businessStatus": "OPERATIONAL",
       "nationalPhoneNumber": "(956) 555-0160",
       "websiteUri": "https://synthetic-060.wixsite.com/site",
       "rating": 4.2,

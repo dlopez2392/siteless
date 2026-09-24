@@ -74,8 +74,9 @@ export const PLACES_TEXT_SEARCH_FIELD_MASK: readonly PlacesField[] = [
   'places.displayName',
   'places.formattedAddress',
   'places.location',
-  'places.types',
-  'places.businessStatus',
+  // `places.types` and `places.businessStatus` are deliberately NOT requested (2026-09-23,
+  // before D-01): nothing in src/ read them, so asking for them only widened what Google hands
+  // us. They stay in PRO above so fieldMaskTier() can still price them if a later phase asks.
   // D-13. Pro tier — free at the margin under Enterprise; persisted only as the derived
   // pure_sab flag.
   'places.pureServiceAreaBusiness',

@@ -28,7 +28,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 
 import { http, HttpResponse, type JsonBodyType } from 'msw';
 
-import { assertAnonymizedPage } from '../../../scripts/lib/anonymize-places';
+import { assertAnonymizedPage, NEVER_KEPT } from '../../../scripts/lib/anonymize-places';
 
 import dailyEnvelope from './fixtures/places-429-daily.json';
 import minuteEnvelope from './fixtures/places-429-minute.json';
@@ -136,6 +136,14 @@ for (const [file, page] of Object.entries(ON_DISK)) {
   if (listed.nextPageToken !== (typeof page.nextPageToken === 'string')) {
     fail(`${file}'s nextPageToken disagrees with ${SIDECAR_FILE}.`);
   }
+  // Every file, synthetic or recorded (2026-09-23): the mask no longer requests `types` or
+  // `businessStatus`, so no fixture may carry them — a hand-authored one would serve a field
+  // the real API never sends us, and a recorded one would commit Google's own enum values.
+  placesOf(page).forEach((place, i) => {
+    for (const key of NEVER_KEPT) {
+      if (key in place) fail(`${file} place ${i} carries ${key}, which no fixture may hold.`);
+    }
+  });
   // Per FILE (04-19): a recording the sidecar marks `anonymized: true` (written by
   // scripts/record-places-fixtures.ts) must have exactly the anonymized shape — every string one
   // of the synthetic forms, only known keys. Every other file is hand-authored, and every id in

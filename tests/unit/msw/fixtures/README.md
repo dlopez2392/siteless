@@ -393,6 +393,13 @@ place count, and — per file since 04-19 — that every id in a hand-authored f
 of the synthetic forms, ratings the fixed 4 / 10, coordinates at 4 decimals. A raw capture
 dropped in beside them fails one rule or the other at load.
 
+**No `types`, no `businessStatus` — in any file (2026-09-23).** The production mask stopped
+requesting both before D-01 (nothing read them), the anonymizer no longer keeps them, and
+`places.ts` refuses at load any `places-*.json` — hand-authored or recorded — whose places carry
+either key (`NEVER_KEPT` in `scripts/lib/anonymize-places.ts`). A committed fixture must never
+hold Google's own enum values, and a synthetic one must not serve a field the real API is never
+asked for.
+
 ### The spine contract (with `tests/db/_places-fixtures.ts` `PLACES_SPINE`, plan 04-09)
 
 `places-match-page.json` uses exactly the spine's names, street addresses and phones, so the

@@ -65,8 +65,6 @@ const FULL_MASK = [
   'places.displayName',
   'places.formattedAddress',
   'places.location',
-  'places.types',
-  'places.businessStatus',
   'places.pureServiceAreaBusiness',
   'places.websiteUri',
   'places.nationalPhoneNumber',

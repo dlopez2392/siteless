@@ -4,7 +4,6 @@
  *
  * KEPT, because they are what makes a recording worth more than a hand-written fixture:
  *   - `id`                        (our one durable Google value; charset-checked below)
- *   - `types`, `businessStatus`   (Google's own enums, not business text)
  *   - `pureServiceAreaBusiness`   (the SAB flag — PLACE-05)
  *   - the page's size, and whether it carries a next-page token
  *   - each place's website HOST CLASS (none / dead Google site / social / directory /
@@ -23,6 +22,11 @@
  *   - `rating` → 4, `userRatingCount` → 10 (D-21: memory-only fields never reach git)
  *   - `nextPageToken`       → `recorded:p<N+1>` (the msw replay pages by the `:pN` suffix)
  * Every other key — `languageCode`, photos, opening hours, anything Google adds — is DROPPED.
+ *
+ * NEVER KEPT (2026-09-23, before D-01): `types` and `businessStatus`. The mask no longer requests
+ * them and the response schema no longer parses them; were one to arrive anyway, `anonymizePage`
+ * drops it like any other key, and `assertAnonymizedPage` REFUSES any fixture that still carries
+ * either — a committed fixture must never hold Google's own enum values.
  *
  * `NNN` is the place's 1-based position in the recording (`(page - 1) * 20 + index + 1`).
  *
@@ -55,7 +59,13 @@ type Json = Record<string, unknown>;
 /** The id alphabet the database writers accept (drizzle/0029, T-4-05). */
 const PLACE_ID = /^[A-Za-z0-9_-]{1,512}$/;
 const TYPE_TOKEN = /^[a-z0-9_]{1,64}$/;
-const STATUS_TOKEN = /^[A-Z_]{1,64}$/;
+
+/**
+ * Keys the mask no longer requests and no fixture may carry (2026-09-23). `anonymizePage` never
+ * copies them; `assertAnonymizedPage` refuses them by name, ahead of the generic unknown-key
+ * check, so the refusal says why.
+ */
+export const NEVER_KEPT = ['types', 'businessStatus'] as const;
 
 /** Google's page size: NNN is unique per place across a 3-page recording. */
 const PAGE_SIZE = 20;
@@ -101,20 +111,6 @@ function anonymizePlace(place: unknown, index: number, ctx: AnonymizeContext): J
   const nnn = String((ctx.page - 1) * PAGE_SIZE + index + 1).padStart(3, '0');
   const out: Json = { id };
 
-  if (place.types !== undefined) {
-    const types = place.types;
-    if (!Array.isArray(types) || !types.every((t) => typeof t === 'string' && TYPE_TOKEN.test(t))) {
-      refuse(`place ${index} types are not type tokens`);
-    }
-    out.types = [...(types as string[])];
-  }
-  if (place.businessStatus !== undefined) {
-    const s = place.businessStatus;
-    if (typeof s !== 'string' || !STATUS_TOKEN.test(s)) {
-      refuse(`place ${index} businessStatus is not a status token`);
-    }
-    out.businessStatus = s;
-  }
   if (place.pureServiceAreaBusiness !== undefined) {
     if (typeof place.pureServiceAreaBusiness !== 'boolean') {
       refuse(`place ${index} pureServiceAreaBusiness is not a boolean`);
@@ -174,8 +170,6 @@ export function anonymizePage(page: unknown, ctx: AnonymizeContext): Json {
 
 const PLACE_KEYS = new Set([
   'id',
-  'types',
-  'businessStatus',
   'pureServiceAreaBusiness',
   'displayName',
   'formattedAddress',
@@ -225,24 +219,14 @@ export function assertAnonymizedPage(page: unknown, label = 'page'): void {
   if (!Array.isArray(page.places)) bad('places is not an array');
   (page.places as unknown[]).forEach((place, i) => {
     if (!isObject(place)) bad(`place ${i} is not an object`);
+    for (const key of NEVER_KEPT) {
+      if (key in place) bad(`place ${i} carries ${key}, which no fixture may hold`);
+    }
     for (const key of Object.keys(place)) {
       if (!PLACE_KEYS.has(key)) bad(`place ${i} carries the key ${JSON.stringify(key)}`);
     }
     const p = place;
     if (typeof p.id !== 'string' || !PLACE_ID.test(p.id)) bad(`place ${i} id is not a place id`);
-    if (p.types !== undefined) {
-      if (
-        !Array.isArray(p.types) ||
-        !p.types.every((t) => typeof t === 'string' && TYPE_TOKEN.test(t))
-      ) {
-        bad(`place ${i} types are not type tokens`);
-      }
-    }
-    if (p.businessStatus !== undefined) {
-      if (typeof p.businessStatus !== 'string' || !STATUS_TOKEN.test(p.businessStatus)) {
-        bad(`place ${i} businessStatus is not a status token`);
-      }
-    }
     if (p.pureServiceAreaBusiness !== undefined && typeof p.pureServiceAreaBusiness !== 'boolean') {
       bad(`place ${i} pureServiceAreaBusiness is not a boolean`);
     }

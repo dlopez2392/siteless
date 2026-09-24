@@ -12,6 +12,9 @@
  *
  * D-21: `rating` and `userRatingCount` are parsed (they are in the mask) and are memory-only —
  * nothing in Phase 4 uses or persists them.
+ *
+ * `PlaceSchema` is a plain `z.object` (strip mode, NOT `.strict()` / `.passthrough()`): an
+ * unknown key is dropped at parse, never kept and never an error.
  */
 import { z } from 'zod';
 
@@ -23,8 +26,9 @@ export const PlaceSchema = z.object({
   // Absent on a pure service-area business (docs).
   formattedAddress: z.string().optional(),
   location: LatLng.optional(),
-  types: z.array(z.string()).optional(),
-  businessStatus: z.enum(['OPERATIONAL', 'CLOSED_TEMPORARILY', 'CLOSED_PERMANENTLY']).optional(),
+  // `types` and `businessStatus` are neither requested nor parsed (2026-09-23). Were Google to
+  // send them anyway, zod's default strip drops them here — and with them the strict
+  // businessStatus enum that made an unexpected BUSINESS_STATUS_UNSPECIFIED a `bad_shape`.
   pureServiceAreaBusiness: z.boolean().optional(),
   websiteUri: z.string().optional(),
   nationalPhoneNumber: z.string().optional(),

@@ -115,7 +115,13 @@ describe('the anonymizer (D-20)', () => {
     expect(out.places.map((p) => p.pureServiceAreaBusiness)).toEqual(
       input.places.map((p) => p.pureServiceAreaBusiness),
     );
-    expect(out.places.map((p) => p.types)).toEqual(input.places.map((p) => p.types));
+    // 2026-09-23: Google's own enums are no longer kept — the input carries them, the twin never.
+    expect(input.places.some((p) => p.types !== undefined)).toBe(true);
+    expect(input.places.some((p) => p.businessStatus !== undefined)).toBe(true);
+    for (const p of out.places) {
+      expect(p).not.toHaveProperty('types');
+      expect(p).not.toHaveProperty('businessStatus');
+    }
     expect(out.places.map((p) => hostClass(p.websiteUri as string | undefined))).toEqual(
       input.places.map((p) => hostClass(p.websiteUri as string | undefined)),
     );
@@ -214,6 +220,24 @@ describe('the anonymizer (D-20)', () => {
     const one = anonymizePage(input, CTX) as Out;
     (one.places[4] as Place).nationalPhoneNumber = '(956) 686-1204';
     expect(() => assertAnonymizedPage(one)).toThrow(/place 4 nationalPhoneNumber/);
+  });
+
+  it('a fixture carrying types or businessStatus is refused', () => {
+    // Otherwise a perfectly anonymized page: the only fault is the one key.
+    const clean = anonymizePage(realLookingPage(), CTX) as Out;
+    expect(() => assertAnonymizedPage(clean)).not.toThrow();
+    for (const [key, value] of [
+      ['types', ['plumber']],
+      ['businessStatus', 'OPERATIONAL'],
+    ] as const) {
+      const page = structuredClone(clean);
+      (page.places[3] as Place)[key] = value;
+      expect(() => assertAnonymizedPage(page), key).toThrow(
+        new RegExp(`place 3 carries ${key}, which no fixture may hold`),
+      );
+      // Named by key, never by value.
+      expect(() => assertAnonymizedPage(page), key).not.toThrow(/plumber|OPERATIONAL/);
+    }
   });
 
   it('the anonymizer refuses an id outside the place-id alphabet, without echoing it', () => {

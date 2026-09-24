@@ -135,6 +135,27 @@ describe('field mask tiering (BUDG-01)', () => {
     expect(new Set(PLACES_TEXT_SEARCH_FIELD_MASK).size).toBe(PLACES_TEXT_SEARCH_FIELD_MASK.length);
   });
 
+  it('the Places mask requests no field nothing reads', () => {
+    // 2026-09-23 (before D-01): types and businessStatus had no reader in src/, so they are no
+    // longer requested. They stay priced (FIELD_TIERS above) in case a later phase asks.
+    expect(PLACES_TEXT_SEARCH_FIELD_MASK).not.toContain('places.types');
+    expect(PLACES_TEXT_SEARCH_FIELD_MASK).not.toContain('places.businessStatus');
+    expect([...PLACES_TEXT_SEARCH_FIELD_MASK]).toEqual([
+      'places.id',
+      'places.displayName',
+      'places.formattedAddress',
+      'places.location',
+      'places.pureServiceAreaBusiness',
+      'places.websiteUri',
+      'places.nationalPhoneNumber',
+      'places.rating',
+      'places.userRatingCount',
+      'nextPageToken',
+    ]);
+    // Positive control: dropping two Pro fields leaves the mask Enterprise (websiteUri).
+    expect(fieldMaskTier(PLACES_TEXT_SEARCH_FIELD_MASK)).toBe('ts_enterprise');
+  });
+
   it('the ids-only mask is free', () => {
     // D-16: the change check enumerates ids only, and that is the free, unlimited SKU.
     expect(PLACES_IDS_ONLY_FIELD_MASK).toEqual(['places.id', 'nextPageToken']);

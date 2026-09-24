@@ -249,6 +249,10 @@ describe('the recorder legs (D-04, D-20, criterion 5)', () => {
         '-98.24009',
         '4.3',
         'languageCode',
+        // 2026-09-23: Google's enums are neither requested nor kept.
+        'OPERATIONAL',
+        '"types"',
+        'businessStatus',
       ];
       for (const s of originals) expect(text, s).not.toContain(s);
       const places = result.pages.flatMap((p) => p.places as Array<Record<string, unknown>>);

@@ -35,10 +35,11 @@
  *     never overwritten.
  *   Prints the outcome, the request count, the ids seen and the ledgered cost.
  *
- * 🔴 KNOWN RISK FOR 04-32 (from 04-12): src/lib/places/response.ts parses `businessStatus` as a
- * strict three-value enum. A real page carrying any other value (e.g. BUSINESS_STATUS_UNSPECIFIED)
- * fails the whole page as `bad_shape` — charged, nothing recorded. The script names this if it
- * happens; the fix is in the schema, not here.
+ * RETIRED RISK (from 04-12): `businessStatus` used to be parsed as a strict three-value enum, so a
+ * BUSINESS_STATUS_UNSPECIFIED would have failed a whole page as `bad_shape`. Since 2026-09-23 the
+ * mask requests neither `types` nor `businessStatus` and src/lib/places/response.ts parses
+ * neither (zod strips them), so that failure mode is gone. A `bad_shape` now means the page broke
+ * the schema some other way — charged, nothing recorded.
  *
  * Importable without side effects (the unit lane imports `writeRecording`); `main()` runs only
  * when this file is the process entry point.
@@ -188,7 +189,7 @@ async function main(argv: readonly string[]): Promise<void> {
     );
     if (result.outcome === 'bad_shape') {
       console.log(
-        'record-places: bad_shape — the response failed src/lib/places/response.ts (a strict enum such as businessStatus?). Charged; nothing recorded.',
+        'record-places: bad_shape — the response failed src/lib/places/response.ts . Charged; nothing recorded.',
       );
     }
 
