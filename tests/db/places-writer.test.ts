@@ -653,12 +653,12 @@ describe('app.record_places_page (D-05, D-06, D-08, D-10, PLACE-02)', () => {
     withRollback(async (c) => {
       const s = await setup(c);
       await actAs(c, CLAIMS_A);
-      const record = toPageRecord({
-        page: 1,
+      // Deliberately past toPageRecord, which refuses a non-Enterprise sku itself since
+      // 8649197 (the TS half of A-WR-07): this test is about the database's own wall.
+      const record = {
+        ...page(1, [listing('ChIJ-ortiz', [cand(s.spine.ortiz, 97)])]),
         sku: 'ts_essentials',
-        resultsSoFar: 1,
-        items: [listing('ChIJ-ortiz', [cand(s.spine.ortiz, 97)])],
-      });
+      };
       const attempt = writePage(c, s.searchId, record);
       await expect(attempt).rejects.toMatchObject({ code: '22023' });
       await expect(attempt).rejects.toThrow(
