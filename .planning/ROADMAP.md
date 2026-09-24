@@ -244,7 +244,7 @@ Plans:
 - [x] 04-29-PLAN.md — D-01 legal gate recorded against the schema-generated persistence list
 
 **Wave 10** *(checkpoint)*
-- [ ] 04-30-PLAN.md — Production migration 0026–0029 and deploy with Places off
+- [x] 04-30-PLAN.md — Production migration 0026–0029 and deploy with Places off
 
 **Wave 11** *(checkpoint)*
 - [ ] 04-31-PLAN.md — D-03 Google Cloud setup, one metered IDs-only key check, BUDG-03 closed
