@@ -110,6 +110,7 @@ Detailed, testable requirements with REQ-IDs live in `.planning/REQUIREMENTS.md`
 | Scoring = reviews/rating + social-only + ticket size + phone as a floor | danlo's definition of a hot lead; an uncallable lead is worth ~0 in a phone-first loop | — Pending |
 | Name: Siteless | Exact-match `siteless.com` available; says what it finds | — Pending (not purchased) |
 | GSD: YOLO, Standard granularity, all agents on, Quality models | danlo: "don't skimp on agents"; phone-drivable needs few blocking prompts | — Pending |
+| D-01 Places legal gate — danlo-risk-call | "I accept the risk for Phase 4's hand-run vertical slice only — one city × one cluster, internal use, within Google's free tier — against docs/legal/places-persistence.md as of 2026-09-23. Siteless is an internal lead tool, not a listings or directory service; it persists place_id, 30-day coordinates, and derived signals only, with no Google text. PLACES_MODE stays the kill switch. Counsel's written answer on §3.2.3(c) and (d)(iii) is required before any scheduled or recurring sweep (Phase 9) or any external customer." (drafted by Claude at danlo's request; adopted verbatim by danlo 2026-09-23) — covers docs/legal/places-persistence.md as of 5a74bba | PLACES_MODE may be set to ids_only/enterprise for the Phase 4 vertical slice only; counsel required before Phase 9 or any external customer |
 
 ## Evolution
 

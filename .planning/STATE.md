@@ -82,7 +82,8 @@ None yet.
 
 ### Blockers/Concerns
 
-- **Legal read owed before Phase 4's first production Places call** — whether a derived boolean over Places content is "Content" under Maps Platform Terms §3.2.3(c), and the scope of §3.2.3(d)(iii). The adapter sits behind an interface so a "no" is a config change.
+- ~~Legal read owed before Phase 4's first production Places call~~ — RESOLVED for the Phase 4 vertical slice only (04-29, 2026-09-23): see PROJECT.md Key Decisions row "D-01 Places legal gate — danlo-risk-call" (covers docs/legal/places-persistence.md as of 5a74bba).
+- **Counsel's written answer on Maps Terms §3.2.3(c)/(d)(iii) required before Phase 9 (scheduler) or any external customer — D-01 scope.** D-01 is danlo's own risk call, scoped to Phase 4's hand-run slice (one city × one cluster, internal, free tier). PLACES_MODE stays the kill switch.
 - **Dependencies not yet created** — Google Cloud project + Places API (New) key with billing and a daily quota, Firecrawl app key, Supabase project (never BIS's `tlbkbmlrfafquucsmsmm`), Vercel Pro project, Clerk app. Phase 1 needs Supabase + Clerk + Vercel; Phase 4 needs the Google key and quota; Phase 5 needs Firecrawl.
 - **Cost model is unresolved between research files ($21–37/mo)** — the query fan-out / tile-overlap multiplier is unmeasured. Phase 2 builds the committed cost-model test; Phase 6's gate produces the first real invoice numbers.
 - **Firecrawl's per-search credit cost is disputed in its own docs (2 vs 10)** — pin against the first invoice before trusting any budget model that includes it.
