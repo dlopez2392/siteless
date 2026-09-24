@@ -4,6 +4,7 @@ import { withOrg, type OrgClaims } from '@/db/with-org';
 import { periodResetInstant, periodStart } from '@/lib/budget/period';
 import { instantOf, requireInstant } from '@/lib/instant';
 import type { HostClass } from '@/lib/places/host-class';
+import { describeTileKey, placesTypeLabel } from '@/lib/ui/places-format';
 import {
   STOPPED_REASONS,
   type RunKind,
@@ -50,6 +51,20 @@ import { readCurrentPeriod, rowsOf, type Tx } from './budget';
 export type TextSearchSkuRow = 'ts_enterprise' | 'ts_essentials';
 
 export type TruncatedWhy = 'max_depth' | 'min_size' | 'novelty';
+
+/**
+ * One listed tile. `tileKey` / `cellKey` / `placesType` are machine keys, kept for attributes
+ * only; C-WR-04's `unitName` ("McAllen", "Hidalgo County"), `typeLabel` ("roofing contractor")
+ * and `quadPath` ("r012") are what a row renders.
+ */
+export type TileNames = {
+  tileKey: string;
+  cellKey: string;
+  placesType: string;
+  unitName: string;
+  typeLabel: string;
+  quadPath: string;
+};
 
 export type RunReport = {
   run: {
@@ -111,14 +126,9 @@ export type RunReport = {
     saturated: number;
     subdivided: number;
     stillTruncated: number;
-    truncated: Array<{
-      tileKey: string;
-      cellKey: string;
-      placesType: string;
-      why: TruncatedWhy | null;
-    }>;
+    truncated: Array<TileNames & { why: TruncatedWhy | null }>;
     /** Searches still `planned` / `searching` when the run is TERMINAL; empty while it runs. */
-    stillSubdividing: Array<{ tileKey: string; cellKey: string; placesType: string }>;
+    stillSubdividing: TileNames[];
   };
   outcomes: {
     /** Distinct place ids with any non-`outside` outcome in this run. */
@@ -344,6 +354,25 @@ export async function readRunReport(
       )
     : [];
 
+  // ---- Tile names (C-WR-04): a place name and a readable type, never the key ------------------
+  // Counties are named from the reference table; cities and radii carry what they need in the
+  // key. Read only when there is a row to name.
+  const countyNames = new Map<string, string>();
+  if (truncatedRows.length > 0 || stillSubdividing.length > 0) {
+    for (const c of rowsOf<{ fips: string; name: string }>(
+      await tx.execute(sql`select fips, name from counties where org_id is null`),
+    )) {
+      countyNames.set(c.fips, c.name);
+    }
+  }
+  const namesOf = (t: RawTileRow): TileNames => ({
+    tileKey: t.tile_key,
+    cellKey: t.cell_key,
+    placesType: t.places_type,
+    ...describeTileKey(t.tile_key, countyNames),
+    typeLabel: placesTypeLabel(t.places_type),
+  });
+
   // ---- Outcomes: run-wide (each place at its best outcome) and per cluster ---------------------
   const [outcomes] = rowsOf<RawOutcomes>(
     await tx.execute(sql`
@@ -516,17 +545,8 @@ export async function readRunReport(
       saturated: tileCounts.saturated,
       subdivided: tileCounts.subdivided,
       stillTruncated: tileCounts.truncated,
-      truncated: truncatedRows.map((t) => ({
-        tileKey: t.tile_key,
-        cellKey: t.cell_key,
-        placesType: t.places_type,
-        why: t.truncated_why,
-      })),
-      stillSubdividing: stillSubdividing.map((t) => ({
-        tileKey: t.tile_key,
-        cellKey: t.cell_key,
-        placesType: t.places_type,
-      })),
+      truncated: truncatedRows.map((t) => ({ ...namesOf(t), why: t.truncated_why })),
+      stillSubdividing: stillSubdividing.map(namesOf),
     },
     outcomes: {
       found: outcomes.found,

@@ -286,22 +286,68 @@ describe('run report (D-17, criterion 3)', () => {
         subdivided: 1,
         stillTruncated: 2,
       });
+      // C-WR-04: each row also carries the place NAME and a readable type, resolved from the
+      // stored key — the key itself is for attributes only.
       expect(r.tiles.truncated).toEqual([
         {
           tileKey: `city:${UNIT}|plumber|r0`,
           cellKey: `home_services/${UNIT}`,
           placesType: 'plumber',
+          unitName: 'McAllen',
+          typeLabel: 'plumber',
+          quadPath: 'r0',
           why: 'min_size',
         },
         {
           tileKey: `city:${UNIT}|plumber|r1`,
           cellKey: `home_services/${UNIT}`,
           placesType: 'plumber',
+          unitName: 'McAllen',
+          typeLabel: 'plumber',
+          quadPath: 'r1',
           why: 'novelty',
         },
       ]);
       // Still running: nothing is "still subdividing when it stopped".
       expect(r.tiles.stillSubdividing).toEqual([]);
+    }));
+
+  it('run report names a county tile from the counties table, never by its key', () =>
+    withTxRollback(async (tx) => {
+      const c = asPg(tx);
+      const s = await setup(c);
+      await actAs(c, CLAIMS_A);
+      const county = {
+        ...searchSpec('r'),
+        tileKey: 'county:48215|car_repair|r',
+        cellKey: 'auto_retail/48215',
+        clusterKey: 'auto_retail',
+        unitKind: 'county',
+        unitId: '48215',
+        placesType: 'car_repair',
+      };
+      const ids = await plan(c, s.runId, [county]);
+      await mark(c, ids.r!, {
+        status: 'done',
+        saturated: true,
+        truncated: true,
+        truncated_why: 'min_size',
+      });
+      const name = (
+        await c.query<{ name: string }>(
+          "select name from counties where org_id is null and fips = '48215'",
+        )
+      ).rows[0]?.name;
+      expect(name).toBeTruthy();
+
+      const r = await report(tx, s.runId);
+      expect(r.tiles.truncated).toHaveLength(1);
+      expect(r.tiles.truncated[0]).toMatchObject({
+        tileKey: 'county:48215|car_repair|r',
+        unitName: `${name} County`,
+        typeLabel: 'car repair',
+        quadPath: 'r',
+      });
     }));
 
   it('run report counts outcomes per cluster with zero rows included', () =>
@@ -433,11 +479,17 @@ describe('run report (D-17, criterion 3)', () => {
           tileKey: `city:${UNIT}|plumber|r0`,
           cellKey: `home_services/${UNIT}`,
           placesType: 'plumber',
+          unitName: 'McAllen',
+          typeLabel: 'plumber',
+          quadPath: 'r0',
         },
         {
           tileKey: `city:${UNIT}|plumber|r1`,
           cellKey: `home_services/${UNIT}`,
           placesType: 'plumber',
+          unitName: 'McAllen',
+          typeLabel: 'plumber',
+          quadPath: 'r1',
         },
       ]);
       expect(r.tiles).toMatchObject({ total: 3, searched: 1, stillTruncated: 0 });

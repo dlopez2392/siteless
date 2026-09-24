@@ -11,6 +11,9 @@ import {
   PLACES_CHIP,
   PLACES_CHIP_WITHIN,
   REVIEW_CHIP,
+  RUN_TILE_UNIT_COUNTY,
+  RUN_TILE_UNIT_RADIUS,
+  RUN_TILE_UNIT_UNKNOWN,
   RUN_WEBSITE_ROW,
 } from './copy';
 
@@ -171,6 +174,52 @@ export function placesChips(features: unknown): PlacesChip[] {
   }
 
   return chips;
+}
+
+/* --- Tile rows (C-WR-04: a place name and a readable type, never a key) ------------------ */
+
+/**
+ * OUR configured Places type key as words: `roofing_contractor` → "roofing contractor". The key
+ * is the one we configured per cluster (src/lib/places/place-types.ts), not a Google-returned
+ * type, so this is formatting our own vocabulary.
+ */
+export function placesTypeLabel(placesType: string): string {
+  return placesType.replaceAll('_', ' ').trim();
+}
+
+/**
+ * The place a stored tile key names, and its quad path, from
+ * `{unitKind}:{unitId}|{placesType}|{quadPath}` (`tileKeyOf` in src/lib/places/tiling.ts) with
+ * the unit id DB-safe (`/` for the cell separator):
+ *   city   `48215/McAllen`  → "McAllen"
+ *   county `48215`          → "Hidalgo County"   (from `countyNames`, fips → name)
+ *   radius `48215/10mi`     → "10-mile radius in Hidalgo County"
+ * A key of any other shape is `RUN_TILE_UNIT_UNKNOWN` — never the key itself (Rule 35).
+ */
+export function describeTileKey(
+  tileKey: string,
+  countyNames: ReadonlyMap<string, string>,
+): { unitName: string; quadPath: string } {
+  const parts = tileKey.split('|');
+  const quadPath = parts.length >= 3 ? (parts[parts.length - 1] ?? '') : '';
+  const unit = parts.length >= 3 ? (parts[0] ?? '') : '';
+  const colon = unit.indexOf(':');
+  const kind = colon > 0 ? unit.slice(0, colon) : '';
+  const id = colon > 0 ? unit.slice(colon + 1) : '';
+  const slash = id.indexOf('/');
+  const fips = slash >= 0 ? id.slice(0, slash) : id;
+  const rest = slash >= 0 ? id.slice(slash + 1) : '';
+
+  let unitName: string | null = null;
+  if (kind === 'city' && rest !== '') unitName = rest;
+  else if (kind === 'county' && id !== '') {
+    const name = countyNames.get(id);
+    unitName = name ? RUN_TILE_UNIT_COUNTY(name) : null;
+  } else if (kind === 'radius') {
+    const miles = /^(\d+(?:\.\d+)?)mi$/.exec(rest)?.[1];
+    unitName = miles ? RUN_TILE_UNIT_RADIUS(miles, countyNames.get(fips) ?? null) : null;
+  }
+  return { unitName: unitName ?? RUN_TILE_UNIT_UNKNOWN, quadPath };
 }
 
 /* --- The link out to Google Maps (Open Question 5; Executor Rule 31) -------------------- */

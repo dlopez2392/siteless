@@ -385,15 +385,12 @@ function stopAlertOf({
   return null;
 }
 
-/** "{geography} · {Places type} · tile {id}" from the stored tile key
- *  (`{unitKind}:{unitId}|{placesType}|{quadPath}`, `src/lib/places/tiling.ts` `tileKeyOf`). A
- *  key of another shape still renders, whole, rather than being dropped (criterion 3). */
-export function tileRowText(tile: { tileKey: string; placesType: string }): string {
-  const parts = tile.tileKey.split('|');
-  if (parts.length >= 3) {
-    return RUN_TILE_ROW(parts[0] ?? '', tile.placesType, parts[parts.length - 1] ?? '');
-  }
-  return RUN_TILE_ROW(tile.tileKey, tile.placesType, tile.tileKey);
+/** "{place name} · {type label} · tile {quad path}" — C-WR-04: the names `readRunReport`
+ *  resolved, never the stored key (`city:48215/McAllen`, `car_repair`). The key itself only
+ *  ever reaches a `data-tile-key` attribute. A tile the query could not name still renders, as
+ *  "Unnamed area", rather than being dropped (criterion 3). */
+export function tileRowText(tile: { unitName: string; typeLabel: string; quadPath: string }) {
+  return RUN_TILE_ROW(tile.unitName, tile.typeLabel, tile.quadPath);
 }
 
 /** The criterion-3 warning. Rendered only when `stillTruncated > 0`, in any status. */
@@ -446,6 +443,7 @@ function TruncationWarning({ tiles }: { tiles: RunReport['tiles'] }) {
                   key={tile.tileKey}
                   data-testid="run-truncation-tile"
                   data-why={tile.why ?? ''}
+                  data-tile-key={tile.tileKey}
                   className="text-sm font-normal tabular-nums"
                 >
                   {lines[i]}

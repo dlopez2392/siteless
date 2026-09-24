@@ -157,6 +157,7 @@ export function TilesCard({
                   <li
                     key={tile.tileKey}
                     data-testid="run-tiles-subdividing-tile"
+                    data-tile-key={tile.tileKey}
                     className="text-sm font-normal tabular-nums"
                   >
                     {tileRowText(tile)}

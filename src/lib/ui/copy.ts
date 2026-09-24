@@ -1201,10 +1201,26 @@ export function RUN_TRUNCATION_SHOW(n: number) {
 export const RUN_TRUNCATION_HIDE = 'Hide the truncated tiles';
 export const RUN_TRUNCATION_COPY = 'Copy the tile list';
 
-/** One truncated tile. `placesType` is OUR configured type key, not a Google-returned type. */
+/** One truncated tile. `geography` is a place NAME and `placesType` a readable label of OUR
+ *  configured type (C-WR-04: never `city:48215/McAllen` or `car_repair`); `tileId` is the
+ *  tile's quad path ("r0213"). */
 export function RUN_TILE_ROW(geography: string, placesType: string, tileId: string) {
   return `${geography} · ${placesType} · tile ${tileId}`;
 }
+
+/** C-WR-04: a county unit's name in a tile row ("Hidalgo County"). */
+export function RUN_TILE_UNIT_COUNTY(name: string) {
+  return `${name} County`;
+}
+
+/** C-WR-04: a radius unit in a tile row ("10-mile radius in Hidalgo County"). */
+export function RUN_TILE_UNIT_RADIUS(miles: string, countyName: string | null) {
+  return countyName ? `${miles}-mile radius in ${countyName} County` : `${miles}-mile radius`;
+}
+
+/** C-WR-04: a tile whose stored key has a shape this report cannot read — said in words, never
+ *  by printing the key. */
+export const RUN_TILE_UNIT_UNKNOWN = 'Unnamed area';
 
 /* --- Run report → cards ------------------------------------------------------------------ */
 

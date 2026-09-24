@@ -137,9 +137,12 @@ const REPORT: RunReport = {
     stillTruncated: 1,
     truncated: [
       {
-        tileKey: 'city:4845384|roofing_contractor|r000',
-        cellKey: 'home_services/4845384',
+        tileKey: 'city:48215/McAllen|roofing_contractor|r000',
+        cellKey: 'home_services/48215/McAllen',
         placesType: 'roofing_contractor',
+        unitName: 'McAllen',
+        typeLabel: 'roofing contractor',
+        quadPath: 'r000',
         why: 'min_size',
       },
     ],
@@ -317,9 +320,12 @@ const PLACES_SIGNAL_SURFACES: readonly Surface[] = [
             truncated: [],
             stillSubdividing: [
               {
-                tileKey: 'city:4845384|roofing_contractor|r0',
-                cellKey: 'home_services/4845384',
+                tileKey: 'city:48215/McAllen|roofing_contractor|r0',
+                cellKey: 'home_services/48215/McAllen',
                 placesType: 'roofing_contractor',
+                unitName: 'McAllen',
+                typeLabel: 'roofing contractor',
+                quadPath: 'r0',
               },
             ],
           }}

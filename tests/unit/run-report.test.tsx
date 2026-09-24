@@ -35,7 +35,9 @@ import {
   RUN_OUTCOMES_NONE_REACHED_HEADING,
   RUN_REFUSED_PAST,
   RUN_STOP_CAP_PAST,
+  RUN_TILE_UNIT_UNKNOWN,
 } from '@/lib/ui/copy';
+import { describeTileKey, placesTypeLabel } from '@/lib/ui/places-format';
 import { STOPPED_REASONS, type RunStatus, type StoppedReason } from '@/lib/ui/run-tone';
 
 afterEach(cleanup);
@@ -157,25 +159,47 @@ function renderReport(report: RunReport, opts: { canRaiseCap?: boolean } = {}) {
   );
 }
 
+/** The names `readRunReport` resolves (C-WR-04) are written out by hand here, so the rows below
+ *  are the component's claim, not a re-run of the resolver. */
 const THREE_TRUNCATED: RunReport['tiles']['truncated'] = [
   {
-    tileKey: 'city:4845384|roofing_contractor|r012',
-    cellKey: 'home_services/4845384',
+    tileKey: 'city:48215/McAllen|roofing_contractor|r012',
+    cellKey: 'home_services/48215/McAllen',
     placesType: 'roofing_contractor',
+    unitName: 'McAllen',
+    typeLabel: 'roofing contractor',
+    quadPath: 'r012',
     why: 'min_size',
   },
   {
-    tileKey: 'city:4845384|roofing_contractor|r013',
-    cellKey: 'home_services/4845384',
+    tileKey: 'city:48215/McAllen|roofing_contractor|r013',
+    cellKey: 'home_services/48215/McAllen',
     placesType: 'roofing_contractor',
+    unitName: 'McAllen',
+    typeLabel: 'roofing contractor',
+    quadPath: 'r013',
     why: 'max_depth',
   },
   // A truncated tile whose reason was never written still shows (04-20: `why` may be null).
   {
-    tileKey: 'city:4822660|plumber|r2',
-    cellKey: 'home_services/4822660',
+    tileKey: 'county:48061|plumber|r2',
+    cellKey: 'home_services/48061',
     placesType: 'plumber',
+    unitName: 'Cameron County',
+    typeLabel: 'plumber',
+    quadPath: 'r2',
     why: null,
+  },
+];
+
+const SUBDIVIDING_ONE: RunReport['tiles']['stillSubdividing'] = [
+  {
+    tileKey: 'city:48215/McAllen|roofing_contractor|r0',
+    cellKey: 'home_services/48215/McAllen',
+    placesType: 'roofing_contractor',
+    unitName: 'McAllen',
+    typeLabel: 'roofing contractor',
+    quadPath: 'r0',
   },
 ];
 
@@ -470,11 +494,18 @@ describe('run report — header and alerts (04-23 Task 2)', () => {
     expect(screen.queryAllByTestId('run-truncation-tile')).toHaveLength(0);
     fireEvent.click(toggle);
     const rows = screen.getAllByTestId('run-truncation-tile');
-    expect(rows.map((r) => r.textContent)).toEqual([
-      'city:4845384 · roofing_contractor · tile r012',
-      'city:4845384 · roofing_contractor · tile r013',
-      'city:4822660 · plumber · tile r2',
-    ]);
+    const expected = [
+      'McAllen · roofing contractor · tile r012',
+      'McAllen · roofing contractor · tile r013',
+      'Cameron County · plumber · tile r2',
+    ];
+    expect(rows.map((r) => r.textContent)).toEqual(expected);
+    // C-WR-04: a place name and a readable type — never `city:…`, a fips, or a `_` key. The
+    // stored key survives only as an attribute.
+    for (const row of rows) {
+      expect(row.textContent).not.toMatch(/[a-z]+:|_|\d{5}/);
+    }
+    expect(rows[0]).toHaveAttribute('data-tile-key', 'city:48215/McAllen|roofing_contractor|r012');
     // The null-reason tile is listed, not dropped (04-20; criterion 3).
     expect(rows[2]).toHaveAttribute('data-why', '');
     expect(toggle).toHaveAttribute('data-state', 'open');
@@ -483,13 +514,33 @@ describe('run report — header and alerts (04-23 Task 2)', () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
     fireEvent.click(screen.getByTestId('run-truncation-copy'));
-    expect(writeText).toHaveBeenCalledWith(
-      [
-        'city:4845384 · roofing_contractor · tile r012',
-        'city:4845384 · roofing_contractor · tile r013',
-        'city:4822660 · plumber · tile r2',
-      ].join('\n'),
-    );
+    expect(writeText).toHaveBeenCalledWith(expected.join('\n'));
+  });
+
+  it('a stored tile key resolves to a place name, never itself (C-WR-04)', () => {
+    const counties = new Map([
+      ['48215', 'Hidalgo'],
+      ['48061', 'Cameron'],
+    ]);
+    expect(describeTileKey('city:48215/McAllen|plumber|r012', counties)).toEqual({
+      unitName: 'McAllen',
+      quadPath: 'r012',
+    });
+    expect(describeTileKey('county:48061|plumber|r2', counties)).toEqual({
+      unitName: 'Cameron County',
+      quadPath: 'r2',
+    });
+    expect(describeTileKey('radius:48215/10mi|car_repair|r', counties)).toEqual({
+      unitName: '10-mile radius in Hidalgo County',
+      quadPath: 'r',
+    });
+    // A county the table doesn't know, or a key of another shape: words, never the key.
+    expect(describeTileKey('county:48999|plumber|r', counties).unitName).toBe(RUN_TILE_UNIT_UNKNOWN);
+    expect(describeTileKey('garbage', counties)).toEqual({
+      unitName: RUN_TILE_UNIT_UNKNOWN,
+      quadPath: '',
+    });
+    expect(placesTypeLabel('roofing_contractor')).toBe('roofing contractor');
   });
 
   it('stop alerts stack before the truncation warning', () => {
@@ -499,13 +550,7 @@ describe('run report — header and alerts (04-23 Task 2)', () => {
         tiles: {
           stillTruncated: 3,
           truncated: THREE_TRUNCATED,
-          stillSubdividing: [
-            {
-              tileKey: 'city:4845384|roofing_contractor|r0',
-              cellKey: 'home_services/4845384',
-              placesType: 'roofing_contractor',
-            },
-          ],
+          stillSubdividing: SUBDIVIDING_ONE,
         },
       }),
     );
@@ -579,22 +624,15 @@ describe('run report — cards (04-23 Task 3)', () => {
     renderReport(
       reportOf({
         run: { status: 'partial', stoppedReason: 'exceeded_estimate' },
-        tiles: {
-          stillSubdividing: [
-            {
-              tileKey: 'city:4845384|roofing_contractor|r0',
-              cellKey: 'home_services/4845384',
-              placesType: 'roofing_contractor',
-            },
-          ],
-        },
+        tiles: { stillSubdividing: SUBDIVIDING_ONE },
       }),
     );
     const list = screen.getByTestId('run-tiles-subdividing');
     // The stop alert's "Show the tiles still subdividing" is an in-page link to this list.
     expect(screen.getByTestId('run-stop-show-subdividing')).toHaveAttribute('href', `#${list.id}`);
     expect(list.textContent).toContain('Tiles still subdividing when the run stopped (1)');
-    expect(list.textContent).toContain('city:4845384 · roofing_contractor · tile r0');
+    expect(list.textContent).toContain('McAllen · roofing contractor · tile r0');
+    expect(list.textContent).not.toMatch(/city:|_/);
   });
 
   it('the outcomes card links tentative listings to the Google review filter', () => {
