@@ -631,6 +631,48 @@ describe('places-sweep workflow', () => {
     expect(gone).toEqual([{ gone: true }]);
   });
 
+  it('a change check lists only the shallowest stored leaf on each path', async () => {
+    // B-WR-04: sweep 1 split `r` into r0/r1; sweep 2 found `r` no longer saturated and closed it
+    // as a leaf — but r0/r1 kept `is_leaf`. Listing all three would search overlapping
+    // rectangles (extra requests, double diffs). Only `r` is the tree now.
+    const [r0, r1] = quadrants(MCALLEN_BBOX);
+    const w = await world({
+      kind: 'change_check',
+      admissionHoldMicroUsd: 1,
+      extra: async (c, orgId) => {
+        for (const [quadPath, rect] of [
+          ['r', MCALLEN_BBOX],
+          ['r0', r0!],
+          ['r1', r1!],
+        ] as const) {
+          await c.query(
+            `insert into place_tiles (org_id, tile_key, unit_kind, unit_id, places_type,
+                                      quad_path, depth, south, west, north, east, is_leaf)
+             values ($1, $2, 'city', '48215/McAllen', 'plumber', $3, $4, $5, $6, $7, $8, true)`,
+            [
+              orgId,
+              tileKey('plumber', quadPath),
+              quadPath,
+              quadPath.length - 1,
+              rect.south,
+              rect.west,
+              rect.north,
+              rect.east,
+            ],
+          );
+        }
+      },
+    });
+    setPlacesRoutes([{ name: 'all-empty', when: () => true, pages: PLACES_PAGES.empty }]);
+
+    expect(await sweep(w)).toEqual({ status: 'complete', reason: null });
+    const keys = (await searchesOf(w.runId)).map((s) => s.tile_key);
+    expect(keys.filter((k) => k.startsWith(tileKey('plumber', 'r')))).toEqual([
+      tileKey('plumber', 'r'),
+    ]);
+    expect(placesRequests.filter((r) => isType('plumber')(r.body))).toHaveLength(1);
+  });
+
   it('the admission hold is released when the run begins', async () => {
     const w = await world();
     const before = await q<{ reserved: string }>(
