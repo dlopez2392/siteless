@@ -34,6 +34,7 @@ vi.mock('next/link', () => ({
 
 import { RunReportView } from '@/components/runs/run-report-view';
 import {
+  RUN_FAILED_ERROR,
   RUN_OUTCOMES_NONE_REACHED_BODY,
   RUN_OUTCOMES_NONE_REACHED_HEADING,
   RUN_REFUSED_PAST,
@@ -280,6 +281,30 @@ describe('run report — header and alerts (04-23 Task 2)', () => {
       expect(text.match(/\b[a-z]+(?:_[a-z]+)+\b/g), reason).toBeNull();
       unmount();
     }
+  });
+
+  // F6 (after B-WR-06). `places_request_rejected` now covers 401/403/404 as well as a 400, and a
+  // 403 is what an unconfigured Google Cloud project answers. "Rejected as malformed (HTTP 400)"
+  // sent the operator looking for a bug; the alert names the causes an operator can fix.
+  it('a rejected request names its likely causes', () => {
+    renderReport(
+      reportOf({
+        run: {
+          status: 'failed',
+          stoppedReason: 'places_request_rejected',
+          finishedMs: FINISHED,
+          callsCount: 1,
+        },
+      }),
+    );
+    const alert = screen.getByTestId('run-stop-alert');
+    expect(alert).toHaveAttribute('data-reason', 'places_request_rejected');
+    expect(alert).toHaveTextContent(RUN_FAILED_ERROR.places_request_rejected);
+    expect(alert).toHaveTextContent('Google refused a request');
+    expect(alert).toHaveTextContent('API key is wrong or restricted');
+    expect(alert).toHaveTextContent('Places API (New)');
+    expect(alert).toHaveTextContent('billing');
+    expect(alert.textContent).not.toContain('malformed');
   });
 
   it('the run report renders the refused state alone', () => {

@@ -1150,7 +1150,12 @@ export const RUN_FAILED_ERROR: Record<
   'places_request_rejected' | 'places_unavailable' | 'places_key_missing',
   string
 > = {
-  places_request_rejected: 'Google rejected a request as malformed (HTTP 400)',
+  // F6 (B-WR-06): a 400, 401, 403 or 404 — and a 403 is what a misconfigured Google Cloud
+  // project answers. Name what an operator can fix, not "malformed". One sentence, no inner
+  // period: RUN_FAILED's lede is split at the first ". ".
+  places_request_rejected:
+    'Google refused a request — usually the API key is wrong or restricted, the Places API ' +
+    "(New) isn't enabled on the key's Google Cloud project, or billing is off for that project",
   places_unavailable: "Google Places didn't answer after retrying",
   places_key_missing: 'no Google Places API key is set for this deployment, so nothing was sent',
 };
