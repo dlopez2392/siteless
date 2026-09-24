@@ -862,6 +862,37 @@ describe('app.record_change_check (D-16)', () => {
       expect(tile.rows[0]).toEqual({ changed: false });
     }));
 
+  // A-WR-02 / B-WR-03. A saturated listing is Google's top 60: a stored member past the cap is
+  // hidden, not gone. The writer refuses gone ids on a saturated check, so a regression in
+  // diffTile fails loudly instead of writing gone_at onto members that still exist.
+  it('a saturated change check records added ids and marks nothing gone', () =>
+    withRollback(async (c) => {
+      const s = await changeSetup(c);
+      await actAs(c, CLAIMS_A);
+      await check(c, s.searchId, ['ChIJ-new1'], [], 'saturated', 60);
+      expect(await members(c, s.tileId)).toEqual([
+        { place_id: 'ChIJ-gone1', gone: false },
+        { place_id: 'ChIJ-keep', gone: false },
+        { place_id: 'ChIJ-new1', gone: false },
+      ]);
+      const rs = await c.query(
+        'select change_verdict, new_ids, gone_ids from run_searches where id = $1',
+        [s.searchId],
+      );
+      expect(rs.rows[0]).toEqual({ change_verdict: 'saturated', new_ids: 1, gone_ids: 0 });
+    }));
+
+  it('a saturated change check cannot mark a member gone', () =>
+    withRollback(async (c) => {
+      const s = await changeSetup(c);
+      await actAs(c, CLAIMS_A);
+      const attempt = check(c, s.searchId, [], ['ChIJ-gone1'], 'saturated', 60);
+      await expect(attempt).rejects.toMatchObject({ code: '22023' });
+      await expect(attempt).rejects.toThrow(
+        /record_change_check: a saturated listing cannot prove a member gone/,
+      );
+    }));
+
   it("record_change_check refuses another org's search", () =>
     withRollback(async (c) => {
       const s = await changeSetup(c);

@@ -461,3 +461,99 @@ grant execute on function app.decide_place_attachment(uuid, text) to authenticat
 comment on function app.decide_place_attachment(uuid, text) is
   'D-05 / D-08 / A-WR-03. A reviewer''s listing decision: confirm (tentative -> attached/confirmed), reject (tentative -> rejected/rejected) or detach (attached -> rejected/detached), decided_by from the claims. Confirming one side of a tentative tie rejects the other side''s row for the same place in the same statement (55000 when a human already confirmed that side). Pending-only: a listing not in the from-state is 55000 already decided. 22023 unknown decision, 42501 foreign-or-missing attachment. Returns the one row decided; each status change writes one events row.';
 --> statement-breakpoint
+
+-- ===========================================================================
+-- 4. A-WR-02 / B-WR-03 — app.record_change_check: a saturated listing proves nothing gone.
+-- ===========================================================================
+--
+-- A saturated IDs-only listing is Google's top 60 (Text Search's cap). A stored member that is
+-- merely past the cap is hidden, not gone — and saturation is the normal state of exactly the
+-- dense tiles change checks exist for. 0029 applied p_gone whatever the verdict, writing
+-- gone_at onto members that still exist; the next check re-saw some as `added`, and the
+-- membership history (what the next diff and overlapWithParent read) went wrong.
+--
+-- The writer now REFUSES gone ids on a saturated check (22023) rather than quietly dropping
+-- them: a caller that sends them holds a wrong belief about what the listing proved, and
+-- swapping its values underneath it would leave that belief intact (the 0019 WR-03 rule).
+-- src/lib/places/change-detect.ts diffTile returns gone = [] for a saturated listing (fixer B,
+-- same review); both halves ship together. Otherwise the 0029 body, unchanged.
+create or replace function app.record_change_check(p_search uuid, p_added jsonb, p_gone jsonb,
+                                                   p_verdict text, p_seen int)
+returns void language plpgsql security definer set search_path = public, pg_temp as $$
+declare v_org uuid; v_tile uuid; v_kind text;
+begin
+  v_org := app.current_org_id();
+  if v_org is null then
+    raise exception 'record_change_check: no current org' using errcode = '42501';
+  end if;
+
+  select s.tile_id, s.kind into v_tile, v_kind
+    from run_searches s where s.id = p_search and s.org_id = v_org
+     for update of s;
+  if not found then
+    raise exception 'record_change_check: search belongs to another org or does not exist'
+      using errcode = '42501';
+  end if;
+  if v_kind <> 'ids_only' then
+    raise exception 'record_change_check: search is not an ids_only change check'
+      using errcode = '22023';
+  end if;
+  if p_verdict is null
+     or p_verdict not in ('baseline', 'unchanged', 'new', 'gone', 'both', 'saturated') then
+    raise exception 'record_change_check: unknown verdict' using errcode = '22023';
+  end if;
+  if p_added is null or jsonb_typeof(p_added) <> 'array'
+     or p_gone is null or jsonb_typeof(p_gone) <> 'array' then
+    raise exception 'record_change_check: added and gone must be json arrays' using errcode = '22023';
+  end if;
+  -- A-WR-02 / B-WR-03. The 60-result cap hides; it does not delete.
+  if p_verdict = 'saturated' and jsonb_array_length(p_gone) > 0 then
+    raise exception 'record_change_check: a saturated listing cannot prove a member gone'
+      using errcode = '22023';
+  end if;
+  if p_seen is null or p_seen < 0 then
+    raise exception 'record_change_check: seen must be non-negative' using errcode = '22023';
+  end if;
+  if exists (select 1 from jsonb_array_elements(p_added || p_gone) e
+              where jsonb_typeof(e.value) <> 'string'
+                 or length(e.value #>> '{}') > 512
+                 or (e.value #>> '{}') !~ '^[A-Za-z0-9_-]+$') then
+    raise exception 'record_change_check: an id is not a place id' using errcode = '22023';
+  end if;
+
+  insert into place_tile_members as t (org_id, tile_id, place_id)
+  select v_org, v_tile, x.id from jsonb_array_elements_text(p_added) as x(id)
+  on conflict (tile_id, place_id) do update set gone_at = null, last_seen_at = now();
+
+  update place_tile_members t set gone_at = now()
+   where t.tile_id = v_tile and t.org_id = v_org and t.gone_at is null
+     and t.place_id in (select jsonb_array_elements_text(p_gone));
+
+  update place_tiles pt
+     set last_checked_at = now(),
+         changed_at = case when p_verdict in ('new', 'gone', 'both', 'saturated') then now()
+                           else pt.changed_at end
+   where pt.id = v_tile and pt.org_id = v_org;
+
+  update run_searches s
+     set change_verdict = p_verdict,
+         new_ids = jsonb_array_length(p_added),
+         gone_ids = jsonb_array_length(p_gone),
+         results_count = p_seen,
+         pages_done = greatest(s.pages_done, 1),
+         inflight_reservation_id = null,
+         inflight_request_id = null
+   where s.id = p_search and s.org_id = v_org;
+end $$;
+--> statement-breakpoint
+
+revoke execute on function app.record_change_check(uuid, jsonb, jsonb, text, integer)
+  from public, anon, service_role;
+--> statement-breakpoint
+
+grant execute on function app.record_change_check(uuid, jsonb, jsonb, text, integer) to authenticated;
+--> statement-breakpoint
+
+comment on function app.record_change_check(uuid, jsonb, jsonb, text, integer) is
+  'D-16 / A-WR-02. The ids-only change check''s membership diff: added ids inserted (revived when returning), gone ids marked gone_at (never deleted), the tile''s last_checked_at moved and changed_at set for new|gone|both|saturated, and change_verdict / new_ids / gone_ids / results_count / pages_done on the search with the in-flight pair cleared. A saturated listing (the 60 cap) cannot prove a member gone: gone ids with verdict saturated are 22023. 42501 foreign-or-missing search, 22023 non-ids_only search, unknown verdict or malformed ids.';
+--> statement-breakpoint
