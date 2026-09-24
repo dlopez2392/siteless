@@ -38,6 +38,7 @@ import {
   type ScoredCandidate,
 } from '@/lib/places/match';
 import { toPageRecord, type PageRecordItem } from '@/lib/places/page-record';
+import { readGoogleCheck } from '@/server/queries/businesses';
 import { readRunReport, type RunReport } from '@/server/queries/run-report';
 import type { Tx } from '@/server/queries/budget';
 
@@ -597,6 +598,48 @@ describe('run report (D-17, criterion 3)', () => {
         capPeriodIsCurrent: true,
         capResetMs: Date.UTC(2026, 10, 1, 5, 0, 0),
       });
+    }));
+
+  /**
+   * Coordinator follow-up (fixer A's 0030): `business_place_signal` now counts a MERGED-AWAY
+   * business's attachments toward its survivor (`coalesce(b.merged_into_id, b.id)`). The
+   * business page's Google check must agree — its listings and history include the merged
+   * loser's, or the signal row would name a website no listing below explains.
+   * (In this file because it is the Places DB file this slice owns; same producer chain.)
+   */
+  it("the google check includes a merged-away business's listings and history", () =>
+    withTxRollback(async (tx) => {
+      const c = asPg(tx);
+      const s = await setup(c);
+      await actAs(c, CLAIMS_A);
+      const ids = await plan(c, s.runId, [searchSpec('r')]);
+      await writePage(c, ids.r!, [
+        listing('ChIJ-ortiz', [cand(s.spine.ortiz, 97)], { host: 'social' }),
+        listing('ChIJ-garza', [cand(s.spine.garza, 97)], { host: 'none' }),
+      ]);
+
+      // Positive control, before the merge: garza's check holds garza's listing only.
+      const before = await readGoogleCheck(tx, s.spine.garza);
+      expect(before.listings.map((l) => l.placeId)).toEqual(['ChIJ-garza']);
+
+      // Ortiz is merged into Garza (as the owner; flattened, as app merges are).
+      await actAsOwner(c);
+      await c.query(
+        `update businesses set status = 'merged', merged_into_id = $2
+          where id = $1 and org_id = $3`,
+        [s.spine.ortiz, s.spine.garza, s.a],
+      );
+      await actAs(c, CLAIMS_A);
+
+      const after = await readGoogleCheck(tx, s.spine.garza);
+      expect(after.listings.map((l) => l.placeId).sort()).toEqual(['ChIJ-garza', 'ChIJ-ortiz']);
+      expect(after.history.map((h) => h.placeId).sort()).toEqual(['ChIJ-garza', 'ChIJ-ortiz']);
+      // The signal (the view) and the listings now tell the same story: a social page is
+      // listed, and the listing that carries it is on the page.
+      expect(after.signal).toMatchObject({ hadWebsiteUri: true, hostClass: 'social' });
+      const ortiz = after.listings.find((l) => l.placeId === 'ChIJ-ortiz');
+      expect(ortiz).toMatchObject({ status: 'attached' });
+      expect(ortiz?.latest?.hostClass).toBe('social');
     }));
 
   it('run report is tenant-scoped', () =>

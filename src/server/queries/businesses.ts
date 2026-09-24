@@ -763,6 +763,17 @@ export async function readGoogleCheck(tx: Tx, businessId: string): Promise<Googl
   const empty: GoogleCheckView = { signal: null, listings: [], history: [] };
   if (typeof businessId !== 'string' || !isUuid(businessId)) return empty;
 
+  // 🔴 THIS BUSINESS AND EVERY BUSINESS MERGED INTO IT (0030). `business_place_signal` groups
+  // attachments by `coalesce(b.merged_into_id, b.id)`, so a merged-away loser's listings count
+  // toward the survivor's signal; the listings and the history below must read the same family,
+  // or the signal row would name a website no listing on the page explains. Merges are flattened
+  // (0024 re-points a loser's own losers to the winner), so one level is the whole family.
+  const mergedFamily = sql`
+    select b.id
+      from businesses b
+     where b.org_id = (select app.current_org_id())
+       and (b.id = ${businessId} or b.merged_into_id = ${businessId})`;
+
   const signalRow = rowsOf<{ had_website_uri: boolean; host_class: string; observed_ms: string }>(
     await tx.execute(sql`
       select s.had_website_uri,
@@ -811,7 +822,7 @@ export async function readGoogleCheck(tx: Tx, businessId: string): Promise<Googl
            limit 1
         ) o on true
        where a.org_id = (select app.current_org_id())
-         and a.business_id = ${businessId}
+         and a.business_id in (${mergedFamily})
        order by case a.status when 'attached' then 1 when 'tentative' then 2 else 3 end,
                 case when a.status = 'attached' then o.observed_at end desc nulls last,
                 case when a.status = 'tentative' then a.score end desc nulls last,
@@ -836,7 +847,7 @@ export async function readGoogleCheck(tx: Tx, businessId: string): Promise<Googl
              po.run_id
         from place_observations po
        where po.org_id = (select app.current_org_id())
-         and po.business_id = ${businessId}
+         and po.business_id in (${mergedFamily})
        order by po.observed_at desc, po.id desc`),
   );
 
