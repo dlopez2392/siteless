@@ -1,6 +1,7 @@
 import { ChevronDown, Clock, OctagonX, TriangleAlert } from 'lucide-react';
 import Link from 'next/link';
 import type { ReactNode } from 'react';
+import { GoogleMapsTag } from '@/components/places/google-maps-tag';
 import { ceilingMicroUsdOf } from '@/components/runs/run-header';
 import { CopyCommandButton } from '@/components/sources/copy-command-button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -106,6 +107,7 @@ function RunAlert({
   data,
   role,
   text,
+  placesContent,
   children,
 }: {
   tone: Tone;
@@ -113,6 +115,9 @@ function RunAlert({
   data?: Record<string, string>;
   role?: 'status';
   text: string;
+  /** C-WR-02 / Rule 28: the text carries a Places-derived number (a tile saturation count), so
+   *  the alert is a `[data-places-content]` container with one "Google Maps" tag at its foot. */
+  placesContent?: boolean;
   children?: ReactNode;
 }) {
   const { Icon, name } = TONE_ICON[tone];
@@ -122,6 +127,7 @@ function RunAlert({
       // `undefined` overrides the primitive's `role="alert"` (see the header note).
       role={role}
       data-testid={testId}
+      data-places-content={placesContent ? '' : undefined}
       {...data}
       className={TONE_CLASS[tone]}
     >
@@ -132,6 +138,11 @@ function RunAlert({
           {rest ? <span className="font-normal"> {rest}</span> : null}
         </p>
         {children}
+        {placesContent ? (
+          <p className="text-sm">
+            <GoogleMapsTag />
+          </p>
+        ) : null}
       </AlertDescription>
     </Alert>
   );
@@ -299,6 +310,7 @@ function stopAlertOf({
           tone="warning"
           testId="run-stop-alert"
           data={data}
+          placesContent
           text={RUN_STOP_ESTIMATE(
             run.estimateMicroUsdLo ?? 0,
             hi,
@@ -393,6 +405,8 @@ function TruncationWarning({ tiles }: { tiles: RunReport['tiles'] }) {
       role="status"
       data-testid="run-truncation-warning"
       data-count={n}
+      // C-WR-02 / Rule 28: a tile saturation count and the truncated tiles are Places-derived.
+      data-places-content
       className={TONE_CLASS.warning}
     >
       <TriangleAlert data-icon="triangle-alert" aria-hidden="true" className="size-5" />
@@ -440,6 +454,9 @@ function TruncationWarning({ tiles }: { tiles: RunReport['tiles'] }) {
             </ul>
           </CollapsibleContent>
         </Collapsible>
+        <p className="text-sm">
+          <GoogleMapsTag />
+        </p>
       </AlertDescription>
     </Alert>
   );
