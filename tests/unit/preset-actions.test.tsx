@@ -94,6 +94,7 @@ function props(mode: PlacesModeName, cells = 4): Omit<RunActionsProps, 'slot'> {
     },
     drawer: {
       presetName: 'McAllen trades',
+      editHref: '/presets/x/edit',
       initialVersionId: VERSION_ID,
       remainingLabel: '$50.00 of $50.00',
       isAdmin: true,

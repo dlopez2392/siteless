@@ -386,6 +386,7 @@ export default async function PresetDetailPage({
         partition: runCosts.partition,
         drawer: {
           presetName: preset.displayName,
+          editHref,
           initialVersionId: preset.currentVersionId,
           remainingLabel: historyContext.remainingLabel,
           isAdmin,

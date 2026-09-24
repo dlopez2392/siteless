@@ -144,11 +144,13 @@ function RowActions({
   surface,
   context,
   options,
+  editHref,
 }: {
   version: HistoryVersion;
   surface: Surface;
   context: HistoryContext;
   options: RunVersionOption[];
+  editHref: string;
 }) {
   const runTestId = `version-${surface}-${version.version}-run`;
   // 🔴 C-CR-02 / Rule 33. In `off` and `ids_only` a full sweep cannot run, so the row's button
@@ -167,13 +169,19 @@ function RowActions({
         <RunDrawer
           kind="full"
           presetName={context.presetName}
+          editHref={editHref}
           versions={options}
           initialVersionId={version.id}
           pickable
           remainingLabel={context.remainingLabel}
           isAdmin={context.isAdmin}
         >
-          <Button variant="outline" className="h-11 sm:h-9" data-testid={runTestId} data-enabled="true">
+          <Button
+            variant="outline"
+            className="h-11 sm:h-9"
+            data-testid={runTestId}
+            data-enabled="true"
+          >
             Run version {version.version}
           </Button>
         </RunDrawer>
@@ -295,7 +303,13 @@ export function VersionHistory({
                   </TableCell>
                   <TableCell className="align-top">
                     <div className="flex flex-wrap items-center justify-end gap-2">
-                      <RowActions version={v} surface="row" context={context} options={options} />
+                      <RowActions
+                        version={v}
+                        surface="row"
+                        context={context}
+                        options={options}
+                        editHref={editHref}
+                      />
                     </div>
                   </TableCell>
                 </TableRow>
@@ -343,7 +357,13 @@ export function VersionHistory({
                   <VersionDetail version={v} surface="card" />
 
                   <div className="mt-2 flex flex-wrap items-center gap-2">
-                    <RowActions version={v} surface="card" context={context} options={options} />
+                    <RowActions
+                      version={v}
+                      surface="card"
+                      context={context}
+                      options={options}
+                      editHref={editHref}
+                    />
                   </div>
                 </ItemContent>
               </Item>

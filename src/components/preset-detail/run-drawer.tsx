@@ -43,6 +43,7 @@ import {
   RUN_DRAWER_TITLE_CHECK,
   RUN_DRAWER_TITLE_FULL,
   RUN_DRAWER_TITLE_PARTITION,
+  RUN_INVALID_ACTION,
   RUN_OPEN_RUNNING,
   RUN_REFUSED_CHECK_NOTE,
   RUN_START_UNKNOWN,
@@ -63,7 +64,7 @@ import { queueRun } from '@/server/actions/queue-run';
  *
  * 🔴 A REFUSAL IS A PERSISTENT `Alert` INSIDE THIS DRAWER, NEVER A TOAST (D-12). A dismissed
  * toast is indistinguishable from one that never fired, and every refusal here carries a way
- * out: raise the cap, reload the preset, open the running run, or try again.
+ * out: raise the cap, reload the preset, open the running run, edit the preset, or try again.
  *
  * 🔴 NO `<form action>`. React resets a form's fields even when the action FAILED, and a Radix
  * control driven by that reset walks its own state backwards — a recorded BIS defect.
@@ -138,6 +139,8 @@ type Outcome =
   | { kind: 'mode_refused'; message: string }
   | { kind: 'busy'; message: string; runningRunId: string | null }
   | { kind: 'error'; message: string }
+  /** C-WR-07: `validation` / `not_found` — the same request would get the same refusal. */
+  | { kind: 'invalid'; message: string }
   /** C-CR-01: the request never answered — the run may or may not exist. */
   | { kind: 'unknown' }
   | null;
@@ -151,6 +154,9 @@ type KindProps = { kind: 'partition'; partition: RunPartition } | { kind: 'full'
 
 type RunDrawerProps = KindProps & {
   presetName: string;
+  /** `/presets/{id}/edit` — the way out of a refusal only the preset's geography can fix
+   *  (an unpriceable version, a unit with no map outline). */
+  editHref: string;
   /** Newest first. */
   versions: RunVersionOption[];
   initialVersionId: string;
@@ -170,8 +176,16 @@ const DESTRUCTIVE_ALERT =
 const WARNING_ALERT = 'border-warning/40 bg-warning-surface text-warning-surface-foreground';
 
 export function RunDrawer(props: RunDrawerProps) {
-  const { presetName, versions, initialVersionId, pickable, remainingLabel, isAdmin, children } =
-    props;
+  const {
+    presetName,
+    editHref,
+    versions,
+    initialVersionId,
+    pickable,
+    remainingLabel,
+    isAdmin,
+    children,
+  } = props;
   const kind = props.kind;
   const partition = props.kind === 'partition' ? props.partition : null;
 
@@ -241,6 +255,13 @@ export function RunDrawer(props: RunDrawerProps) {
         return;
       }
 
+      // C-WR-07: an unpriceable version, a unit with no outline, a malformed or vanished
+      // version id — resending changes nothing, so no "Try again": the way out is the editor.
+      if (result.code === 'validation' || result.code === 'not_found') {
+        setOutcome({ kind: 'invalid', message: result.message });
+        return;
+      }
+
       setOutcome({ kind: 'error', message: result.message });
     });
   }, [kind, router, selectedId]);
@@ -275,7 +296,8 @@ export function RunDrawer(props: RunDrawerProps) {
     outcome?.kind === 'refused' ||
     outcome?.kind === 'mode_refused' ||
     outcome?.kind === 'busy' ||
-    outcome?.kind === 'unknown';
+    outcome?.kind === 'unknown' ||
+    outcome?.kind === 'invalid';
 
   const body = (
     <div className="flex flex-col gap-4 px-4 sm:px-0">
@@ -416,6 +438,22 @@ export function RunDrawer(props: RunDrawerProps) {
               </Button>
             </AlertDescription>
           ) : null}
+        </Alert>
+      ) : null}
+
+      {outcome?.kind === 'invalid' ? (
+        <Alert role="alert" data-testid="run-invalid" className={DESTRUCTIVE_ALERT}>
+          <OctagonX data-icon="octagon-x" aria-hidden="true" className="size-5" />
+          <AlertTitle className="text-base font-semibold text-balance">
+            {outcome.message}
+          </AlertTitle>
+          <AlertDescription className="text-inherit">
+            <Button asChild variant="outline" className="h-11">
+              <Link href={editHref} data-testid="run-invalid-edit">
+                {RUN_INVALID_ACTION}
+              </Link>
+            </Button>
+          </AlertDescription>
         </Alert>
       ) : null}
 

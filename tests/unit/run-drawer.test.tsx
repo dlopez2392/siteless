@@ -32,10 +32,13 @@ import {
   RUN_DRAWER_TITLE_CHECK,
   RUN_DRAWER_TITLE_FULL,
   RUN_DRAWER_TITLE_PARTITION,
+  RUN_INVALID_ACTION,
   RUN_MODE_REFUSED,
+  RUN_NO_GEOMETRY,
   RUN_OPEN_RUNNING,
   RUN_REFUSED,
   RUN_REFUSED_CHECK_NOTE,
+  RUN_START_FAILED,
   RUN_START_UNKNOWN,
   RUN_START_UNKNOWN_ACTION,
 } from '@/lib/ui/copy';
@@ -83,7 +86,10 @@ beforeEach(() => {
 
 afterEach(cleanup);
 
+const EDIT_HREF = '/presets/55555555-5555-4555-8555-555555555555/edit';
+
 const COMMON = {
+  editHref: EDIT_HREF,
   presetName: NAME,
   versions: VERSIONS,
   initialVersionId: VERSION_ID,
@@ -242,6 +248,38 @@ describe('run drawer', () => {
     });
     expect(f.getByTestId('run-refused')).toBeInTheDocument();
     expect(f.queryByTestId('run-refused-check-note')).toBeNull();
+  });
+
+  it('a refusal retrying cannot change offers the editor, not try again', async () => {
+    const d = openDrawer('full');
+    await confirmWith(d, {
+      ok: false,
+      code: 'validation',
+      message: RUN_NO_GEOMETRY('Starr County'),
+    });
+
+    const alert = d.getByTestId('run-invalid');
+    expect(alert).toHaveTextContent(RUN_NO_GEOMETRY('Starr County'));
+    const edit = within(alert).getByTestId('run-invalid-edit');
+    expect(edit).toHaveAttribute('href', EDIT_HREF);
+    expect(edit).toHaveTextContent(RUN_INVALID_ACTION);
+    // Blocking: the same request would get the same refusal.
+    expect(d.queryByTestId('run-error-retry')).toBeNull();
+    expect(d.queryByTestId('run-confirm')).toBeNull();
+    cleanup();
+
+    const n = openDrawer('check');
+    await confirmWith(n, { ok: false, code: 'not_found', message: 'That version is gone.' });
+    expect(n.getByTestId('run-invalid')).toHaveTextContent('That version is gone.');
+    expect(n.queryByTestId('run-error-retry')).toBeNull();
+    cleanup();
+
+    // An unexpected failure is the one a retry can fix.
+    const u = openDrawer('full');
+    await confirmWith(u, { ok: false, code: 'unexpected', message: RUN_START_FAILED });
+    expect(u.getByTestId('run-error')).toHaveTextContent(RUN_START_FAILED);
+    expect(u.getByTestId('run-error-retry')).toBeInTheDocument();
+    expect(u.queryByTestId('run-invalid')).toBeNull();
   });
 
   it('a second active run links to the running run', async () => {
