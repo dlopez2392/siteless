@@ -70,9 +70,8 @@ describe('change detection', () => {
     const stored = new Set([...sixty.slice(0, 58), 'z-old']);
     const result = diffTile(stored, [...sixty].reverse(), { hasBaseline: true });
     expect(result.verdict).toBe('saturated');
-    // The diff is still computed, sorted, so the writer can record members and gone_at.
+    // The additions are still computed, sorted, so the writer can record the new members.
     expect(result.added).toEqual(['p058', 'p059']);
-    expect(result.gone).toEqual(['z-old']);
 
     // Saturated even when the set is otherwise unchanged…
     expect(diffTile(new Set(sixty), sixty, { hasBaseline: true })).toEqual({
@@ -89,6 +88,19 @@ describe('change detection', () => {
 
     // One short of the cap is an ordinary verdict.
     expect(diffTile(new Set(ids(59)), ids(59), { hasBaseline: true }).verdict).toBe('unchanged');
+  });
+
+  it('a saturated change check never marks a member gone', () => {
+    // B-WR-03 / A-WR-02: a capped listing is Google's top 60, not the tile. A member that simply
+    // fell outside the cap is not evidence of absence — marking it `gone` would corrupt the
+    // membership the next diff and the novelty rule read.
+    const sixty = ids(60);
+    const stored = new Set([...sixty.slice(0, 58), 'z-old', 'z-older']);
+    const result = diffTile(stored, sixty, { hasBaseline: true });
+    expect(result).toEqual({ verdict: 'saturated', added: ['p058', 'p059'], gone: [] });
+    // The same listing one short of the cap is an ordinary diff, and absence IS evidence there.
+    const fiftyNine = diffTile(new Set([...ids(59), 'z-old']), ids(59), { hasBaseline: true });
+    expect(fiftyNine).toEqual({ verdict: 'gone', added: [], gone: ['z-old'] });
   });
 
   it('change detection: the inputs are not mutated', () => {

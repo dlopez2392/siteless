@@ -12,7 +12,8 @@
  *      whether or not the tile was ever checked, so it wins over `baseline` too.
  *   2. `baseline` — never checked: nothing to diff against, every seen id is `added`.
  *   3. `unchanged` | `new` | `gone` | `both` from the set difference.
- * `added` and `gone` are always computed, de-duplicated and sorted.
+ * `added` and `gone` are de-duplicated and sorted. `gone` is always EMPTY on a saturated
+ * listing: a listing capped at 60 cannot prove a member absent (B-WR-03).
  *
  * No client directive, no server-only import, no I/O. Place ids only — no Places content
  * passes through here.
@@ -37,7 +38,10 @@ export function diffTile(
   }
 
   const added = [...seenSet].filter((id) => !stored.has(id)).sort();
-  const gone = [...stored].filter((id) => !seenSet.has(id)).sort();
+  // B-WR-03: a capped listing is Google's top 60, not the tile — a member missing from it may
+  // simply rank below the cap. Absence proves nothing on a saturated listing, so nothing is
+  // `gone` (the writer, app.record_change_check, holds the same line — A-WR-02).
+  const gone = saturated ? [] : [...stored].filter((id) => !seenSet.has(id)).sort();
 
   let verdict: ChangeVerdict;
   if (saturated) verdict = 'saturated';
