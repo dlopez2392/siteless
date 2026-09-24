@@ -239,7 +239,10 @@ describe('run report — header and alerts (04-23 Task 2)', () => {
       );
       const warning = screen.getByTestId('run-truncation-warning');
       expect(warning, status).toHaveAttribute('data-count', '3');
-      expect(warning, status).toHaveAttribute('role', 'status');
+      // C-WR-12: NOT a live region — its count changes every refresh during a live run, and
+      // RunAutoRefresh already announces the first truncation once.
+      expect(warning, status).toHaveAttribute('role', 'note');
+      expect(warning, status).not.toHaveAttribute('aria-live');
       expect(warning.textContent, status).toContain(
         "3 tiles still hit Google's 60-result limit at the smallest tile size.",
       );

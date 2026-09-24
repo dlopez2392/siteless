@@ -52,7 +52,10 @@ import type { RunReport } from '@/server/queries/run-report';
  * 🔴 THE TRUNCATION WARNING RENDERS IN EVERY STATUS, `complete` INCLUDED (criterion 3). A
  * complete run with truncated tiles is still complete, and it is never a silent partial. It is
  * warning (the searched tiles are correct), never destructive and never accent, and it carries
- * `role="status"` — nothing needs an interrupt.
+ * `role="note"` — NOT `status` (C-WR-12): `status` is an implicit polite, atomic live region,
+ * and during a live run its heading count changes every refresh, so the whole alert would be
+ * re-announced every 5 seconds (and again when the list opens), duplicating the one
+ * "N tiles truncated" transition `RunAutoRefresh` already announces.
  *
  * 🔴 THE STOP ALERTS ARE NOT LIVE REGIONS (§ Accessibility). They render once, on load or on
  * transition, and the transition is what `RunAutoRefresh`'s one polite region announces. The
@@ -400,7 +403,8 @@ function TruncationWarning({ tiles }: { tiles: RunReport['tiles'] }) {
   const lines = tiles.truncated.map(tileRowText);
   return (
     <Alert
-      role="status"
+      // C-WR-12: a note, not a live region — see the header.
+      role="note"
       data-testid="run-truncation-warning"
       data-count={n}
       // C-WR-02 / Rule 28: a tile saturation count and the truncated tiles are Places-derived.
