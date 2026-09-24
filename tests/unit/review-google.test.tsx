@@ -36,6 +36,8 @@ import {
 import {
   GOOGLE_MAPS_LINK_SR_SUFFIX,
   GOOGLE_MAPS_TAG,
+  PLACES_CHIP,
+  REVIEW_CHIP,
   REVIEW_GOOGLE_CARD_BODY,
   REVIEW_GOOGLE_CARD_TITLE,
   REVIEW_GOOGLE_COMPARED,
@@ -154,6 +156,47 @@ describe('google listing card', () => {
 
     // No map, ever (Rule 31): no iframe, no image.
     expect(root.querySelector('iframe, img')).toBeNull();
+  });
+
+  it("the chips carry the listing's address points (C-WR-01)", () => {
+    // Score 85 = name 34 + address 30 + distance 15 + cluster 5 + ... : the address is the
+    // second-largest part of the score and one of the two independent signals, so the person
+    // judging the pair has to see it. Only the stored INTEGER points are read — Google's address
+    // itself is never stored.
+    const item = listing({
+      features: {
+        name: 34,
+        phone: 0,
+        address: 30,
+        distance: 15,
+        cluster: 5,
+        signals: ['name', 'address', 'distance'],
+        listingPhone: 1,
+        listingLocation: 1,
+      },
+    });
+    render(<GoogleListingCard item={item} />);
+    const chips = within(screen.getByTestId('review-google-listing')).getByTestId('review-chips');
+    const labels = [...chips.querySelectorAll('[data-chip]')].map((c) => c.textContent);
+    expect(labels).toEqual([
+      'name match',
+      PLACES_CHIP.sameAddress,
+      'within 100 m',
+      'same cluster',
+    ]);
+    expect(chips.querySelector('[data-chip="zip"]')).toHaveAttribute('data-agrees', 'true');
+
+    // The three address tiers the scorer awards (score.ts), and none at zero.
+    const addressLabel = (address: unknown) =>
+      placesChips({ name: 34, address }).find((c) => c.key === 'zip')?.label;
+    expect([30, 15, 5, 0, 'x', null].map(addressLabel)).toEqual([
+      PLACES_CHIP.sameAddress,
+      PLACES_CHIP.sameNumberZip,
+      REVIEW_CHIP.sameZip,
+      undefined,
+      undefined,
+      undefined,
+    ]);
   });
 
   it('the tie reason names the other business as a link', () => {

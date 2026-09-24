@@ -1656,6 +1656,11 @@ export const PLACES_CHIP = {
   nameSimilar: 'name similar',
   /** No name points. */
   nameDifferent: 'different name',
+  /** C-WR-01: full address points (street number, street and ZIP all equal) — the address
+   *  signal. The lowest tier (ZIP only) reuses `REVIEW_CHIP.sameZip`. */
+  sameAddress: 'same address',
+  /** C-WR-01: street number and ZIP equal. */
+  sameNumberZip: 'same street number and ZIP',
 } as const;
 
 /** "within 100 m", "within 500 m", "within 2 km" — a scorer distance tier's upper bound. */

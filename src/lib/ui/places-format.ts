@@ -1,5 +1,10 @@
 import type { HostClass } from '@/lib/places/host-class';
-import { DISTANCE_TIERS } from '@/lib/resolve/score';
+import {
+  ADDRESS_FULL,
+  ADDRESS_NUM_POSTAL,
+  ADDRESS_POSTAL_ONLY,
+  DISTANCE_TIERS,
+} from '@/lib/resolve/score';
 import {
   HOST_CLASS_SENTENCE,
   HOST_CLASS_SHORT_LABEL,
@@ -92,9 +97,8 @@ function flag(value: unknown): 0 | 1 | null {
  * value drops its chip and the function never throws. A fact with no chip wording in the spec (a
  * `city: 0` non-match, two different phones) renders no chip rather than an invented sentence.
  *
- * There is no `zip` chip for a listing: the resolver's own "same ZIP" chip compares two stored
- * records' postcodes, and the listing's address is never stored. The key stays in the union so
- * the band shares one key space with `ReviewChip`.
+ * The `zip` chip (C-WR-01) reads the persisted ADDRESS POINTS, never an address: the matcher
+ * compared Google's address in memory and `toPageRecord` stored only the integer it scored.
  */
 export function placesChips(features: unknown): PlacesChip[] {
   if (typeof features !== 'object' || features === null || Array.isArray(features)) return [];
@@ -122,6 +126,18 @@ export function placesChips(features: unknown): PlacesChip[] {
         ? PLACES_CHIP.nameSimilar
         : PLACES_CHIP.nameDifferent;
     chips.push({ key: 'name', label, agrees: namePoints > 0 });
+  }
+
+  // Address (C-WR-01): the scorer's integer points, which ARE persisted — the listing's address
+  // itself is not. 30 is the full match (and the address signal), 15 number + ZIP, 5 ZIP only;
+  // zero, or anything else, is no chip. Nothing Google-authored is read: only the points.
+  const addressPoints = num(f.address);
+  if (addressPoints !== null && addressPoints >= ADDRESS_FULL) {
+    chips.push({ key: 'zip', label: PLACES_CHIP.sameAddress, agrees: true });
+  } else if (addressPoints === ADDRESS_NUM_POSTAL) {
+    chips.push({ key: 'zip', label: PLACES_CHIP.sameNumberZip, agrees: true });
+  } else if (addressPoints === ADDRESS_POSTAL_ONLY) {
+    chips.push({ key: 'zip', label: REVIEW_CHIP.sameZip, agrees: true });
   }
 
   // Distance: the scorer's tier, as "within <tier>" — metres apart are memory-only too. Zero
