@@ -18,6 +18,9 @@ export type TransientStats = {
   oldestCoordinateMs: number | null;
   /** Expired coordinate rows the purge has not removed yet — never counted as held. */
   expiredAwaitingPurge: number;
+  /** When the longest-waiting of those expired (min `expires_at`, drizzle/0031); null when
+   *  none is expired. */
+  oldestExpiredMs: number | null;
   /** The org's last `place_purge_runs.ran_at`; null when it has never been purged. */
   lastPurgeMs: number | null;
   /** That purge's row count; null when never purged. */
@@ -36,16 +39,20 @@ export const PURGE_PLACES_COMMAND = 'pnpm purge:places --target=prod';
 
 /**
  * True when the purge is behind:
- *   - expired rows await purge (whatever the last purge time — a row past 30 days is on disk
- *     now), or
+ *   - a row has been EXPIRED for more than 36 hours (whatever the last purge time — a purge
+ *     since then should have removed it). C-WR-10: a row expired for less than that is the
+ *     normal state between daily purges — coordinates expire continuously, the purge runs once
+ *     a day — and is not a warning; or
  *   - the last purge is more than 36 hours old, or
- *   - the purge has NEVER run and a held coordinate is already older than 36 hours (the cron
- *     had its chance and did not take it — e.g. `CRON_SECRET` was never set).
+ *   - the purge has NEVER run and a coordinate is already older than 36 hours: a held one, or
+ *     any expired one (observed 30 days ago). The cron had its chance and did not take it —
+ *     e.g. `CRON_SECRET` was never set.
  * Before any Places call (nothing held, never purged) it is false.
  */
 export function purgeOverdue(s: TransientStats, nowMs: number): boolean {
-  if (s.expiredAwaitingPurge > 0) return true;
+  if (s.oldestExpiredMs !== null && nowMs - s.oldestExpiredMs > OVERDUE_MS) return true;
   if (s.lastPurgeMs !== null) return nowMs - s.lastPurgeMs > OVERDUE_MS;
+  if (s.expiredAwaitingPurge > 0) return true;
   return (
     s.coordinatesHeld > 0 && s.oldestCoordinateMs !== null && nowMs - s.oldestCoordinateMs > OVERDUE_MS
   );

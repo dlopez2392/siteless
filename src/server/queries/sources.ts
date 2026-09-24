@@ -158,6 +158,7 @@ type RawTransientStats = {
   coordinates_held: string | number;
   oldest_coordinate_ms: string | null;
   expired_awaiting_purge: string | number;
+  oldest_expired_ms: string | null;
   last_purge_ms: string | null;
   last_rows_purged: number | null;
 };
@@ -172,16 +173,17 @@ function countOf(value: string | number, what: string): number {
 }
 
 /**
- * The five figures, from `app.places_transient_stats()` (drizzle/0028 § 5) for the transaction's
+ * The five figures, from `app.places_transient_stats()` (drizzle/0028 § 5; 0031 adds when the
+ * longest-waiting expired row expired, for the purge-overdue rule) for the transaction's
  * org. `authenticated` holds NO privilege on `place_coordinates` (0027) and that stays true:
- * the definer returns counts and two epoch-ms timestamps, never a row. The function always
+ * the definer returns counts and three epoch-ms timestamps, never a row. The function always
  * returns exactly one row (a cross join of aggregates); zero rows is refused, not defaulted.
  */
 export async function readTransientStats(tx: Tx): Promise<TransientStats> {
   const [row] = rowsOf<RawTransientStats>(
     await tx.execute(sql`
       select place_ids_held, coordinates_held, oldest_coordinate_ms,
-             expired_awaiting_purge, last_purge_ms, last_rows_purged
+             expired_awaiting_purge, oldest_expired_ms, last_purge_ms, last_rows_purged
         from app.places_transient_stats()`),
   );
   if (!row) throw new Error('readTransientStats: app.places_transient_stats() returned no row');
@@ -190,6 +192,7 @@ export async function readTransientStats(tx: Tx): Promise<TransientStats> {
     coordinatesHeld: countOf(row.coordinates_held, 'coordinates_held'),
     oldestCoordinateMs: instantOf(row.oldest_coordinate_ms)?.getTime() ?? null,
     expiredAwaitingPurge: countOf(row.expired_awaiting_purge, 'expired_awaiting_purge'),
+    oldestExpiredMs: instantOf(row.oldest_expired_ms)?.getTime() ?? null,
     lastPurgeMs: instantOf(row.last_purge_ms)?.getTime() ?? null,
     lastRowsPurged: row.last_rows_purged === null ? null : countOf(row.last_rows_purged, 'last_rows_purged'),
   };

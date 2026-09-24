@@ -138,6 +138,7 @@ type StatsRow = {
   coordinates_held: string;
   oldest_coordinate_ms: string | null;
   expired_awaiting_purge: string;
+  oldest_expired_ms: string | null;
   last_purge_ms: string | null;
   last_rows_purged: number | null;
 };
@@ -146,7 +147,7 @@ async function stats(c: Client): Promise<StatsRow> {
   const r = await c.query<StatsRow>(
     `select place_ids_held::text as place_ids_held, coordinates_held::text as coordinates_held,
             oldest_coordinate_ms, expired_awaiting_purge::text as expired_awaiting_purge,
-            last_purge_ms, last_rows_purged
+            oldest_expired_ms, last_purge_ms, last_rows_purged
        from app.places_transient_stats()`,
   );
   expect(r.rows).toHaveLength(1);
@@ -610,6 +611,34 @@ describe('drizzle/0030 definer grants', () => {
     }));
 });
 
+describe('drizzle/0031 definer grants', () => {
+  // 0031 drops and re-creates app.places_transient_stats (a new output column cannot be added
+  // by `create or replace`). A re-created function takes 0000_bootstrap's default privileges
+  // again — anon and service_role included — so each is revoked by name. 0028 revoked public
+  // and anon only; service_role goes too, as 0030's definers did.
+  it('places_transient_stats is executable by authenticated only, search_path pinned', () =>
+    withRollback(async (c) => {
+      const fn = 'app.places_transient_stats()';
+      const r = await c.query<{ role: string; can: boolean }>(
+        `select r.role, has_function_privilege(r.role, $1, 'EXECUTE') as can
+           from unnest(array['anon','authenticated','service_role']) as r(role)
+          order by 1`,
+        [fn],
+      );
+      expect(r.rows).toEqual([
+        { role: 'anon', can: false },
+        { role: 'authenticated', can: true },
+        { role: 'service_role', can: false },
+      ]);
+      const cfg = await c.query<{ definer: boolean; cfg: string[] | null }>(
+        `select p.prosecdef as definer, p.proconfig as cfg
+           from pg_proc p where p.oid = $1::regprocedure`,
+        [fn],
+      );
+      expect(cfg.rows).toEqual([{ definer: true, cfg: ['search_path=public, pg_temp'] }]);
+    }));
+});
+
 describe('app.purge_expired_place_coordinates (D-12, M38, M39, T-4-07)', () => {
   /** Org A: one expired and one fresh coordinate; org B: one expired. All as the owner. */
   async function seedPurgeWorld(c: Client) {
@@ -855,6 +884,7 @@ describe('app.places_transient_stats (D-12, T-4-04)', () => {
         coordinates_held: '2',
         oldest_coordinate_ms: expected.rows[0]!.oldest,
         expired_awaiting_purge: '0',
+        oldest_expired_ms: null,
         last_purge_ms: expected.rows[0]!.last,
         last_rows_purged: 4,
       });
@@ -867,6 +897,7 @@ describe('app.places_transient_stats (D-12, T-4-04)', () => {
         coordinates_held: '0',
         oldest_coordinate_ms: null,
         expired_awaiting_purge: '0',
+        oldest_expired_ms: null,
         last_purge_ms: null,
         last_rows_purged: null,
       });
@@ -902,15 +933,34 @@ describe('app.places_transient_stats (D-12, T-4-04)', () => {
         observedAt: fresh,
         withCoordinates: true,
       });
-      const expected = await c.query<{ oldest: string }>(
-        'select floor(extract(epoch from $1::timestamptz) * 1000)::bigint::text as oldest',
-        [fresh],
+      // C-WR-10: a second expired row, expired ten days ago — the OLDEST expiry is the one
+      // the overdue rule measures (a row expired 1 day ago is normal between daily purges).
+      const olderObserved = new Date(now - 40 * DAY_MS);
+      await seedAttachmentWithObservation(c, {
+        orgId: a,
+        businessId: spine.ortiz,
+        placeId: 'synthetic-expired-older',
+        runId: run.runId,
+        status: 'tentative',
+        hadWebsiteUri: false,
+        hostClass: 'none',
+        observedAt: olderObserved,
+        withCoordinates: true,
+      });
+      const expected = await c.query<{ oldest: string; expired: string }>(
+        `select floor(extract(epoch from $1::timestamptz) * 1000)::bigint::text as oldest,
+                floor(extract(epoch from $2::timestamptz + interval '30 days') * 1000)::bigint::text
+                  as expired`,
+        [fresh, olderObserved],
       );
 
       await actAs(c, CLAIMS_A);
       const s = await stats(c);
       expect(s.coordinates_held).toBe('1');
-      expect(s.expired_awaiting_purge).toBe('1');
+      expect(s.expired_awaiting_purge).toBe('2');
+      // When the longest-waiting expired row expired (min expires_at over expired rows) —
+      // epoch-ms text, like the other two instants. Never a coordinate.
+      expect(s.oldest_expired_ms).toBe(expected.rows[0]!.expired);
       // The oldest HELD coordinate is the fresh one — the 31-day-old row is not held.
       expect(s.oldest_coordinate_ms).toBe(expected.rows[0]!.oldest);
       expect(s.last_purge_ms).toBeNull();

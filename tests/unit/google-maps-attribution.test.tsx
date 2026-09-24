@@ -383,6 +383,7 @@ const NOT_PLACES_SURFACES: readonly { name: string; render: () => void; root: st
             coordinatesHeld: 9,
             oldestCoordinateMs: STARTED - 3 * 86_400_000,
             expiredAwaitingPurge: 0,
+            oldestExpiredMs: null,
             lastPurgeMs: STARTED - 3_600_000,
             lastRowsPurged: 2,
           }}

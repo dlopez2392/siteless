@@ -19,8 +19,8 @@ import {
   SOURCES_TRANSIENT_LOAD_FAILED,
   SOURCES_TRANSIENT_NEVER_RUN,
   SOURCES_TRANSIENT_NONE_HELD,
-  SOURCES_TRANSIENT_PURGE_AWAITING,
   SOURCES_TRANSIENT_PURGE_COPY,
+  SOURCES_TRANSIENT_PURGE_STUCK,
   SOURCES_TRANSIENT_TITLE,
 } from '@/lib/ui/copy';
 
@@ -45,6 +45,7 @@ const NONE: TransientStats = {
   coordinatesHeld: 0,
   oldestCoordinateMs: null,
   expiredAwaitingPurge: 0,
+  oldestExpiredMs: null,
   lastPurgeMs: null,
   lastRowsPurged: null,
 };
@@ -56,11 +57,35 @@ function stats(partial: Partial<TransientStats>): TransientStats {
 describe('purge overdue', () => {
   const now = PURGED_AT + 2 * HOUR;
 
-  it('purge overdue when expired rows await purge', () => {
-    // A purge that ran two hours ago does not excuse a row that is past 30 days NOW.
-    expect(purgeOverdue(stats({ expiredAwaitingPurge: 1, lastPurgeMs: PURGED_AT }), now)).toBe(
-      true,
-    );
+  it('purge overdue when a row has been expired for more than 36 hours', () => {
+    // C-WR-10. A purge that ran two hours ago does not excuse a row that expired 37 hours ago:
+    // that purge should have removed it.
+    const s = stats({
+      expiredAwaitingPurge: 1,
+      oldestExpiredMs: now - 36 * HOUR - 1,
+      lastPurgeMs: PURGED_AT,
+    });
+    expect(purgeOverdue(s, now)).toBe(true);
+    // Exactly 36 hours is the boundary, not past it.
+    expect(purgeOverdue({ ...s, oldestExpiredMs: now - 36 * HOUR }, now)).toBe(false);
+  });
+
+  it('not overdue when rows expired since an on-time purge', () => {
+    // C-WR-10. Coordinates expire continuously and the purge runs once a day, so up to a day of
+    // expired rows is the normal state between purges — not a warning.
+    const s = stats({
+      coordinatesHeld: 2,
+      oldestCoordinateMs: now - 20 * DAY,
+      expiredAwaitingPurge: 4,
+      oldestExpiredMs: now - 1 * HOUR,
+      lastPurgeMs: PURGED_AT,
+      lastRowsPurged: 1,
+    });
+    expect(purgeOverdue(s, now)).toBe(false);
+    // NEVER purged is different: an expired row was observed 30 days ago, so the cron has had
+    // thirty days of chances — overdue however recently the row expired.
+    const never = stats({ expiredAwaitingPurge: 1, oldestExpiredMs: now - 1 * HOUR });
+    expect(purgeOverdue(never, now)).toBe(true);
   });
 
   it('purge overdue when the last purge is more than 36 hours old', () => {
@@ -243,28 +268,34 @@ describe('the transient card', () => {
   });
 
   it('the overdue sentence follows its cause and never contradicts itself (C-WR-10)', () => {
-    // Cause: rows expired since a purge that ran on time. Not "last ran 3 hours ago" under a
-    // heading that means "late" — it says the next daily purge removes them.
+    // Rows that expired since a purge that ran on time are the normal state between daily
+    // purges (drizzle/0031's oldest_expired_ms): no warning at all.
     const now = PURGED_AT + 3 * HOUR;
+    const onTime = {
+      placeIdsHeld: 5,
+      coordinatesHeld: 2,
+      oldestCoordinateMs: now - 20 * DAY,
+      expiredAwaitingPurge: 4,
+      lastPurgeMs: PURGED_AT,
+      lastRowsPurged: 1,
+    };
+    const first = render(
+      <TransientCard stats={stats({ ...onTime, oldestExpiredMs: now - 2 * HOUR })} nowMs={now} />,
+    );
+    expect(screen.queryByTestId('sources-transient-purge-overdue')).toBeNull();
+    first.unmount();
+
+    // Cause: the purge ran on time, yet a row that expired 40 hours ago is still on disk — a
+    // purge since then should have removed it. Not "last ran 3 hours ago" under a heading that
+    // means "late", and never "the next daily purge removes them": one already didn't.
     const { unmount } = render(
-      <TransientCard
-        stats={stats({
-          placeIdsHeld: 5,
-          coordinatesHeld: 2,
-          oldestCoordinateMs: now - 20 * DAY,
-          expiredAwaitingPurge: 4,
-          lastPurgeMs: PURGED_AT,
-          lastRowsPurged: 1,
-        })}
-        nowMs={now}
-      />,
+      <TransientCard stats={stats({ ...onTime, oldestExpiredMs: now - 40 * HOUR })} nowMs={now} />,
     );
-    const waiting = screen.getByTestId('sources-transient-purge-overdue');
-    expect(waiting).toHaveAttribute('data-cause', 'awaiting');
-    expect(waiting).toHaveTextContent(
-      SOURCES_TRANSIENT_PURGE_AWAITING('Sep 22, 10:30 PM', 3, 4),
-    );
-    expect(waiting.textContent).not.toMatch(/last ran .* — 3 hours ago\. /);
+    const stuck = screen.getByTestId('sources-transient-purge-overdue');
+    expect(stuck).toHaveAttribute('data-cause', 'stuck');
+    expect(stuck).toHaveTextContent(SOURCES_TRANSIENT_PURGE_STUCK('Sep 22, 10:30 PM', 3, 4, 40));
+    expect(stuck.textContent).not.toMatch(/last ran .* — 3 hours ago\. /);
+    expect(stuck.textContent).not.toContain('next daily purge');
     unmount();
 
     // Cause: the purge itself is late and nothing has expired yet — no "0 coordinates are past

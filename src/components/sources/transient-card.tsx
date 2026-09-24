@@ -25,10 +25,10 @@ import {
   SOURCES_TRANSIENT_NEVER_RUN,
   SOURCES_TRANSIENT_NONE_HELD,
   SOURCES_TRANSIENT_OLDEST,
-  SOURCES_TRANSIENT_PURGE_AWAITING,
   SOURCES_TRANSIENT_PURGE_COPY,
   SOURCES_TRANSIENT_PURGE_NEVER_RAN,
   SOURCES_TRANSIENT_PURGE_OVERDUE,
+  SOURCES_TRANSIENT_PURGE_STUCK,
   SOURCES_TRANSIENT_SUBTITLE,
   SOURCES_TRANSIENT_TITLE,
   TOAST_PURGE_COMMAND_COPIED,
@@ -258,12 +258,13 @@ export function TransientCard({ stats, nowMs }: { stats: TransientStats | null; 
 
 /** Why the overdue alert shows (C-WR-10) — the sentence is chosen by cause, never one template
  *  that contradicts itself ("last ran 3 hours ago" under a warning that means "late"). */
-type OverdueCause = 'stale' | 'awaiting' | 'never';
+type OverdueCause = 'stale' | 'stuck' | 'never';
 
 function overdueCauseOf(s: TransientStats, nowMs: number): OverdueCause {
   if (s.lastPurgeMs === null) return 'never';
-  // The same threshold `purgeOverdue` applies to the last purge's age.
-  return nowMs - s.lastPurgeMs > PURGE_OVERDUE_HOURS * HOUR_MS ? 'stale' : 'awaiting';
+  // The same threshold `purgeOverdue` applies to the last purge's age. Not stale, yet overdue,
+  // can only mean a row expired more than 36 h ago that an on-time purge left on disk.
+  return nowMs - s.lastPurgeMs > PURGE_OVERDUE_HOURS * HOUR_MS ? 'stale' : 'stuck';
 }
 
 const HOUR_MS = 3_600_000;
@@ -272,9 +273,14 @@ function overdueSentence(s: TransientStats, nowMs: number, cause: OverdueCause):
   if (s.lastPurgeMs !== null) {
     const date = lastPurgeLabel(s.lastPurgeMs);
     const hours = wholeHoursSince(s.lastPurgeMs, nowMs);
-    // The purge ran on time and rows expired since: normal for up to a day.
-    if (cause === 'awaiting') {
-      return SOURCES_TRANSIENT_PURGE_AWAITING(date, hours, s.expiredAwaitingPurge);
+    // The purge ran on time, and a row that expired over 36 h ago is still there.
+    if (cause === 'stuck') {
+      return SOURCES_TRANSIENT_PURGE_STUCK(
+        date,
+        hours,
+        s.expiredAwaitingPurge,
+        wholeHoursSince(s.oldestExpiredMs ?? nowMs, nowMs),
+      );
     }
     return SOURCES_TRANSIENT_PURGE_OVERDUE(date, hours, s.expiredAwaitingPurge);
   }

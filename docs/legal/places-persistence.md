@@ -202,7 +202,9 @@ Retention and access, plainly:
   the same file, "a coordinate cannot be kept past 30 days", proves the CHECK.
 - **No application code reads a coordinate row.** The app reaches this table only in two ways:
   - `app.places_transient_stats()` returns counts only (coordinates held, oldest age, expired
-    awaiting purge) for the `/sources` card.
+    awaiting purge) for the `/sources` card. Since drizzle/0031 it also returns when the
+    longest-waiting expired row expired (`min(expires_at)`, one instant). That is Siteless's
+    own retention clock, not Google content and not a coordinate.
   - The purge deletes rows.
 - **The daily purge DELETES expired rows.** It never deletes an observation.
   - It runs from Vercel Cron `/api/cron/purge-places` at `17 9 * * *` (09:17 UTC, `vercel.json`)

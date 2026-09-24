@@ -1955,16 +1955,25 @@ export function SOURCES_TRANSIENT_PURGE_OVERDUE(date: string, hours: number, cou
 }
 
 /**
- * C-WR-10: the purge ran ON TIME, and coordinates have expired since — coordinates expire
- * continuously while the purge runs once a day, so this is normal for up to a day. Said as what
- * it is, not as "last ran 3 hours ago" under a warning that means "late". `date` pre-formatted.
+ * C-WR-10 (drizzle/0031): the purge ran ON TIME, yet a coordinate that expired more than 36
+ * hours ago is still on disk — a purge since then should have removed it. (Rows that expired
+ * since the last purge are the normal state between daily purges and show no warning at all.)
+ * Said as what it is, not as "last ran 3 hours ago" under a warning that means "late", and
+ * never "the next purge removes them": one already didn't. `date` pre-formatted;
+ * `expiredHours` = how long the oldest expired row has waited.
  */
-export function SOURCES_TRANSIENT_PURGE_AWAITING(date: string, hours: number, count: number) {
+export function SOURCES_TRANSIENT_PURGE_STUCK(
+  date: string,
+  hours: number,
+  count: number,
+  expiredHours: number,
+) {
   return (
-    `${counted(count, 'coordinate has', 'coordinates have')} passed 30 days since the daily ` +
-    `purge last ran (${date}, ${counted(hours, 'hour', 'hours')} ago). The database already ` +
-    `refuses to read them, and the next daily purge removes them from disk. If this is still ` +
-    `here tomorrow, check the Vercel cron log for the purge job, or run it by hand at the desk.`
+    `${counted(count, 'coordinate is', 'coordinates are')} past 30 days and still on disk. ` +
+    `The oldest expired ${counted(expiredHours, 'hour', 'hours')} ago, but the daily purge ` +
+    `last ran ${date} (${counted(hours, 'hour', 'hours')} ago) and didn't remove it. The ` +
+    `database already refuses to read them. Run the purge by hand at the desk, and check the ` +
+    `Vercel cron log for the purge job.`
   );
 }
 

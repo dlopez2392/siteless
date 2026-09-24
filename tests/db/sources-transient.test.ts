@@ -128,9 +128,11 @@ describe('sources page read', () => {
          values ($1, now() - interval '3 days', 9, 'cron'), ($1, now() - interval '1 day', 5, 'desk')`,
         [a],
       );
-      const expected = await c.query<{ oldest: string; last: string }>(
+      const expected = await c.query<{ oldest: string; last: string; expired: string }>(
         `select (select floor(extract(epoch from observed_at) * 1000)::bigint::text
                    from place_coordinates where org_id = $1 and expires_at > now()) as oldest,
+                (select floor(extract(epoch from expires_at) * 1000)::bigint::text
+                   from place_coordinates where org_id = $1 and expires_at <= now()) as expired,
                 (select floor(extract(epoch from max(ran_at)) * 1000)::bigint::text
                    from place_purge_runs where org_id = $1) as last`,
         [a],
@@ -154,6 +156,8 @@ describe('sources page read', () => {
         coordinatesHeld: 1,
         oldestCoordinateMs: Number(expected.rows[0]!.oldest),
         expiredAwaitingPurge: 1,
+        // drizzle/0031 (C-WR-10): when the waiting row expired, as epoch ms.
+        oldestExpiredMs: Number(expected.rows[0]!.expired),
         lastPurgeMs: Number(expected.rows[0]!.last),
         lastRowsPurged: 5,
       });
@@ -168,6 +172,7 @@ describe('sources page read', () => {
         coordinatesHeld: 0,
         oldestCoordinateMs: null,
         expiredAwaitingPurge: 0,
+        oldestExpiredMs: null,
         lastPurgeMs: null,
         lastRowsPurged: null,
       });
