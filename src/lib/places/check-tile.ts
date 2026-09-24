@@ -97,6 +97,7 @@ export async function runCheckTile(
   });
   let req: PlacesRequest = first;
   const ids: string[] = [];
+  let pagesServed = 0;
 
   for (const page of [1, 2, 3] as const) {
     // a. Reserve. Every refusal is a returned value.
@@ -149,6 +150,7 @@ export async function runCheckTile(
     // d. A served page: settled at $0 (units 1) and the cursor cleared, then its ids kept.
     await settleOrRelease(ctx, r.call, { charged: true, searchId });
     for (const p of out.places) ids.push(p.id);
+    pagesServed = page;
 
     // e. The next page is page 1's request plus the token, never a rebuilt body (M49).
     if (!out.nextPageToken) break;
@@ -177,7 +179,7 @@ export async function runCheckTile(
 
     const hasBaseline =
       tile.last_checked_at !== null || tile.last_swept_run_id !== null || members.length > 0;
-    const d = diffTile(new Set(members), ids, { hasBaseline });
+    const d = diffTile(new Set(members), ids, { hasBaseline, pagesServed });
 
     await tx.execute(sql`
       select app.record_change_check(${searchId}::uuid, ${JSON.stringify(d.added)}::jsonb,

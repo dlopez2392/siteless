@@ -7,7 +7,8 @@
  * listing is `gone` — history, never a deletion.
  *
  * Precedence, in order:
- *   1. `saturated` — the listing hit the Text Search cap of 60, so it may be hiding more and
+ *   1. `saturated` — the listing hit the Text Search cap of 60 (or reached its third page,
+ *      B-WR-01), so it may be hiding more and
  *      the leaf needs a paid re-sweep and subdivision. That holds whatever the diff says and
  *      whether or not the tile was ever checked, so it wins over `baseline` too.
  *   2. `baseline` — never checked: nothing to diff against, every seen id is `added`.
@@ -21,16 +22,20 @@
 
 /** Text Search returns at most 60 results across its three pages. */
 export const IDS_ONLY_SATURATION = 60;
+/** Its three pages: a listing that reached page 3 hit the cap (B-WR-01). */
+export const IDS_ONLY_MAX_PAGES = 3;
 
 export type ChangeVerdict = 'baseline' | 'unchanged' | 'new' | 'gone' | 'both' | 'saturated';
 
 export function diffTile(
   stored: ReadonlySet<string>,
   seen: readonly string[],
-  opts: { hasBaseline: boolean },
+  opts: { hasBaseline: boolean; pagesServed?: number },
 ): { verdict: ChangeVerdict; added: string[]; gone: string[] } {
   const seenSet = new Set(seen);
-  const saturated = seen.length >= IDS_ONLY_SATURATION;
+  // B-WR-01: reaching the third page is the cap even when fewer than 60 ids came back.
+  const saturated =
+    seen.length >= IDS_ONLY_SATURATION || (opts.pagesServed ?? 0) >= IDS_ONLY_MAX_PAGES;
 
   if (!opts.hasBaseline) {
     const added = [...seenSet].sort();

@@ -258,6 +258,29 @@ describe('places-sweep workflow', () => {
     expect(events[0]!.after).toEqual({ status: 'complete', reason: null, calls: sent });
   });
 
+  it('a search capped short of 60 on its last page still subdivides', async () => {
+    // B-WR-01: strictTypeFiltering can drop places AFTER Google's 60-cap, so a capped search can
+    // serve 57 on page 3. Reaching page 3 is the cap; the tile must not close `done` as if it
+    // held everything (a silent partial — criterion 3).
+    const w = await world();
+    const shortP3 = {
+      places: (PLACES_PAGES.saturated[2]!.places as unknown[]).slice(0, 17),
+    };
+    setPlacesRoutes([
+      {
+        name: 'plumber-root-capped-short',
+        when: (b) => isType('plumber')(b) && isRoot(b),
+        pages: [PLACES_PAGES.saturated[0]!, PLACES_PAGES.saturated[1]!, shortP3],
+      },
+      SATURATED_ROUTES[1]!,
+      { name: 'other-types-empty', when: () => true, pages: PLACES_PAGES.empty },
+    ]);
+
+    expect(await sweep(w)).toEqual({ status: 'complete', reason: null });
+    const root = (await searchesOf(w.runId)).find((s) => s.tile_key === tileKey('plumber', 'r'));
+    expect(root).toMatchObject({ status: 'done', saturated: true, subdivided: true });
+  });
+
   it('a refused reservation ends the run partial', async () => {
     // A cap one micro-dollar short of one Enterprise page: the admission hold (1 µUSD, as
     // queueRun takes for a free estimate) fits, the first page never does.

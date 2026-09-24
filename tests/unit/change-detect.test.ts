@@ -103,6 +103,20 @@ describe('change detection', () => {
     expect(fiftyNine).toEqual({ verdict: 'gone', added: [], gone: ['z-old'] });
   });
 
+  it('a check that reached its last page is saturated even short of 60', () => {
+    // B-WR-01: page 3 was asked for because page 2 had a token — the listing hit the cap even if
+    // filtering or duplicates left fewer than 60 ids.
+    const seen = ids(57);
+    expect(diffTile(new Set(seen), seen, { hasBaseline: true, pagesServed: 3 })).toEqual({
+      verdict: 'saturated',
+      added: [],
+      gone: [],
+    });
+    expect(diffTile(new Set(ids(40)), ids(40), { hasBaseline: true, pagesServed: 2 }).verdict).toBe(
+      'unchanged',
+    );
+  });
+
   it('change detection: the inputs are not mutated', () => {
     const stored = new Set(['a', 'b']);
     const seen = ['c', 'a', 'c'];

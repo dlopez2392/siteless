@@ -15,6 +15,7 @@ import citiesJson from '@/seed/data/cities.json';
 import geoShapesJson from '@/seed/data/geo-shapes.json';
 import {
   MAX_DEPTH,
+  MAX_PAGES,
   MIN_TILE_SIDE_M,
   NOVELTY_MAX_OVERLAP,
   SATURATION_RESULTS,
@@ -123,6 +124,31 @@ describe('saturation', () => {
       polygonOf(BIG),
     );
     expect(next).toEqual({ action: 'done' });
+  });
+});
+
+describe('saturation by the last page (B-WR-01)', () => {
+  it('a capped search that comes back short on its last page is saturated', () => {
+    // Google caps what it RETRIEVES at 60; strictTypeFiltering (and duplicates) can then drop
+    // some, so a capped search can report 57 on page 3 with no further token. Page 3 was only
+    // asked for because page 2 carried a token: reaching it IS the cap.
+    expect(isSaturated(57, 3)).toBe(true);
+    expect(isSaturated(41, MAX_PAGES)).toBe(true);
+    const next = decideSubdivision(
+      specFor(BIG, 0),
+      { resultsCount: 57, pagesServed: 3, overlapWithParent: null },
+      polygonOf(BIG),
+    );
+    expect(next.action).toBe('subdivide');
+    // Two pages that ran out on their own are not saturation, however full.
+    expect(isSaturated(40, 2)).toBe(false);
+    expect(
+      decideSubdivision(
+        specFor(BIG, 0),
+        { resultsCount: 40, pagesServed: 2, overlapWithParent: null },
+        polygonOf(BIG),
+      ),
+    ).toEqual({ action: 'done' });
   });
 });
 

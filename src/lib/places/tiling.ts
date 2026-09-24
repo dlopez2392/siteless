@@ -131,8 +131,15 @@ export function tileKeyOf(
 
 // ─── Saturation ─────────────────────────────────────────────────────────────────────────────
 
-export function isSaturated(resultsCount: number): boolean {
-  return resultsCount === SATURATION_RESULTS;
+/**
+ * A search is saturated when it returned exactly the cap, OR when it reached its last page
+ * (B-WR-01). Google caps what it RETRIEVES at 60; `strictTypeFiltering` and duplicates can then
+ * drop some, so a capped search can serve 57 on page 3 with no further token. Page 3 is only ever
+ * requested because page 2 carried a token, so reaching it IS the cap — however many came back.
+ * (Two pages that ran out on their own are not saturation, however full.)
+ */
+export function isSaturated(resultsCount: number, pagesServed = 0): boolean {
+  return resultsCount === SATURATION_RESULTS || pagesServed >= MAX_PAGES;
 }
 
 // ─── Geometry ───────────────────────────────────────────────────────────────────────────────
@@ -310,10 +317,10 @@ export function rootSpec(a: {
  */
 export function decideSubdivision(
   spec: TileSpec,
-  obs: { resultsCount: number; overlapWithParent: number | null },
+  obs: { resultsCount: number; pagesServed?: number; overlapWithParent: number | null },
   shape: UnitShape,
 ): Next {
-  if (!isSaturated(obs.resultsCount)) return { action: 'done' };
+  if (!isSaturated(obs.resultsCount, obs.pagesServed)) return { action: 'done' };
   if (spec.depth >= MAX_DEPTH) return { action: 'truncate', why: 'max_depth' };
   const { heightM, widthM } = rectSidesM(spec.rect);
   if (Math.min(heightM, widthM) / 2 < MIN_TILE_SIDE_M) {

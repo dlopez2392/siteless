@@ -458,6 +458,7 @@ export async function runSearchTile(
   });
   let req: PlacesRequest = first;
   let total = 0;
+  let pagesServed = 0;
   const ids = new Set<string>();
 
   // 2. Up to MAX_PAGES pages, each reserve → call → derive → settle + write.
@@ -529,19 +530,21 @@ export async function runSearchTile(
       }),
     );
 
+    pagesServed = page;
     if (!nextPageToken) break;
     req = buildNextPage(first, nextPageToken);
   }
 
   // 3–5. Saturation, subdivision, and the search's final state — one transaction.
-  const saturated = isSaturated(total);
+  // B-WR-01: reaching page 3 is the cap, even short of 60.
+  const saturated = isSaturated(total, pagesServed);
   const shape = shapeFor(search.shape, deps.shapes);
   const next = await withWorkerOrg(input.clerkOrgId, actor, async (tx) => {
     const overlap =
       search.parentTileKey === null ? null : await overlapWithParent(tx, search.parentTileKey, ids);
     const decided = decideSubdivision(
       search,
-      { resultsCount: total, overlapWithParent: overlap },
+      { resultsCount: total, pagesServed, overlapWithParent: overlap },
       shape,
     );
     const planned: SearchedNext =
