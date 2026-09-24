@@ -24,7 +24,7 @@ import {
   nextSearch,
   type FailReason,
 } from './reducer';
-import { beginRun, checkTile, finishRun, searchTile } from './steps';
+import { abortRun, beginRun, checkTile, finishRun, searchTile, type BeginResult } from './steps';
 
 export type SweepOutcome = {
   status: 'complete' | 'partial' | 'failed' | 'not_runnable';
@@ -33,7 +33,15 @@ export type SweepOutcome = {
 
 export async function placesSweep(input: SweepInput): Promise<SweepOutcome> {
   'use workflow';
-  const plan = await beginRun(input);
+  let plan: BeginResult;
+  try {
+    plan = await beginRun(input);
+  } catch (e) {
+    // M46: a run this org cannot see is never touched — not even to close it.
+    if (failReasonOf(e) === 'places_request_rejected') throw e;
+    // B-WR-08: anything else left the run queued with its admission hold held.
+    return abortRun(input);
+  }
   if (plan.kind === 'not_runnable') return { status: 'not_runnable', reason: plan.reason };
 
   let state = initialQueue(plan.searches);

@@ -131,7 +131,11 @@ async function closeRun(
   runId: string,
   status: 'complete' | 'partial' | 'failed',
   reason: string | null,
+  opts: { alsoQueued?: boolean } = {},
 ): Promise<boolean> {
+  // `alsoQueued` is abortRun's alone: a beginRun that failed rolled its claim back, so the run
+  // it must close is still `queued`. Every other caller closes a RUNNING run only.
+  const closable = opts.alsoQueued === true ? sql`('queued', 'running')` : sql`('running')`;
   const closed = rowsOf<{ calls_count: number }>(
     await tx.execute(sql`
       update runs r
@@ -143,7 +147,7 @@ async function closeRun(
                                  from cost_ledger l
                                 where l.run_id = r.id)
        where r.id = ${runId}::uuid
-         and r.status = 'running'
+         and r.status in ${closable}
       returning r.calls_count`),
   );
   const row = closed[0];
@@ -305,6 +309,61 @@ export async function beginRun(input: SweepInput): Promise<BeginResult> {
       const specs = runKind === 'change_check' ? await storedLeaves(tx, roots) : roots;
       const searches = await planRunSearches(tx, input.runId, specs);
       return { kind: 'runnable', runKind, searches: searches.map(toWire) };
+    }),
+  );
+}
+
+/**
+ * Step 1b (B-WR-08). `beginRun` failed — its transaction rolled back, so the run is still
+ * `queued` (or `running`, if an earlier attempt had committed) and its admission hold is still
+ * held: the org's one active slot blocked until the 15-minute reclaim, which does not release the
+ * hold. This closes it the honest way: every hold of the run that no page attempt points at is
+ * RELEASED (never settled — nothing was sent, M53), each in its own savepoint so one refusal
+ * cannot keep the run open (a hold that will not release is left to the expiry self-heal), and
+ * the run ends `failed / never_started` with its one `places_run_finished` event.
+ *
+ * Runs under the same org as every other step: a run this org cannot see matches no row (RLS),
+ * so a foreign org can never close someone else's run through here. The workflow never calls it
+ * for the M46 refusal anyway.
+ */
+export async function abortRun(input: SweepInput): Promise<SweepOutcome> {
+  'use step';
+  return guarded(() =>
+    withWorkerOrg(input.clerkOrgId, actorOf(input), async (tx): Promise<SweepOutcome> => {
+      const run = rowsOf<{ status: string; stopped_reason: string | null }>(
+        await tx.execute(
+          sql`select status, stopped_reason from runs where id = ${input.runId}::uuid`,
+        ),
+      )[0];
+      if (!run) throw new FatalError('places_request_rejected');
+      if (run.status !== 'queued' && run.status !== 'running') {
+        const status =
+          run.status === 'complete' || run.status === 'partial' || run.status === 'failed'
+            ? run.status
+            : 'not_runnable';
+        return { status, reason: run.stopped_reason };
+      }
+
+      const holds = rowsOf<{ id: string }>(
+        await tx.execute(sql`
+          select c.id from cost_reservations c
+           where c.run_id = ${input.runId}::uuid
+             and c.settled_at is null and c.released_at is null
+             and not exists (select 1 from run_searches s
+                              where s.run_id = c.run_id and s.inflight_reservation_id = c.id)`),
+      );
+      for (const h of holds) {
+        try {
+          await tx.transaction(async (sp) => {
+            await sp.execute(sql`select app.release_reservation(${h.id}::uuid)`);
+          });
+        } catch {
+          // Rolled back to the savepoint; the expiry self-heal frees it.
+        }
+      }
+
+      await closeRun(tx, input.runId, 'failed', 'never_started', { alsoQueued: true });
+      return { status: 'failed', reason: 'never_started' };
     }),
   );
 }

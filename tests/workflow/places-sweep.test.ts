@@ -704,6 +704,47 @@ describe('places-sweep workflow', () => {
     expect(after[0]!.reserved).toBe('0');
   });
 
+  it('a beginRun failure closes the run and frees its admission hold', async () => {
+    // B-WR-08: beginRun ran outside the workflow's try. A fault in it left the run `queued` with
+    // its admission hold held — the org's one active slot blocked until the 15-minute reclaim,
+    // and the drawer's "nothing was reserved" untrue for that window. The fault here is real:
+    // a second, oversized hold on the run whose release drives `reserved_micro_usd` below zero
+    // (bp_non_negative, 23514 — deterministic, so fatal at once).
+    const w = await world({
+      capMicroUsd: 50_000_000,
+      extra: async (c, orgId, runId) => {
+        await c.query(
+          `insert into cost_reservations (org_id, budget_period_id, run_id, sku, est_micro_usd,
+                                          expires_at)
+           select $1, b.id, $2, 'ts_enterprise', 1000000000000, now() + interval '1 hour'
+             from budget_periods b where b.org_id = $1 and b.provider = 'places'`,
+          [orgId, runId],
+        );
+      },
+    });
+    setPlacesRoutes([{ name: 'all-empty', when: () => true, pages: PLACES_PAGES.empty }]);
+
+    const outcome = await sweep(w);
+    expect(outcome).toEqual({ status: 'failed', reason: 'never_started' });
+    expect(placesRequests).toHaveLength(0);
+    expect(await runRow(w.runId)).toMatchObject({
+      status: 'failed',
+      stopped_reason: 'never_started',
+      calls_count: 0,
+      finished: true,
+    });
+    // The admission hold is released (not settled); the poisoned one is left to the expiry
+    // self-heal rather than blocking the close.
+    const hold = await q<{ released: boolean; settled: boolean }>(
+      `select released_at is not null as released, settled_at is not null as settled
+         from cost_reservations where id = $1`,
+      [w.admissionReservationId],
+    );
+    expect(hold).toEqual([{ released: true, settled: false }]);
+    expect(await ledgerOf(w.runId)).toEqual([]);
+    expect(await finishedEventsOf(w.runId)).toHaveLength(1);
+  });
+
   it('a terminal status set by an operator is never overwritten', async () => {
     // T-4-03 / Pitfall 5: the kill lever for a run pinned to an old deployment is the row
     // itself. The operator fails the run while its first request is in flight.
