@@ -566,6 +566,27 @@ describe('app.record_places_page (D-05, D-06, D-08, D-10, PLACE-02)', () => {
       );
     }));
 
+  // A-WR-07. An Essentials (IDs-only) page carries no websiteUri, so every observation written
+  // from one would be a false had_website_uri=false in an append-only table. An enterprise
+  // search records ts_enterprise pages only. Positive control: every page() above is
+  // ts_enterprise and writes.
+  it('record_places_page refuses an essentials page on an enterprise search', () =>
+    withRollback(async (c) => {
+      const s = await setup(c);
+      await actAs(c, CLAIMS_A);
+      const record = toPageRecord({
+        page: 1,
+        sku: 'ts_essentials',
+        resultsSoFar: 1,
+        items: [listing('ChIJ-ortiz', [cand(s.spine.ortiz, 97)])],
+      });
+      const attempt = writePage(c, s.searchId, record);
+      await expect(attempt).rejects.toMatchObject({ code: '22023' });
+      await expect(attempt).rejects.toThrow(
+        /record_places_page: an enterprise search records ts_enterprise pages only/,
+      );
+    }));
+
   it('record_places_page refuses a place id that is not a place id', () =>
     withRollback(async (c) => {
       const s = await setup(c);
