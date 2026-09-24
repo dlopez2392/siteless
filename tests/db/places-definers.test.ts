@@ -490,6 +490,29 @@ describe('app.purge_expired_place_coordinates (D-12, M38, M39, T-4-07)', () => {
   it('the purge removes expired coordinates and keeps the observation', () =>
     withRollback(async (c) => {
       const { a, b, expiredA, freshA, expiredB } = await seedPurgeWorld(c);
+      // 🔴 A-WR-13. The purge is cross-org and the lane shares ONE database: any other org's
+      // expired coordinate — a local D-04 recording, an interrupted workflow-lane test that
+      // skipped its teardown — is purged too. This third org stands in for that data, inside
+      // the rolled-back transaction, so an assertion over "every org other than a and b"
+      // fails here, on the code, instead of 30 days after somebody's committed run.
+      const other = await c.query<{ id: string }>(
+        `insert into orgs (clerk_org_id, name_internal, display_name)
+         values ('org_purge_bystander', 'Bystander (test)', 'Bystander') returning id`,
+      );
+      const otherOrg = other.rows[0]!.id;
+      const spineOther = await seedPlacesSpine(c, otherOrg);
+      const runOther = await seedPlacesRun(c, otherOrg);
+      await seedAttachmentWithObservation(c, {
+        orgId: otherOrg,
+        businessId: spineOther.ortiz,
+        placeId: 'synthetic-place-bystander-expired',
+        runId: runOther.runId,
+        status: 'attached',
+        hadWebsiteUri: false,
+        hostClass: 'none',
+        observedAt: new Date(Date.now() - 31 * DAY_MS),
+        withCoordinates: true,
+      });
       const obsBefore = await c.query<{ n: string }>(
         'select count(*)::text as n from place_observations where org_id = any($1::uuid[])',
         [[a, b]],
@@ -508,11 +531,10 @@ describe('app.purge_expired_place_coordinates (D-12, M38, M39, T-4-07)', () => {
       const byOrg = new Map(r.rows.map((row) => [row.purged_org, row.purged_rows]));
       expect(byOrg.get(a)).toBe(1);
       expect(byOrg.get(b)).toBe(1);
-      // One row per org, zero-count included.
+      // One row per org, zero-count included. Only the orgs this test seeded are asserted by
+      // count: what any OTHER org held is not this test's to know (A-WR-13).
       expect(r.rows).toHaveLength(orgCount.rows[0]!.n);
-      for (const row of r.rows) {
-        if (row.purged_org !== a && row.purged_org !== b) expect(row.purged_rows).toBe(0);
-      }
+      expect(byOrg.get(otherOrg)).toBe(1);
 
       const left = await c.query<{ id: string }>(
         'select id from place_coordinates where id = any($1::uuid[]) order by id',
