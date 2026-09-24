@@ -365,6 +365,54 @@ describe('app.record_places_page (D-05, D-06, D-08, D-10, PLACE-02)', () => {
       expect(await membersOf(c, s.tileId, 'ChIJ-ortiz')).toBe(1);
     }));
 
+  // A-WR-01. The scorer's cluster feature compares the business's cluster with the SEARCH's,
+  // so one (business, place) pair scores differently in two clusters' searches. The upsert
+  // must never let the lower one downgrade an auto-attached listing: the status would depend
+  // on step order, each flip would write an events row, and the listing would leave
+  // business_place_signal (a false "no website" if it was the one with a site).
+  for (const order of ['attached first', 'tentative first'] as const) {
+    it(`the same place seen by two cluster searches ends attached (${order})`, () =>
+      withRollback(async (c) => {
+        const s = await setup(c);
+        const other = await seedRunSearch(c, s.a, s.runId, {
+          tileKey: 'city:48215/McAllen|car_repair|r',
+          placesType: 'car_repair',
+          clusterKey: 'auto_retail',
+        });
+        await actAs(c, CLAIMS_A);
+        const hi = page(1, [listing('ChIJ-ortiz', [cand(s.spine.ortiz, 96)], { host: 'social' })]);
+        const lo = page(1, [listing('ChIJ-ortiz', [cand(s.spine.ortiz, 91)], { host: 'social' })]);
+        if (order === 'attached first') {
+          await writePage(c, s.searchId, hi);
+          await writePage(c, other.runSearchId, lo);
+        } else {
+          await writePage(c, other.runSearchId, lo);
+          await writePage(c, s.searchId, hi);
+        }
+
+        const att = await attachments(c, s.a, 'ChIJ-ortiz');
+        expect(att).toEqual([
+          expect.objectContaining({ status: 'attached', reason: 'score', score: 96 }),
+        ]);
+        // Still a verdict input, whichever search wrote last.
+        const sig = await c.query<{ business_id: string }>(
+          'select business_id from business_place_signal where business_id = $1',
+          [s.spine.ortiz],
+        );
+        expect(sig.rows).toEqual([{ business_id: s.spine.ortiz }]);
+        await actAsOwner(c);
+        // No attached → tentative flip was written: at most the one upgrade.
+        const ev = await c.query<{ before: string; after: string }>(
+          `select before->>'status' as before, after->>'status' as after from events
+            where entity_type = 'place_attachments' and entity_id = $1 order by id`,
+          [att[0]!.id],
+        );
+        expect(ev.rows).toEqual(
+          order === 'attached first' ? [] : [{ before: 'tentative', after: 'attached' }],
+        );
+      }));
+  }
+
   it('a confirmed attachment is not re-scored by a later run', () =>
     withRollback(async (c) => {
       const s = await setup(c);

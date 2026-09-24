@@ -92,6 +92,11 @@ comment on function app.places_features_ok(jsonb) is
 --   * A-WR-07 — an enterprise search records ts_enterprise pages only. An Essentials (IDs-only)
 --     page carries no websiteUri, so every observation written from one would be a false
 --     had_website_uri = false in an append-only table (D-10). 22023.
+--   * A-WR-01 — the attachment upsert never downgrades an auto-attached listing to tentative.
+--     The scorer's cluster feature compares the business's cluster with the SEARCH's, so one
+--     pair scores differently in two clusters' searches; last-writer-wins made the status
+--     depend on step order, wrote an events row per flip and dropped the listing from
+--     business_place_signal. Rejected and confirmed rows stay sticky exactly as before (M40).
 create or replace function app.record_places_page(p_search uuid, p_record jsonb)
 returns jsonb language plpgsql security definer set search_path = public, pg_temp as $$
 declare
@@ -231,9 +236,29 @@ begin
                                        last_seen_run_id)
              values (v_org, v_biz, v_place, v_status, v_reason, v_score, m->'features', v_tie,
                      v_run, v_run)
+        -- A-WR-01. NEVER A DOWNGRADE. An auto-attached row (status attached, reason score) keeps
+        -- its status, reason, score, features and tie pointer when a later match of the same
+        -- pair comes in tentative — e.g. the same place found by another cluster's search,
+        -- which scores the cluster feature against a different cluster. Only a human moves an
+        -- attached row down (decide_place_attachment 'detach'). Every other case takes the new
+        -- match as one unit, so status, reason, score, features and tie never disagree.
         on conflict (org_id, business_id, place_id) do update
-               set status = excluded.status, reason = excluded.reason, score = excluded.score,
-                   features = excluded.features, tie_business_id = excluded.tie_business_id,
+               set status = case when place_attachments.status = 'attached'
+                                  and excluded.status <> 'attached'
+                                 then place_attachments.status else excluded.status end,
+                   reason = case when place_attachments.status = 'attached'
+                                  and excluded.status <> 'attached'
+                                 then place_attachments.reason else excluded.reason end,
+                   score = case when place_attachments.status = 'attached'
+                                 and excluded.status <> 'attached'
+                                then place_attachments.score else excluded.score end,
+                   features = case when place_attachments.status = 'attached'
+                                    and excluded.status <> 'attached'
+                                   then place_attachments.features else excluded.features end,
+                   tie_business_id = case when place_attachments.status = 'attached'
+                                           and excluded.status <> 'attached'
+                                          then place_attachments.tie_business_id
+                                          else excluded.tie_business_id end,
                    last_seen_run_id = excluded.last_seen_run_id
              where place_attachments.status <> 'rejected' and place_attachments.reason <> 'confirmed'
         returning place_attachments.id, place_attachments.status into v_att, v_final;
