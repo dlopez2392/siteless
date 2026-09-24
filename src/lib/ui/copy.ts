@@ -1717,7 +1717,10 @@ export function REVIEW_GOOGLE_REASON_SCORE(score: number) {
 export function REVIEW_GOOGLE_REASON_TIE(score: number, other: string, otherScore: number) {
   return (
     `Tentative — this listing scored ${score} against two businesses: this one and “${other}” ` +
-    `(${otherScore}). Siteless never picks between them on its own.`
+    `(${otherScore}). Siteless never picks between them on its own. ` +
+    // 0030 (slice A): confirming one side of a tie REJECTS the other — said BEFORE the tap,
+    // because "Same business" deliberately asks for no confirmation (Rule 23).
+    `Confirming it for this business also records it as not “${other}”, for good.`
   );
 }
 
@@ -2097,6 +2100,12 @@ export function SECOND_WALL_SET_BODY(date: string, i: SecondWallInputs) {
 
 export function TOAST_ATTACHED(name: string) {
   return `Attached to “${name}”`;
+}
+
+/** A confirmed TIE side (0030): the other side was rejected by the same write, and it leaves
+ *  the queue too — the toast says so, so two items vanishing is never a surprise. */
+export function TOAST_ATTACHED_TIE(name: string, other: string) {
+  return `Attached to “${name}” — recorded as not “${other}”`;
 }
 
 export function TOAST_REJECTED(name: string) {

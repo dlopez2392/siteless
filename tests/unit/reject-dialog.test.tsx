@@ -38,6 +38,7 @@ import {
   REVIEW_GOOGLE_HELPER_NOT_THIS,
   REVIEW_GOOGLE_HELPER_SKIP,
   TOAST_ATTACHED,
+  TOAST_ATTACHED_TIE,
   TOAST_REJECTED,
 } from '@/lib/ui/copy';
 import { recordListingDecision } from '@/server/actions/record-listing-decision';
@@ -115,6 +116,35 @@ function renderGoogleBar() {
 }
 
 describe('google listing actions', () => {
+  it('confirming a tie side says the other side was recorded as not it (0030)', async () => {
+    render(
+      <ReviewActions
+        kind="google"
+        attachmentId={ATTACHMENT}
+        businessName={NAME}
+        skipHref={SKIP_HREF}
+        tieOtherName="Valley Lock Co"
+      />,
+    );
+    action.mockResolvedValueOnce(RECORDED);
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('review-action-same'));
+    });
+    expect(action).toHaveBeenCalledWith({ attachmentId: ATTACHMENT, decision: 'attached' });
+    expect(toastFn).toHaveBeenCalledWith(TOAST_ATTACHED_TIE(NAME, 'Valley Lock Co'));
+    expect(refresh).toHaveBeenCalledTimes(1);
+    cleanup();
+
+    // Not a tie: the plain toast.
+    toastFn.mockReset();
+    renderGoogleBar();
+    action.mockResolvedValueOnce(RECORDED);
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('review-action-same'));
+    });
+    expect(toastFn).toHaveBeenCalledWith(TOAST_ATTACHED(NAME));
+  });
+
   it('the reject trigger calls no server action until confirm', async () => {
     renderGoogleBar();
     fireEvent.click(screen.getByTestId('review-action-not-this'));

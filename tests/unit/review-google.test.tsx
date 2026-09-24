@@ -205,6 +205,8 @@ describe('google listing card', () => {
     expect(reason).toHaveAttribute('data-reason', 'tie');
     // The whole sentence is the copy module's, word for word.
     expect(reason.textContent).toBe(REVIEW_GOOGLE_REASON_TIE(97, 'Valley Lock Co', 96));
+    // 0030: confirming this side rejects the other, for good — said before the (unconfirmed) tap.
+    expect(reason.textContent).toContain('also records it as not “Valley Lock Co”, for good.');
     const link = within(reason).getByRole('link', { name: 'Valley Lock Co' });
     expect(link).toHaveAttribute('href', `/businesses/${TIE_BUSINESS}`);
     // An in-app link: no new tab.

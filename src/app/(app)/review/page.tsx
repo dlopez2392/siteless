@@ -133,6 +133,7 @@ async function ReviewRegion({ kind, skipped }: { kind: ReviewKind; skipped: read
             attachmentId={top.attachmentId}
             businessName={top.business.displayName}
             skipHref={reviewHref(kind, withSkipped(skipped, top.attachmentId))}
+            tieOtherName={top.reason === 'tie' ? (top.tie?.displayName ?? null) : null}
           />
         </ThumbBar>
       ) : top ? (
