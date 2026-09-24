@@ -97,6 +97,9 @@ comment on function app.places_features_ok(jsonb) is
 --     pair scores differently in two clusters' searches; last-writer-wins made the status
 --     depend on step order, wrote an events row per flip and dropped the listing from
 --     business_place_signal. Rejected and confirmed rows stay sticky exactly as before (M40).
+--   * A-WR-03 (3) — a tie is always tentative and always names its other business, and a score
+--     match never names one (D-08). 0029 validated status and reason independently, so
+--     (attached, tie) was accepted. 22023.
 create or replace function app.record_places_page(p_search uuid, p_record jsonb)
 returns jsonb language plpgsql security definer set search_path = public, pg_temp as $$
 declare
@@ -201,6 +204,16 @@ begin
         end if;
         if v_reason is null or v_reason not in ('score', 'tie') then
           raise exception 'record_places_page: match reason must be score or tie'
+            using errcode = '22023';
+        end if;
+        -- A-WR-03 (3). D-08: a tie is always tentative and always names its other business;
+        -- a score match never carries a tie pointer. Status and reason are no longer
+        -- validated independently.
+        if v_reason = 'tie' and v_status <> 'tentative' then
+          raise exception 'record_places_page: a tie is always tentative' using errcode = '22023';
+        end if;
+        if (v_reason = 'tie') <> coalesce(jsonb_typeof(m->'tieBusinessId') = 'string', false) then
+          raise exception 'record_places_page: a tie names its other business, and only a tie does'
             using errcode = '22023';
         end if;
         v_score := (m->>'score')::int;
@@ -336,4 +349,115 @@ revoke execute on function app.record_places_page(uuid, jsonb) from public, anon
 --> statement-breakpoint
 
 grant execute on function app.record_places_page(uuid, jsonb) to authenticated;
+--> statement-breakpoint
+
+-- ===========================================================================
+-- 3. A-WR-03 — app.decide_place_attachment decides a tie as a PAIR.
+-- ===========================================================================
+--
+-- D-08: a tie is decided, not duplicated. In 0029, confirming one side of a tie moved only that
+-- row; the other side stayed tentative/tie in /review ("ties with <the business just
+-- confirmed>"), a second reviewer could confirm it too, and one place_id was then attached to
+-- two businesses — business_place_signal attributing that listing's website to both.
+--
+-- Now, when the row being confirmed is a tentative tie, its other side — the row for the SAME
+-- place and the business its tie_business_id names, re-read under this org — is:
+--   * rejected (reason 'rejected', decided_by the same reviewer) in the same statement when it
+--     is tentative or auto-attached (reason score/tie): a later run may have matched the place
+--     to that side alone and rewritten it to attached/score while this row still names it
+--     (A-WR-03 part 2 — the stale pointer is resolved here, at the human decision);
+--   * a 55000 'already decided' refusal when a human already CONFIRMED it: the tie was decided
+--     the other way, and confirming this side would attach the place twice;
+--   * left alone when it is already rejected or does not exist.
+-- Both rows are locked (for update) before either is judged, so two reviewers confirming the
+-- two sides at once serialise and the second is refused.
+--
+-- reject and detach are unchanged: rejecting one side leaves the other for its own decision.
+-- The return value is still the ONE row the caller decided. The rejection of the other side
+-- writes its own events row through the status-change trigger.
+create or replace function app.decide_place_attachment(p_attachment uuid, p_decision text)
+returns table (business_id uuid, place_id text, status text)
+language plpgsql security definer set search_path = public, pg_temp as $$
+#variable_conflict use_column
+declare v_org uuid; v_actor text; v_id uuid; v_place text; v_status text; v_reason text;
+        v_tie uuid; v_other uuid; v_other_status text; v_other_reason text;
+begin
+  v_org := app.current_org_id();
+  if v_org is null then
+    raise exception 'decide_place_attachment: no current org' using errcode = '42501';
+  end if;
+  v_actor := coalesce(app.jwt()->>'sub', current_setting('app.actor_id', true), 'system');
+
+  if p_decision is null or p_decision not in ('confirm', 'reject', 'detach') then
+    raise exception 'decide_place_attachment: decision must be confirm, reject or detach'
+      using errcode = '22023';
+  end if;
+
+  select a.id, a.place_id, a.status, a.reason, a.tie_business_id
+    into v_id, v_place, v_status, v_reason, v_tie
+    from place_attachments a
+   where a.id = p_attachment and a.org_id = v_org
+     for update of a;
+  if not found then
+    raise exception 'decide_place_attachment: attachment belongs to another org or does not exist'
+      using errcode = '42501';
+  end if;
+
+  if p_decision = 'confirm' then
+    v_other := null;
+    if v_status = 'tentative' and v_reason = 'tie' and v_tie is not null then
+      select o.id, o.status, o.reason into v_other, v_other_status, v_other_reason
+        from place_attachments o
+       where o.org_id = v_org and o.place_id = v_place and o.business_id = v_tie
+         for update of o;
+      if found and v_other_status = 'attached' and v_other_reason = 'confirmed' then
+        raise exception 'decide_place_attachment: already decided' using errcode = '55000';
+      end if;
+    end if;
+
+    return query
+      update place_attachments a
+         set status = 'attached', reason = 'confirmed', decided_by = v_actor, decided_at = now()
+       where a.id = v_id and a.org_id = v_org and a.status = 'tentative'
+      returning a.business_id, a.place_id, a.status;
+    if not found then
+      raise exception 'decide_place_attachment: already decided' using errcode = '55000';
+    end if;
+
+    if v_other is not null and v_other_status <> 'rejected' then
+      update place_attachments o
+         set status = 'rejected', reason = 'rejected', decided_by = v_actor, decided_at = now()
+       where o.id = v_other and o.org_id = v_org
+         and o.status <> 'rejected' and o.reason <> 'confirmed';
+    end if;
+  elsif p_decision = 'reject' then
+    return query
+      update place_attachments a
+         set status = 'rejected', reason = 'rejected', decided_by = v_actor, decided_at = now()
+       where a.id = v_id and a.org_id = v_org and a.status = 'tentative'
+      returning a.business_id, a.place_id, a.status;
+    if not found then
+      raise exception 'decide_place_attachment: already decided' using errcode = '55000';
+    end if;
+  else
+    return query
+      update place_attachments a
+         set status = 'rejected', reason = 'detached', decided_by = v_actor, decided_at = now()
+       where a.id = v_id and a.org_id = v_org and a.status = 'attached'
+      returning a.business_id, a.place_id, a.status;
+    if not found then
+      raise exception 'decide_place_attachment: already decided' using errcode = '55000';
+    end if;
+  end if;
+end $$;
+--> statement-breakpoint
+
+revoke execute on function app.decide_place_attachment(uuid, text) from public, anon, service_role;
+--> statement-breakpoint
+
+grant execute on function app.decide_place_attachment(uuid, text) to authenticated;
+--> statement-breakpoint
+
+comment on function app.decide_place_attachment(uuid, text) is
+  'D-05 / D-08 / A-WR-03. A reviewer''s listing decision: confirm (tentative -> attached/confirmed), reject (tentative -> rejected/rejected) or detach (attached -> rejected/detached), decided_by from the claims. Confirming one side of a tentative tie rejects the other side''s row for the same place in the same statement (55000 when a human already confirmed that side). Pending-only: a listing not in the from-state is 55000 already decided. 22023 unknown decision, 42501 foreign-or-missing attachment. Returns the one row decided; each status change writes one events row.';
 --> statement-breakpoint

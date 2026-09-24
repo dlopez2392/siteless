@@ -461,6 +461,37 @@ describe('app.record_places_page (D-05, D-06, D-08, D-10, PLACE-02)', () => {
       expect(await outcomeOf(c, s.runId, 'ChIJ-rio')).toBe('tentative');
     }));
 
+  // A-WR-03 (3). D-08: a tie is always tentative, and a tie always names its other business.
+  // The writer validated status and reason independently, so (attached, tie) was accepted.
+  // Positive control: "a tie writes two tentative rows naming each other".
+  it('a tie cannot be recorded as attached', () =>
+    withRollback(async (c) => {
+      const s = await setup(c);
+      await actAs(c, CLAIMS_A);
+      const record = page(1, [
+        listing('ChIJ-rio', [cand(s.spine.rio, 97), cand(s.spine.rioCo, 96)]),
+      ]);
+      (record.places[0]!.matches[0] as { status: string }).status = 'attached';
+      const attempt = writePage(c, s.searchId, record);
+      await expect(attempt).rejects.toMatchObject({ code: '22023' });
+      await expect(attempt).rejects.toThrow(/record_places_page: a tie is always tentative/);
+    }));
+
+  it('a tie must name its other business, and only a tie may', () =>
+    withRollback(async (c) => {
+      const s = await setup(c);
+      await actAs(c, CLAIMS_A);
+      const record = page(1, [listing('ChIJ-ortiz', [cand(s.spine.ortiz, 97)])]);
+      // A score match carrying a tie pointer: the pair would render "ties with …" for a
+      // listing that never tied.
+      record.places[0]!.matches[0]!.tieBusinessId = s.spine.garza;
+      const attempt = writePage(c, s.searchId, record);
+      await expect(attempt).rejects.toMatchObject({ code: '22023' });
+      await expect(attempt).rejects.toThrow(
+        /record_places_page: a tie names its other business, and only a tie does/,
+      );
+    }));
+
   it('a tentative match is observed but not a signal', () =>
     withRollback(async (c) => {
       const s = await setup(c);
@@ -910,6 +941,87 @@ describe('app.decide_place_attachment (D-05)', () => {
         decided_by: 'user_reviewer_A',
         decided: true,
       });
+    }));
+
+  // A-WR-03 (1, 2). D-08: a tie is DECIDED, not duplicated. Confirming one side rejects the
+  // other side's row for the same place in the same statement, so the place is never attached
+  // to two businesses and the other side leaves /review.
+  it('confirming one side of a tie rejects the other side', () =>
+    withRollback(async (c) => {
+      const s = await setup(c);
+      await actAs(c, CLAIMS_A);
+      await writePage(
+        c,
+        s.searchId,
+        page(1, [listing('ChIJ-rio', [cand(s.spine.rio, 97), cand(s.spine.rioCo, 96)])]),
+      );
+      const before = await attachments(c, s.a, 'ChIJ-rio');
+      const rio = before.find((r) => r.business_id === s.spine.rio)!;
+      const rioCo = before.find((r) => r.business_id === s.spine.rioCo)!;
+
+      // Only the confirmed row is returned: the caller's contract is unchanged.
+      expect(await decideAs(c, rio.id, 'confirm')).toEqual([
+        { business_id: s.spine.rio, place_id: 'ChIJ-rio', status: 'attached' },
+      ]);
+      expect(await row(c, rio.id)).toEqual({
+        status: 'attached',
+        reason: 'confirmed',
+        decided_by: 'user_reviewer_A',
+        decided: true,
+      });
+      expect(await row(c, rioCo.id)).toEqual({
+        status: 'rejected',
+        reason: 'rejected',
+        decided_by: 'user_reviewer_A',
+        decided: true,
+      });
+      // One business carries the place as a verdict input, never two.
+      const sig = await c.query<{ business_id: string }>(
+        'select business_id from business_place_signal where business_id = any($1::uuid[])',
+        [[s.spine.rio, s.spine.rioCo]],
+      );
+      expect(sig.rows).toEqual([{ business_id: s.spine.rio }]);
+    }));
+
+  it('confirming a tie rejects an other side a later run auto-attached', () =>
+    withRollback(async (c) => {
+      const s = await setup(c);
+      // A later run matched the place to rioCo alone (≥95): its row became attached/score while
+      // rio's row still names it as a tie (A-WR-03 part 2).
+      const rioId = await seedAttachment(c, s.a, s.spine.rio, 'ChIJ-rio', 'tentative', 'tie', 97);
+      await c.query('update place_attachments set tie_business_id = $1 where id = $2', [
+        s.spine.rioCo,
+        rioId,
+      ]);
+      const rioCoId = await seedAttachment(
+        c,
+        s.a,
+        s.spine.rioCo,
+        'ChIJ-rio',
+        'attached',
+        'score',
+        96,
+      );
+      await actAs(c, CLAIMS_A);
+      await decideAs(c, rioId, 'confirm');
+      expect(await row(c, rioCoId)).toMatchObject({ status: 'rejected', reason: 'rejected' });
+    }));
+
+  it('confirming a tie whose other side a human confirmed is refused', () =>
+    withRollback(async (c) => {
+      const s = await setup(c);
+      const rioId = await seedAttachment(c, s.a, s.spine.rio, 'ChIJ-rio', 'tentative', 'tie', 97);
+      await c.query('update place_attachments set tie_business_id = $1 where id = $2', [
+        s.spine.rioCo,
+        rioId,
+      ]);
+      await seedAttachment(c, s.a, s.spine.rioCo, 'ChIJ-rio', 'attached', 'confirmed', 96);
+      await actAs(c, CLAIMS_A);
+      // The tie was decided the other way; confirming this side would attach one place to two
+      // businesses. Positive control: "confirming one side of a tie rejects the other side".
+      const attempt = decideAs(c, rioId, 'confirm');
+      await expect(attempt).rejects.toMatchObject({ code: '55000' });
+      await expect(attempt).rejects.toThrow(/decide_place_attachment: already decided/);
     }));
 
   it('decide_place_attachment rejects a tentative listing', () =>
