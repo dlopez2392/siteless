@@ -457,7 +457,10 @@ describe('preset recent runs (04-UI-SPEC § Screen 2)', () => {
     const partial = screen.getByTestId(`preset-run-row-${RUN(3)}`);
     expect(partial).toHaveTextContent('$2.31');
     expect(partial).toHaveTextContent(STOPPED_REASON.budget_cap_reached);
-    expect(partial).toHaveTextContent(RUN_KIND_LABEL.partition);
+    // C-WR-06: a past partition names its ISO week (Mon Sep 21, 2026 is week 39), never "This
+    // week's partition" — that phrase belongs to the action row only.
+    expect(partial).toHaveTextContent('Weekly partition · week 39');
+    expect(card).not.toHaveTextContent(RUN_KIND_LABEL.partition);
     // A machine key never renders (Rule 35); a refused run carries no stopped sentence.
     expect(card).not.toHaveTextContent('budget_cap_reached');
     expect(screen.getByTestId(`preset-run-row-${RUN(5)}`)).not.toHaveTextContent(

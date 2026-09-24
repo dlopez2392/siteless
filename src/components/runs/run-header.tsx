@@ -17,7 +17,7 @@ import {
   RUN_SUMMARY_REFUSED,
   RUN_SUMMARY_RUNNING,
 } from '@/lib/ui/copy';
-import { RUN_KIND_LABEL } from '@/lib/ui/run-tone';
+import { runKindLabelOf } from '@/lib/ui/run-tone';
 import type { RunReport } from '@/server/queries/run-report';
 
 /**
@@ -141,7 +141,8 @@ export function RunHeader({
             data-kind={run.kind}
             className="text-sm font-normal text-muted-foreground tabular-nums"
           >
-            {RUN_KIND_LABEL[run.kind]}
+            {/* C-WR-06: a past partition names its week, never "This week's partition". */}
+            {runKindLabelOf(run.kind, run.startedMs ?? run.createdMs)}
             {run.startedMs !== null
               ? ` · ${RUN_REPORT_STARTED(runInstantLabel(run.startedMs))}`
               : ''}

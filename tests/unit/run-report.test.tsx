@@ -456,7 +456,10 @@ describe('run report — header and alerts (04-23 Task 2)', () => {
     renderReport(reportOf({ run: { kind: 'partition', partitionIndex: 2 } }));
     const kind = screen.getByTestId('run-kind');
     expect(kind).toHaveAttribute('data-kind', 'partition');
-    expect(kind.textContent).toBe("This week's partition · started Sep 23, 2:14 PM");
+    // C-WR-06: a run that happened is never "This week's partition" — it names its ISO week
+    // (Sep 23, 2026 is week 39 in Chicago).
+    expect(kind.textContent).toBe('Weekly partition · week 39 · started Sep 23, 2:14 PM');
+    expect(kind.textContent).not.toContain("This week's");
     expect(kind.getAttribute('data-slot')).not.toBe('badge');
     expect(screen.getByTestId('run-status-badge')).toHaveAttribute('data-status', 'complete');
   });

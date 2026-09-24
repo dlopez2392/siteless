@@ -905,6 +905,17 @@ export const PLACES_ACTION = {
   showGoogle: 'Show Google listings',
 } as const;
 
+/**
+ * C-WR-06: a partition run that HAPPENED (report header, recent runs, `/spend`). "This week's
+ * partition" stays the preset page's action-row title only — on a past run it is false.
+ */
+export const RUN_KIND_PARTITION_PAST = 'Weekly partition';
+
+/** "Weekly partition · week 36" — the ISO week (APP_TZ) the run started in. */
+export function RUN_KIND_PARTITION_WEEK(isoWeek: number) {
+  return `${RUN_KIND_PARTITION_PAST} · week ${isoWeek}`;
+}
+
 /** "Open {preset name}" — the way out of a failed, never-started or abandoned run. */
 export function RUN_OPEN_PRESET(presetName: string) {
   return `Open ${presetName}`;
