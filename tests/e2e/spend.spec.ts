@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 
 /**
  * BUDG-04 / D-14, end to end: the spend view reads the meter and the ledger, and it never
@@ -55,9 +55,29 @@ test('spend: month-to-date, the gauge and all three providers render', async ({ 
   }
 });
 
+/**
+ * 🔴 C-WR-11: THE BY-RUN TAB RENDERS ON CLICK. Radix Tabs mounts the inactive panel's content
+ * on activation, so a `.count()` taken straight after the click can run before the panel paints
+ * — the first test below then saw 0 rows and 0 empty states (a flake), and the second skipped
+ * green on a deployment that HAS runs. Wait for exactly one of the three containers first, the
+ * same anchor `budget-banner.spec.ts` waits on. Returns whether the tab says "no runs".
+ */
+async function openByRun(page: Page): Promise<{ empty: boolean }> {
+  await page.getByTestId('spend-tab-by-run').click();
+  const anchor = page.locator(
+    [
+      '[data-testid="spend-by-run-empty"]:visible',
+      '[data-testid="spend-by-run-table"]:visible',
+      '[data-testid="spend-by-run-cards"]:visible',
+    ].join(', '),
+  );
+  await expect(anchor).toHaveCount(1);
+  return { empty: (await anchor.getAttribute('data-testid')) === 'spend-by-run-empty' };
+}
+
 test('spend: the by-run tab reports its own state', async ({ page }) => {
   await page.goto(SPEND);
-  await page.getByTestId('spend-tab-by-run').click();
+  await openByRun(page);
 
   const empty = page.getByTestId('spend-by-run-empty');
   const rows = page.locator('[data-testid="spend-run-row"]');
@@ -98,14 +118,18 @@ test('spend: the by-run tab reports its own state', async ({ page }) => {
  */
 test('spend: every listed run links to its report', async ({ page }) => {
   await page.goto(SPEND);
-  await page.getByTestId('spend-tab-by-run').click();
+  // C-WR-11: the skip is decided by the PAINTED tab, never by a count taken before it paints.
+  const { empty } = await openByRun(page);
+  test.skip(
+    empty,
+    'no runs exist on this deployment yet — this spec never creates one (UI-SPEC Rule 39)',
+  );
 
   const links = page.locator('[data-testid^="spend-run-link-"]');
   const count = await links.count();
-  test.skip(
-    count === 0,
-    'no runs exist on this deployment yet — this spec never creates one (UI-SPEC Rule 39)',
-  );
+  // The tab painted runs, so there are links to check — zero here is a failure, not a skip.
+  expect(count, 'the by-run tab showed runs but no run links').toBeGreaterThan(0);
+  await expect(page.locator('[data-testid^="spend-run-link-"]:visible').first()).toBeVisible();
 
   for (let i = 0; i < count; i += 1) {
     const link = links.nth(i);
