@@ -24,7 +24,7 @@ import {
   nextSearch,
   type FailReason,
 } from './reducer';
-import { beginRun, checkTile, finishRun, searchTile } from './steps';
+import { abortRun, beginRun, checkTile, finishRun, searchTile, type BeginResult } from './steps';
 
 export type SweepOutcome = {
   status: 'complete' | 'partial' | 'failed' | 'not_runnable';
@@ -33,12 +33,23 @@ export type SweepOutcome = {
 
 export async function placesSweep(input: SweepInput): Promise<SweepOutcome> {
   'use workflow';
-  const plan = await beginRun(input);
+  let plan: BeginResult;
+  try {
+    plan = await beginRun(input);
+  } catch (e) {
+    // M46: a run this org cannot see is never touched — not even to close it.
+    if (failReasonOf(e) === 'places_request_rejected') throw e;
+    // B-WR-08: anything else left the run queued with its admission hold held.
+    return abortRun(input);
+  }
   if (plan.kind === 'not_runnable') return { status: 'not_runnable', reason: plan.reason };
 
-  let state = initialQueue(plan.searches);
+  // Inside the try: a queue that refuses its plan (B-WR-09, one search queued twice) fails the
+  // run through finishRun like any other failure, rather than escaping the workflow.
+  let state = initialQueue([]);
   let failure: FailReason | null = null;
   try {
+    state = initialQueue(plan.searches);
     for (let s = nextSearch(state); s; s = nextSearch(state)) {
       const r =
         plan.runKind === 'change_check' ? await checkTile(input, s) : await searchTile(input, s);

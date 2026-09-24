@@ -76,8 +76,10 @@ export type GoogleErrorReason = 'daily_quota' | 'rate_limited' | 'rejected' | 'u
  * `details` (`quota_limit`, `quota_metric`). If both kinds appear, or neither, it is DAILY —
  * stopping is the safe direction, a retry loop against a spent daily quota is not.
  *
- * 400 → `rejected` (our request was wrong; retrying it cannot help). 5xx and anything else →
- * `unavailable`.
+ * 400 → `rejected` (our request was wrong; retrying it cannot help). 401 / 403 / 404 →
+ * `rejected` too (B-WR-06): a bad or restricted key, Places API (New) not enabled, or billing
+ * disabled answers 403 PERMISSION_DENIED, and retrying it three times per run only hides the
+ * cause behind `places_unavailable`. 5xx and anything else → `unavailable`.
  */
 export function classifyGoogleError(status: number, json: unknown): GoogleErrorReason {
   if (status === 429) {
@@ -96,6 +98,6 @@ export function classifyGoogleError(status: number, json: unknown): GoogleErrorR
     }
     return perMinute ? 'rate_limited' : 'daily_quota';
   }
-  if (status === 400) return 'rejected';
+  if (status === 400 || status === 401 || status === 403 || status === 404) return 'rejected';
   return 'unavailable';
 }

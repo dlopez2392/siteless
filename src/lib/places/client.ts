@@ -60,11 +60,21 @@ export type SearchTextOutcome =
   | { ok: true; places: ParsedPlace[]; nextPageToken: string | null }
   | { ok: false; reason: SearchTextFailure; status: number | null; retryAfterMs?: number };
 
-/** `Retry-After` in delta-seconds → ms. An HTTP-date or anything unreadable → the default. */
+/**
+ * The longest wait a per-minute 429 may ask for (B-WR-06). An unbounded `Retry-After: 86400`
+ * would put the step to sleep for a day while admission reclaims the run as `abandoned` after 30
+ * minutes; a per-minute quota never needs more than a few minutes.
+ */
+const MAX_RETRY_AFTER_MS = 300_000;
+
+/** `Retry-After` in delta-seconds → ms, clamped to MAX_RETRY_AFTER_MS. An HTTP-date or anything
+ *  unreadable → the default. */
 function retryAfterMsOf(header: string | null): number {
   if (header === null || !/^\s*\d+(\.\d+)?\s*$/.test(header)) return DEFAULT_RETRY_AFTER_MS;
   const seconds = Number(header);
-  return seconds > 0 ? Math.ceil(seconds * 1000) : DEFAULT_RETRY_AFTER_MS;
+  return seconds > 0
+    ? Math.min(MAX_RETRY_AFTER_MS, Math.ceil(seconds * 1000))
+    : DEFAULT_RETRY_AFTER_MS;
 }
 
 /** One Text Search page. Never rejects: every outcome is a value. */

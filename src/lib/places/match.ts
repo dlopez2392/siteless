@@ -23,6 +23,7 @@
  * (src/lib/places/candidates.ts), never a TypeScript trigram — the scorer's contract.
  */
 import { addressKey, foldDiacritics, nameNorm, phoneE164 } from '@/lib/normalize';
+import { isOutOfAreaAddress } from '@/lib/places/area';
 import {
   AUTO_MERGE_SCORE,
   PHONE_LOCALITY_NAME_SIM,
@@ -106,7 +107,6 @@ export function toPlaceForMatch(
   const zip = TX_ZIP.exec(formatted)?.[1] ?? null;
   const key = addressKey(street, zip);
   const pureSab = p.pureServiceAreaBusiness === true;
-  const lastSegment = segments.at(-1);
   const queried = ctx.queriedCity === null ? null : foldCity(ctx.queriedCity);
 
   return {
@@ -123,7 +123,9 @@ export function toPlaceForMatch(
     lat: pureSab ? null : (p.location?.latitude ?? null),
     lng: pureSab ? null : (p.location?.longitude ?? null),
     pureSab,
-    outOfArea: lastSegment !== undefined && lastSegment !== 'USA',
+    // B-CR-01: positive — a foreign country tail. `regionCode: 'US'` makes Google omit the
+    // country from every US address, so "no `, USA`" is the normal domestic shape.
+    outOfArea: isOutOfAreaAddress(formatted),
     clusterKey: ctx.clusterKey,
     queriedCity: queried === '' ? null : queried,
   };

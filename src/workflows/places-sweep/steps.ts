@@ -12,7 +12,8 @@ import {
   type SweepInput,
   type TileStepResult,
 } from '@/lib/places/search-tile';
-import { tileKeyOf, type GeoShapesFile, type TileSpec } from '@/lib/places/tiling';
+import { storedLeaves } from '@/lib/places/stored-leaves';
+import type { GeoShapesFile, TileSpec } from '@/lib/places/tiling';
 import { rowsOf, type Tx } from '@/server/queries/budget';
 import {
   getSeedTables,
@@ -21,6 +22,7 @@ import {
   specInputOfVersion,
 } from '@/server/queries/preset-spec';
 import type { FailReason, PlannedSearch, SearchResult, StopReason } from './reducer';
+import { isDeterministicFault, stepError } from './step-errors';
 import { fromWire, toWire } from './wire';
 import type { SweepOutcome } from './workflow';
 
@@ -80,21 +82,13 @@ async function loadShapes(): Promise<GeoShapesFile> {
   return (await import('@/seed/data/geo-shapes.json')).default as GeoShapesFile;
 }
 
-/** An error the step did not write, reduced to what is safe to persist: a SQLSTATE or a name. */
-function stepError(e: unknown): Error {
-  const code =
-    typeof e === 'object' && e !== null && typeof (e as { code?: unknown }).code === 'string'
-      ? (e as { code: string }).code
-      : e instanceof Error
-        ? e.name
-        : 'unknown';
-  return new Error(`step_error:${code.replace(/[^A-Za-z0-9_]/g, '').slice(0, 40)}`);
-}
-
 /**
  * Runs a step body and translates what it throws. The workflow's own error classes pass through;
  * the meter's M46 refusal (the run is not visible to this org) is fatal — retrying it into the
- * same org cannot help; everything else is sanitised and left retryable (the default 3).
+ * same org cannot help. A DETERMINISTIC fault (a SQLSTATE of class 22/23/42 read through
+ * drizzle's `.cause`, or a `toPageRecord` refusal — ./step-errors.ts) is fatal too: it would
+ * refuse the same way on every retry, and each retry would re-buy the page it follows (B-CR-02).
+ * Everything else is sanitised to its SQLSTATE or name and left retryable (the default 3).
  */
 async function guarded<T>(body: () => Promise<T>): Promise<T> {
   try {
@@ -104,7 +98,9 @@ async function guarded<T>(body: () => Promise<T>): Promise<T> {
     if (e instanceof Error && e.name === 'WorkerOrgMismatch') {
       throw new FatalError('places_request_rejected');
     }
-    throw stepError(e);
+    const safe = stepError(e);
+    if (isDeterministicFault(e)) throw new FatalError(safe.message);
+    throw safe;
   }
 }
 
@@ -136,7 +132,11 @@ async function closeRun(
   runId: string,
   status: 'complete' | 'partial' | 'failed',
   reason: string | null,
+  opts: { alsoQueued?: boolean } = {},
 ): Promise<boolean> {
+  // `alsoQueued` is abortRun's alone: a beginRun that failed rolled its claim back, so the run
+  // it must close is still `queued`. Every other caller closes a RUNNING run only.
+  const closable = opts.alsoQueued === true ? sql`('queued', 'running')` : sql`('running')`;
   const closed = rowsOf<{ calls_count: number }>(
     await tx.execute(sql`
       update runs r
@@ -148,7 +148,7 @@ async function closeRun(
                                  from cost_ledger l
                                 where l.run_id = r.id)
        where r.id = ${runId}::uuid
-         and r.status = 'running'
+         and r.status in ${closable}
       returning r.calls_count`),
   );
   const row = closed[0];
@@ -160,58 +160,6 @@ async function closeRun(
                                              'reason', ${reason}::text,
                                              'calls', ${row.calls_count}::int))`);
   return true;
-}
-
-/**
- * D-16, change checks: each root is replaced by the leaves already stored under it (the tree the
- * last sweep drew), as `ids_only` specs carrying the root's shape. A root with no stored leaf
- * stays itself.
- */
-async function storedLeaves(tx: Tx, roots: TileSpec[]): Promise<TileSpec[]> {
-  const out: TileSpec[] = [];
-  for (const root of roots) {
-    const rows = rowsOf<{
-      quad_path: string;
-      depth: number;
-      south: number;
-      west: number;
-      north: number;
-      east: number;
-    }>(
-      await tx.execute(sql`
-        select quad_path, depth, south, west, north, east
-          from place_tiles
-         where org_id = (select app.current_org_id())
-           and starts_with(tile_key, ${root.tileKey})
-           and is_leaf
-         order by quad_path`),
-    );
-    const leaves = rows.filter((r) => /^r[0-3]*$/.test(r.quad_path));
-    if (leaves.length === 0) {
-      out.push(root);
-      continue;
-    }
-    for (const leaf of leaves) {
-      out.push({
-        ...root,
-        tileKey: tileKeyOf(root.unitKind, root.unitId, root.placesType, leaf.quad_path),
-        quadPath: leaf.quad_path,
-        depth: leaf.quad_path.length - 1,
-        rect: {
-          south: Number(leaf.south),
-          west: Number(leaf.west),
-          north: Number(leaf.north),
-          east: Number(leaf.east),
-        },
-        parentTileKey:
-          leaf.quad_path.length > 1
-            ? tileKeyOf(root.unitKind, root.unitId, root.placesType, leaf.quad_path.slice(0, -1))
-            : null,
-        kind: 'ids_only',
-      });
-    }
-  }
-  return out;
 }
 
 /**
@@ -299,6 +247,61 @@ export async function beginRun(input: SweepInput): Promise<BeginResult> {
       const specs = runKind === 'change_check' ? await storedLeaves(tx, roots) : roots;
       const searches = await planRunSearches(tx, input.runId, specs);
       return { kind: 'runnable', runKind, searches: searches.map(toWire) };
+    }),
+  );
+}
+
+/**
+ * Step 1b (B-WR-08). `beginRun` failed — its transaction rolled back, so the run is still
+ * `queued` (or `running`, if an earlier attempt had committed) and its admission hold is still
+ * held: the org's one active slot blocked until the 15-minute reclaim, which does not release the
+ * hold. This closes it the honest way: every hold of the run that no page attempt points at is
+ * RELEASED (never settled — nothing was sent, M53), each in its own savepoint so one refusal
+ * cannot keep the run open (a hold that will not release is left to the expiry self-heal), and
+ * the run ends `failed / never_started` with its one `places_run_finished` event.
+ *
+ * Runs under the same org as every other step: a run this org cannot see matches no row (RLS),
+ * so a foreign org can never close someone else's run through here. The workflow never calls it
+ * for the M46 refusal anyway.
+ */
+export async function abortRun(input: SweepInput): Promise<SweepOutcome> {
+  'use step';
+  return guarded(() =>
+    withWorkerOrg(input.clerkOrgId, actorOf(input), async (tx): Promise<SweepOutcome> => {
+      const run = rowsOf<{ status: string; stopped_reason: string | null }>(
+        await tx.execute(
+          sql`select status, stopped_reason from runs where id = ${input.runId}::uuid`,
+        ),
+      )[0];
+      if (!run) throw new FatalError('places_request_rejected');
+      if (run.status !== 'queued' && run.status !== 'running') {
+        const status =
+          run.status === 'complete' || run.status === 'partial' || run.status === 'failed'
+            ? run.status
+            : 'not_runnable';
+        return { status, reason: run.stopped_reason };
+      }
+
+      const holds = rowsOf<{ id: string }>(
+        await tx.execute(sql`
+          select c.id from cost_reservations c
+           where c.run_id = ${input.runId}::uuid
+             and c.settled_at is null and c.released_at is null
+             and not exists (select 1 from run_searches s
+                              where s.run_id = c.run_id and s.inflight_reservation_id = c.id)`),
+      );
+      for (const h of holds) {
+        try {
+          await tx.transaction(async (sp) => {
+            await sp.execute(sql`select app.release_reservation(${h.id}::uuid)`);
+          });
+        } catch {
+          // Rolled back to the savepoint; the expiry self-heal frees it.
+        }
+      }
+
+      await closeRun(tx, input.runId, 'failed', 'never_started', { alsoQueued: true });
+      return { status: 'failed', reason: 'never_started' };
     }),
   );
 }

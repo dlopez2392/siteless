@@ -65,6 +65,18 @@ const done = (s: PlannedSearch, resultsCount = 12): SearchResult => ({
   next: { action: 'done' },
 });
 
+describe('one search, once (B-WR-09)', () => {
+  it('a queue never holds the same search twice', () => {
+    const a = root('McAllen');
+    const b = root('Pharr');
+    // Two roots that came back from plan_run_searches with ONE search id.
+    expect(() => initialQueue([a, b, { ...b }])).toThrow(/twice/);
+    // Children re-planned onto a search already pending.
+    const s = initialQueue([a, b]);
+    expect(() => applyResult(s, a, subdivided(a, [childOf(a, 0), { ...b }]))).toThrow(/twice/);
+  });
+});
+
 describe('the queue', () => {
   it('the reducer enqueues children breadth-first', () => {
     const a = root('McAllen');

@@ -7,7 +7,7 @@ import {
   type CandidateProbe,
   type CandidateRow,
 } from '@/lib/places/candidates';
-import { placesKeyConfigured, searchText } from '@/lib/places/client';
+import { placesKeyConfigured, searchText, type SearchTextOutcome } from '@/lib/places/client';
 import { hostClass } from '@/lib/places/host-class';
 import {
   decide,
@@ -22,12 +22,15 @@ import {
   settleInFlight,
   settleInTx,
   settleOrRelease,
+  WorkerOrgMismatch,
   type PlacesMode,
   type RunCtx,
 } from '@/lib/places/meter';
 import { toPageRecord, type PageRecordItem } from '@/lib/places/page-record';
 import { buildFirstPage, buildNextPage, type PlacesRequest } from '@/lib/places/request';
+import type { ReservedCall } from '@/lib/places/reserved-call';
 import {
+  childrenOf,
   dbSafe,
   decideSubdivision,
   isSaturated,
@@ -219,7 +222,8 @@ async function persistPage(
 
   const record = toPageRecord({
     page: a.page,
-    sku: a.call.sku === 'ts_essentials' ? 'ts_essentials' : 'ts_enterprise',
+    // Passed through unmapped: toPageRecord refuses anything but ts_enterprise (A-WR-07).
+    sku: a.call.sku,
     resultsSoFar: a.resultsSoFar,
     items,
   });
@@ -229,9 +233,18 @@ async function persistPage(
   );
 }
 
-/** Share of this search's place ids that its parent tile already held (the novelty floor). */
+/**
+ * Share of this search's place ids that its parent tile held IN THIS RUN (the novelty floor).
+ *
+ * B-WR-02 (part). The parent's membership is shared across runs and presets and only grows
+ * (Enterprise sweeps never set `gone_at`), so reading all of it made the overlap drift upward run
+ * after run and truncate children as `novelty` that were finding plenty. Only the members the
+ * parent's search saw in THIS run count — the parent is always searched earlier in the same run
+ * than the child it planned, so those are exactly the ids it just returned.
+ */
 async function overlapWithParent(
   tx: Tx,
+  runId: string,
   parentTileKey: string,
   ids: ReadonlySet<string>,
 ): Promise<number> {
@@ -242,7 +255,9 @@ async function overlapWithParent(
         join place_tiles t on t.id = m.tile_id
        where t.org_id = (select app.current_org_id())
          and t.tile_key = ${parentTileKey}
-         and m.gone_at is null`),
+         and m.gone_at is null
+         and m.last_seen_at >= (select coalesce(r.started_at, r.created_at)
+                                  from runs r where r.id = ${runId}::uuid)`),
   );
   const held = new Set(parent.map((r) => r.place_id));
   let shared = 0;
@@ -292,10 +307,140 @@ export async function planRunSearches(
   });
 }
 
+/**
+ * B-CR-02 (case 1). A transient failure on page 2 or 3 is retried INSIDE the step, while the
+ * page token is still in memory — the only place it lives (the token is never persisted, so a
+ * step-level retry can only start again at page 1 and re-buy every page already recorded). Page
+ * 1 has nothing to lose and is left to the workflow's durable retry.
+ *
+ * Every in-step attempt is a full attempt: its own reservation, its own request id, its own
+ * ceiling bump and its own settle — the money invariants do not bend for a retry.
+ */
+export const PAGE_RETRIES = 2;
+/** The longest a single in-step wait may hold the function (a per-minute 429 with no
+ *  Retry-After waits 60 s). A longer wait goes to the workflow's durable retry instead. */
+export const IN_STEP_MAX_WAIT_MS = 60_000;
+/** A 5xx or a timeout on page 2/3 waits 1 s, then 2 s, before the same page is asked again. */
+export const IN_STEP_BACKOFF_MS = 1_000;
+
+type SearchFailure = Extract<SearchTextOutcome, { ok: false }>;
+
+/** A failed attempt → whether it is charged, and what the tile returns if it is not retried. */
+function failureOf(
+  tileKey: string,
+  out: SearchFailure,
+): { charged: boolean; result: TileStepResult } {
+  switch (out.reason) {
+    case 'daily_quota':
+      // D-19: the day's quota is spent — the run ends partial, never retried into the wall.
+      return { charged: false, result: { kind: 'stopped', tileKey, reason: 'google_daily_quota' } };
+    case 'rate_limited':
+      return {
+        charged: false,
+        result: fail(tileKey, 'places_unavailable', true, out.retryAfterMs),
+      };
+    case 'unavailable':
+      return { charged: false, result: fail(tileKey, 'places_unavailable', true) };
+    case 'rejected':
+      return { charged: false, result: fail(tileKey, 'places_request_rejected', false) };
+    case 'no_key':
+      return { charged: false, result: fail(tileKey, 'places_key_missing', false) };
+    case 'timeout':
+      // Unknown outcome: the request may have reached Google (Pitfall 9).
+      return { charged: true, result: fail(tileKey, 'places_unavailable', true) };
+    case 'bad_shape':
+      // A 200 we could not read was still billed; one we could not parse will not parse
+      // better on a retry.
+      return { charged: out.status === 200, result: fail(tileKey, 'places_unavailable', false) };
+  }
+}
+
+/** How long to wait before asking for the same page again in this step; `null` = do not. */
+function inStepWait(page: 1 | 2 | 3, attempt: number, out: SearchFailure): number | null {
+  if (page === 1 || attempt >= PAGE_RETRIES) return null;
+  if (out.reason === 'rate_limited') {
+    const wait = out.retryAfterMs ?? IN_STEP_MAX_WAIT_MS;
+    return wait <= IN_STEP_MAX_WAIT_MS ? wait : null;
+  }
+  if (out.reason === 'unavailable' || out.reason === 'timeout') {
+    return IN_STEP_BACKOFF_MS * (attempt + 1);
+  }
+  return null;
+}
+
+const realSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+type SearchState = {
+  status: string;
+  results_count: number;
+  saturated: boolean;
+  subdivided: boolean;
+  truncated: boolean;
+  truncated_why: string | null;
+  run_status: string;
+};
+
+/** The search's recorded progress and its run's status, under RLS. */
+async function readSearchState(ctx: RunCtx, searchId: string): Promise<SearchState> {
+  const row = await withWorkerOrg(ctx.clerkOrgId, `workflow:${ctx.runId}`, async (tx) =>
+    rowsOf<SearchState>(
+      await tx.execute(sql`
+        select s.status, s.results_count, s.saturated, s.subdivided, s.truncated,
+               s.truncated_why, r.status as run_status
+          from run_searches s join runs r on r.id = s.run_id
+         where s.id = ${searchId}::uuid and s.run_id = ${ctx.runId}::uuid`),
+    ),
+  );
+  // settleInFlight already re-read this search under the same org; zero rows here is M46.
+  if (!row[0]) throw new WorkerOrgMismatch();
+  return row[0];
+}
+
+const TRUNCATE_WHYS = ['max_depth', 'min_size', 'novelty'] as const;
+
+/**
+ * B-CR-02 (case 3). The search is already `done` — this step body finished before (a completed
+ * step re-executed under at-least-once delivery, or a crash between the body finishing and the
+ * step's completion being recorded). Its result is REBUILT from the recorded row, and Google is
+ * not called: a subdivided tile re-plans its children from the same geometry (idempotent per
+ * run × tile, so the same search ids come back).
+ */
+async function replayDone(
+  input: SweepInput,
+  search: PlannedSearch,
+  row: SearchState,
+  shapes: GeoShapesFile,
+): Promise<TileStepResult> {
+  // The run was ended meanwhile (an operator's kill): nothing more is planned for it.
+  if (row.run_status !== 'running') return fail(search.tileKey, 'places_unavailable', false);
+  let next: SearchedNext = { action: 'done' };
+  if (row.subdivided) {
+    const children = childrenOf(search, shapeFor(search.shape, shapes));
+    if (children.length > 0) {
+      next = {
+        action: 'subdivide',
+        children: await withWorkerOrg(input.clerkOrgId, `workflow:${input.runId}`, (tx) =>
+          planRunSearches(tx, input.runId, children),
+        ),
+      };
+    }
+  } else if (row.truncated) {
+    const why = TRUNCATE_WHYS.find((w) => w === row.truncated_why);
+    if (why) next = { action: 'truncate', why };
+  }
+  return {
+    kind: 'searched',
+    tileKey: search.tileKey,
+    resultsCount: row.results_count,
+    saturated: row.saturated,
+    next,
+  };
+}
+
 export async function runSearchTile(
   input: SweepInput,
   search: PlannedSearch,
-  deps: { mode: PlacesMode; shapes: GeoShapesFile },
+  deps: { mode: PlacesMode; shapes: GeoShapesFile; sleep?: (ms: number) => Promise<void> },
 ): Promise<TileStepResult> {
   if (search.kind !== 'enterprise') {
     // A programming error (04-19's check-tile owns ids_only searches), never a run outcome.
@@ -305,9 +450,17 @@ export async function runSearchTile(
   const actor = `workflow:${input.runId}` as const;
   const tileKey = search.tileKey;
   const queriedCity = queriedCityOf(search);
+  const sleep = deps.sleep ?? realSleep;
 
   // 0. A crashed earlier attempt is settled as charged before anything is called again.
   await settleInFlight(ctx, search.searchId);
+
+  // 0b. B-CR-02: a search already recorded `done` is never bought again — its result is rebuilt
+  //     from the row. (A search that recorded SOME pages and then failed has no persisted page
+  //     token to resume from; it starts again at page 1 — see PAGE_RETRIES for why that is now
+  //     rare, and 04-REVIEW-FIX-partB.md for the column that would close it.)
+  const prior = await readSearchState(ctx, search.searchId);
+  if (prior.status === 'done') return replayDone(input, search, prior, deps.shapes);
 
   // 1. Page 1's request; pages 2 and 3 are this body plus a token (M49).
   const first = buildFirstPage({
@@ -317,64 +470,52 @@ export async function runSearchTile(
   });
   let req: PlacesRequest = first;
   let total = 0;
+  let pagesServed = 0;
   const ids = new Set<string>();
 
   // 2. Up to MAX_PAGES pages, each reserve → call → derive → settle + write.
   for (let n = 1; n <= MAX_PAGES; n += 1) {
     const page = n as 1 | 2 | 3;
+    let served: Extract<SearchTextOutcome, { ok: true }> | null = null;
+    let call: ReservedCall | null = null;
 
-    // A. Reserve. Every refusal ends the tile; nothing is sent.
-    const r = await reservePage(ctx, {
-      searchId: search.searchId,
-      page,
-      sku: req.sku,
-      mode: deps.mode,
-      keyConfigured: placesKeyConfigured(),
-    });
-    if (r.kind === 'stop') return { kind: 'stopped', tileKey, reason: r.reason };
-    // A run that is no longer running (an operator's kill): finishRun's `status = 'running'`
-    // guard then leaves the operator's terminal status untouched.
-    if (r.kind === 'not_running') return fail(tileKey, 'places_unavailable', false);
-    if (r.kind === 'refused') {
-      return r.reason === 'places_key_missing'
-        ? fail(tileKey, 'places_key_missing', false)
-        : fail(tileKey, 'places_request_rejected', false);
-    }
-
-    // B. Call. No transaction is open here.
-    const out = await searchText(r.call, req);
-
-    if (!out.ok) {
-      const settle = (charged: boolean) =>
-        settleOrRelease(ctx, r.call, { charged, searchId: search.searchId });
-      switch (out.reason) {
-        case 'daily_quota':
-          // D-19: the day's quota is spent — the run ends partial, never retried into the wall.
-          await settle(false);
-          return { kind: 'stopped', tileKey, reason: 'google_daily_quota' };
-        case 'rate_limited':
-          await settle(false);
-          return fail(tileKey, 'places_unavailable', true, out.retryAfterMs);
-        case 'unavailable':
-          await settle(false);
-          return fail(tileKey, 'places_unavailable', true);
-        case 'rejected':
-          await settle(false);
-          return fail(tileKey, 'places_request_rejected', false);
-        case 'no_key':
-          await settle(false);
-          return fail(tileKey, 'places_key_missing', false);
-        case 'timeout':
-          // Unknown outcome: the request may have reached Google (Pitfall 9).
-          await settle(true);
-          return fail(tileKey, 'places_unavailable', true);
-        case 'bad_shape':
-          // A 200 we could not read was still billed; one we could not parse will not parse
-          // better on a retry.
-          await settle(out.status === 200);
-          return fail(tileKey, 'places_unavailable', false);
+    for (let attempt = 0; served === null; attempt += 1) {
+      // A. Reserve. Every refusal ends the tile; nothing is sent.
+      const r = await reservePage(ctx, {
+        searchId: search.searchId,
+        page,
+        sku: req.sku,
+        mode: deps.mode,
+        keyConfigured: placesKeyConfigured(),
+      });
+      if (r.kind === 'stop') return { kind: 'stopped', tileKey, reason: r.reason };
+      // A run that is no longer running (an operator's kill): finishRun's `status = 'running'`
+      // guard then leaves the operator's terminal status untouched.
+      if (r.kind === 'not_running') return fail(tileKey, 'places_unavailable', false);
+      if (r.kind === 'refused') {
+        return r.reason === 'places_key_missing'
+          ? fail(tileKey, 'places_key_missing', false)
+          : fail(tileKey, 'places_request_rejected', false);
       }
+
+      // B. Call. No transaction is open here.
+      const out = await searchText(r.call, req);
+      if (out.ok) {
+        served = out;
+        call = r.call;
+        break;
+      }
+
+      // The failed attempt is settled (charged) or released on its own, cursor cleared.
+      const f = failureOf(tileKey, out);
+      await settleOrRelease(ctx, r.call, { charged: f.charged, searchId: search.searchId });
+      const wait = inStepWait(page, attempt, out);
+      if (wait === null) return f.result;
+      await sleep(wait);
     }
+    if (served === null || call === null) throw new Error('runSearchTile: unreachable');
+    const out = served;
+    const servedCall: ReservedCall = call;
 
     // C. Derive, in memory. Past this block only keys, ids, flags and numbers remain.
     total += out.places.length;
@@ -393,7 +534,7 @@ export async function runSearchTile(
     await withWorkerOrg(input.clerkOrgId, actor, (tx) =>
       persistPage(tx, {
         searchId: search.searchId,
-        call: r.call,
+        call: servedCall,
         page,
         resultsSoFar: total,
         derived,
@@ -401,19 +542,23 @@ export async function runSearchTile(
       }),
     );
 
+    pagesServed = page;
     if (!nextPageToken) break;
     req = buildNextPage(first, nextPageToken);
   }
 
   // 3–5. Saturation, subdivision, and the search's final state — one transaction.
-  const saturated = isSaturated(total);
+  // B-WR-01: reaching page 3 is the cap, even short of 60.
+  const saturated = isSaturated(total, pagesServed);
   const shape = shapeFor(search.shape, deps.shapes);
   const next = await withWorkerOrg(input.clerkOrgId, actor, async (tx) => {
     const overlap =
-      search.parentTileKey === null ? null : await overlapWithParent(tx, search.parentTileKey, ids);
+      search.parentTileKey === null
+        ? null
+        : await overlapWithParent(tx, input.runId, search.parentTileKey, ids);
     const decided = decideSubdivision(
       search,
-      { resultsCount: total, overlapWithParent: overlap },
+      { resultsCount: total, pagesServed, overlapWithParent: overlap },
       shape,
     );
     const planned: SearchedNext =

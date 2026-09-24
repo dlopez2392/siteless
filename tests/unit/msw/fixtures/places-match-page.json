@@ -6,7 +6,7 @@
         "text": "Ortiz Plumbing",
         "languageCode": "en"
       },
-      "formattedAddress": "1200 N 10th St, McAllen, TX 78501, USA",
+      "formattedAddress": "1200 N 10th St, McAllen, TX 78501",
       "location": {
         "latitude": 26.2159,
         "longitude": -98.2336
@@ -21,7 +21,7 @@
         "text": "Garza Electric LLC",
         "languageCode": "en"
       },
-      "formattedAddress": "4100 N 23rd St, McAllen, TX 78504, USA",
+      "formattedAddress": "4100 N 23rd St, McAllen, TX 78504",
       "location": {
         "latitude": 26.249,
         "longitude": -98.2389
@@ -61,7 +61,7 @@
         "text": "Ortiz Plumbing TX",
         "languageCode": "en"
       },
-      "formattedAddress": "1200 N 10th St Ste 5, McAllen, TX 78501, USA",
+      "formattedAddress": "1200 N 10th St Ste 5, McAllen, TX 78501",
       "location": {
         "latitude": 26.2161,
         "longitude": -98.2335
@@ -76,7 +76,7 @@
         "text": "Synthetic Nobody Services",
         "languageCode": "en"
       },
-      "formattedAddress": "9 Synthetic Rd, McAllen, TX 78501, USA",
+      "formattedAddress": "9 Synthetic Rd, McAllen, TX 78501",
       "location": {
         "latitude": 26.29,
         "longitude": -98.29

@@ -102,7 +102,17 @@ describe('the Places client (criterion 1, D-03)', () => {
 
   it('searchText returns a last page with a null token', async () => {
     setPlacesRoutes([{ name: 'saturated', when: () => true, pages: PLACES_PAGES.saturated }]);
-    const req = buildNextPage(enterprisePage(), 'saturated:p3');
+    // Walked to page 3: the harness serves a token only for the body it issued it to (B-WR-10).
+    const first = enterprisePage();
+    let token = '';
+    for (let n = 0; n < 2; n += 1) {
+      const r = n === 0 ? first : buildNextPage(first, token);
+      const page = await searchText(reservedFor(r), r);
+      if (!page.ok || page.nextPageToken === null) throw new Error('expected a next page');
+      token = page.nextPageToken;
+    }
+    expect(token).toBe('saturated:p3');
+    const req = buildNextPage(first, token);
 
     const outcome = await searchText(reservedFor(req), req);
     if (!outcome.ok) throw new Error(`expected page 3, got ${JSON.stringify(outcome)}`);
@@ -111,7 +121,8 @@ describe('the Places client (criterion 1, D-03)', () => {
   });
 
   it('searchText parses an empty search as zero places', async () => {
-    // No route → the harness serves places-empty.json, which is `{}`.
+    // Routed explicitly to places-empty.json, which is `{}` (an unrouted request is a 501).
+    setPlacesRoutes([{ name: 'empty', when: () => true, pages: PLACES_PAGES.empty }]);
     const req = enterprisePage();
     const outcome = await searchText(reservedFor(req), req);
     expect(outcome).toEqual({ ok: true, places: [], nextPageToken: null });
@@ -144,6 +155,37 @@ describe('the Places client (criterion 1, D-03)', () => {
     if (honoured.ok) throw new Error('expected a 429');
     expect(honoured.reason).toBe('rate_limited');
     expect(honoured.retryAfterMs).toBe(7_000);
+  });
+
+  it('a Retry-After longer than five minutes is clamped', async () => {
+    // B-WR-06: an unbounded delta would put the step to sleep for a day, while admission reclaims
+    // the run as `abandoned` after 30 minutes.
+    const req = enterprisePage();
+    serveOnce(() =>
+      HttpResponse.json(minuteEnvelope.body, { status: 429, headers: { 'Retry-After': '86400' } }),
+    );
+    const clamped = await searchText(reservedFor(req), req);
+    if (clamped.ok) throw new Error('expected a 429');
+    expect(clamped).toMatchObject({ reason: 'rate_limited', retryAfterMs: 300_000 });
+  });
+
+  it('searchText classifies 401, 403 and 404 as rejected, never retried', async () => {
+    // B-WR-06: a bad or restricted key, Places API (New) not enabled, or billing disabled is a
+    // 403 PERMISSION_DENIED — retrying it three times per run only hides the real cause.
+    const req = enterprisePage();
+    for (const status of [401, 403, 404]) {
+      serveOnce(() =>
+        HttpResponse.json(
+          { error: { code: status, message: 'Synthetic: denied.', status: 'PERMISSION_DENIED' } },
+          { status },
+        ),
+      );
+      expect(await searchText(reservedFor(req), req), String(status)).toEqual({
+        ok: false,
+        reason: 'rejected',
+        status,
+      });
+    }
   });
 
   it('searchText treats an ambiguous 429 as daily', async () => {

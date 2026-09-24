@@ -25,7 +25,12 @@ import {
   type MatchDecision,
   type PlacesResultLike,
 } from '@/lib/places/match';
-import { FEATURE_KEYS, toPageRecord, type PageRecordPlace } from '@/lib/places/page-record';
+import {
+  FEATURE_KEYS,
+  PageRecordRefusal,
+  toPageRecord,
+  type PageRecordPlace,
+} from '@/lib/places/page-record';
 
 import matchPage from './msw/fixtures/places-match-page.json';
 import { PLACES_SENTINELS } from './msw/places';
@@ -172,8 +177,9 @@ describe('page record', () => {
   });
 
   it('page record drops feature keys outside the allow-list', () => {
+    // A PageRecordRefusal (B-CR-02: the step treats it as fatal, never retried).
     expect(() => withFeatures({ ...GOOD_FEATURES, displayName: 'x' })).toThrow(
-      new Error('toPageRecord: feature displayName is not allow-listed'),
+      new PageRecordRefusal('toPageRecord: feature displayName is not allow-listed'),
     );
     // Positive control: the same record without the extra key is accepted — minus the two
     // memory-only keys, which are the one deliberate drop.
@@ -275,10 +281,21 @@ describe('page record', () => {
     expect(
       toPageRecord({
         page: 1,
-        sku: 'ts_essentials',
+        sku: 'ts_enterprise',
         resultsSoFar: 1,
         items: [{ ...item(SENTINEL_PLACE), lat: 26.2, lng: null }],
       }).places[0],
     ).toMatchObject({ lat: null, lng: null });
+  });
+
+  it('a page record is an Enterprise page or nothing', () => {
+    // A-WR-07 (TS half; 0030 refuses it in the writer too). An IDs-only (Essentials) page
+    // carries no websiteUri, so every observation written from one would be a false
+    // "no website" in an append-only table.
+    for (const sku of ['ts_essentials', 'ts_pro']) {
+      expect(() =>
+        toPageRecord({ page: 1, sku, resultsSoFar: 1, items: [] }),
+      ).toThrow(new PageRecordRefusal('toPageRecord: sku must be ts_enterprise'));
+    }
   });
 });

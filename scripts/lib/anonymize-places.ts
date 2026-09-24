@@ -12,9 +12,11 @@
  *
  * SYNTHESIZED, because each is Google-authored text or a real coordinate (T-4-04, T-4-05):
  *   - `displayName`         → `{ text: 'Synthetic <type> NNN' }`
- *   - `formattedAddress`    → `NNN Synthetic St, <city>, TX 78500, USA` — or, when the original's
- *                             last segment is not `USA`, `NNN Calle Sintetica, Synthetic, Mexico`
- *                             (a foreign listing stays foreign: the out-of-area rule reads it)
+ *   - `formattedAddress`    → `NNN Synthetic St, <city>, TX 78500` (with `, USA` only when the
+ *                             original carried a US country tail) — or, when the original ends
+ *                             in a FOREIGN country (src/lib/places/area.ts, B-CR-01),
+ *                             `NNN Calle Sintetica, Synthetic, Mexico` (a foreign listing stays
+ *                             foreign and a US one stays US: the out-of-area rule reads it)
  *   - `location`            → a point inside the SEARCHED rectangle, from an FNV-1a hash of the
  *                             id (deterministic per place, 4 decimals); absent stays absent
  *   - `nationalPhoneNumber` → `(956) 555-01NN`
@@ -39,6 +41,7 @@
  *
  * Pure: no I/O, no clock, no randomness. No `server-only` in the graph.
  */
+import { isOutOfAreaAddress } from '@/lib/places/area';
 import { hostClass, type HostClass } from '@/lib/places/host-class';
 import { fnv1a32 } from '@/lib/places/partition';
 import type { Rect } from '@/lib/places/tiling';
@@ -123,10 +126,14 @@ function anonymizePlace(place: unknown, index: number, ctx: AnonymizeContext): J
   if (place.formattedAddress !== undefined) {
     const original = typeof place.formattedAddress === 'string' ? place.formattedAddress : '';
     const last = original.split(',').pop()?.trim() ?? '';
-    out.formattedAddress =
-      last === 'USA'
+    // B-CR-01: foreign only on a positive foreign-country tail (src/lib/places/area.ts, the rule
+    // the matcher applies). `regionCode: 'US'` omits the country from a US address, so a real
+    // recording's domestic listings have NO `, USA` — they stay domestic, in that same shape.
+    out.formattedAddress = isOutOfAreaAddress(original)
+      ? `${nnn} Calle Sintetica, Synthetic, Mexico`
+      : /^(USA|United States)$/i.test(last)
         ? `${nnn} Synthetic St, ${ctx.city}, TX 78500, USA`
-        : `${nnn} Calle Sintetica, Synthetic, Mexico`;
+        : `${nnn} Synthetic St, ${ctx.city}, TX 78500`;
   }
   if (place.location !== undefined) {
     out.location = {
@@ -182,7 +189,7 @@ const PLACE_KEYS = new Set([
 
 const SYNTHETIC_NAME = /^Synthetic [a-z0-9_]{1,64} \d{3}$/;
 const SYNTHETIC_ADDRESS =
-  /^(\d{3} Synthetic St, [A-Za-z][A-Za-z .'-]{0,63}, TX 78500, USA|\d{3} Calle Sintetica, Synthetic, Mexico)$/;
+  /^(\d{3} Synthetic St, [A-Za-z][A-Za-z .'-]{0,63}, TX 78500(, USA)?|\d{3} Calle Sintetica, Synthetic, Mexico)$/;
 const SYNTHETIC_PHONE = /^\(956\) 555-01\d\d$/;
 const SYNTHETIC_WEBSITE =
   /^https:\/\/(synthetic-\d{3}\.business\.site|www\.facebook\.com\/synthetic-\d{3}|www\.yelp\.com\/biz\/synthetic-\d{3}|synthetic-\d{3}\.wixsite\.com\/site|synthetic-\d{3}\.example)$/;

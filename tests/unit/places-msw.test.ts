@@ -92,6 +92,13 @@ type Served = { places?: Array<Record<string, unknown>>; nextPageToken?: string 
 
 const plumbers = (body: Record<string, unknown>) => body.includedType === 'plumber';
 
+/** VALID_BODY for another Table A type — the textQuery follows the type, as the builder spells it. */
+const typed = (t: string): Record<string, unknown> => ({
+  ...VALID_BODY,
+  includedType: t,
+  textQuery: t.replaceAll('_', ' '),
+});
+
 describe('the Places replay harness (plan 04-10)', () => {
   it('the places handler refuses a request without the field mask header', async () => {
     setPlacesRoutes([{ name: 'saturated', when: plumbers, pages: PLACES_PAGES.saturated }]);
@@ -213,14 +220,115 @@ describe('the Places replay harness (plan 04-10)', () => {
     expect(ids[59]).toBe('synthetic-sat-060');
     expect(hooked.map((b) => b.pageToken)).toEqual([undefined, 'saturated:p2', 'saturated:p3']);
 
-    // A page past the recording is refused, never served short.
+    // A token the harness never issued is refused, never served (B-WR-10).
     const past = await search({ ...VALID_BODY, pageToken: 'saturated:p4' });
     expect(past.status).toBe(501);
+  });
 
-    // A request no route claims is served the zero-result body `{}`.
-    const unrouted = await search({ ...VALID_BODY, includedType: 'florist' });
-    expect(unrouted.status).toBe(200);
-    expect(await unrouted.json()).toEqual({});
+  it('the places handler refuses a request no route claims', async () => {
+    // B-WR-10: an empty 200 for an unrecognised request would let a builder regression (a wrong
+    // rectangle, type or page body) complete green with no results. A test that wants an empty
+    // page routes to PLACES_PAGES.empty explicitly.
+    setPlacesRoutes([{ name: 'saturated', when: plumbers, pages: PLACES_PAGES.saturated }]);
+    const unrouted = await search(typed('florist'));
+    expect(unrouted.status).toBe(501);
+    expect(await unrouted.text()).toMatch(/no route/);
+    expect(placesRequests).toHaveLength(0);
+
+    // Positive control: routed explicitly, the same request is the zero-result body `{}`.
+    setPlacesRoutes([{ name: 'empty', when: () => true, pages: PLACES_PAGES.empty }]);
+    const empty = await search(typed('florist'));
+    expect(empty.status).toBe(200);
+    expect(await empty.json()).toEqual({});
+  });
+
+  it('the places handler refuses a body the builder would never send', async () => {
+    // B-WR-10: every invariant request.ts fixes, not only the service-area flag.
+    setPlacesRoutes([{ name: 'any', when: () => true, pages: PLACES_PAGES.saturated }]);
+    const bad: Array<[string, Record<string, unknown>]> = [
+      ['strictTypeFiltering', { ...VALID_BODY, strictTypeFiltering: false }],
+      ['pageSize', { ...VALID_BODY, pageSize: 10 }],
+      ['regionCode', { ...VALID_BODY, regionCode: 'MX' }],
+      ['languageCode', { ...VALID_BODY, languageCode: 'es' }],
+      ['includedType', { ...VALID_BODY, includedType: 'general_contractor' }],
+      ['textQuery', { ...VALID_BODY, textQuery: 'plumbers near me' }],
+      [
+        'rectangle',
+        {
+          ...VALID_BODY,
+          locationRestriction: {
+            rectangle: {
+              low: { latitude: 26.3, longitude: -98.2 },
+              high: { latitude: 26.15, longitude: -98.3 },
+            },
+          },
+        },
+      ],
+      ['unknown key', { ...VALID_BODY, locationBias: {} }],
+    ];
+    for (const [what, body] of bad) {
+      const res = await search(body);
+      expect(res.status, what).toBe(501);
+    }
+    const strict = { ...VALID_BODY };
+    delete strict.strictTypeFiltering;
+    expect((await search(strict)).status, 'strictTypeFiltering absent').toBe(501);
+    // A mask field the product never requests (types, businessStatus) is refused too.
+    const typed = await search(VALID_BODY, {
+      [KEY_HEADER]: 'test-key',
+      [MASK_HEADER]: 'places.id,places.types',
+    });
+    expect(typed.status).toBe(501);
+    expect(placesRequests).toHaveLength(0);
+
+    // Positive control.
+    expect((await search(VALID_BODY)).status).toBe(200);
+  });
+
+  it('the places handler refuses a later page whose body differs from page 1', async () => {
+    // B-WR-10 / M49: Google answers INVALID_ARGUMENT when a page-2/3 body differs from page 1
+    // in anything but pageToken / pageSize / maxResultCount.
+    setPlacesRoutes([{ name: 'saturated', when: () => true, pages: PLACES_PAGES.saturated }]);
+    const first = (await (await search(VALID_BODY)).json()) as Served;
+    expect(first.nextPageToken).toBe('saturated:p2');
+
+    const moved = {
+      ...VALID_BODY,
+      locationRestriction: {
+        rectangle: {
+          low: { latitude: 26.16, longitude: -98.3 },
+          high: { latitude: 26.3, longitude: -98.2 },
+        },
+      },
+      pageToken: first.nextPageToken,
+    };
+    expect((await search(moved)).status).toBe(501);
+    // Positive control: page 1's body plus the token is served.
+    expect((await search({ ...VALID_BODY, pageToken: first.nextPageToken })).status).toBe(200);
+  });
+
+  it('the places handler omits the US country the way regionCode US does', async () => {
+    // B-WR-10 / B-CR-01: with regionCode US, Google leaves the country off a US address. A
+    // fixture that still carries ", USA" is served the way Google would serve it.
+    setPlacesRoutes([
+      {
+        name: 'suffixed',
+        when: () => true,
+        pages: [
+          {
+            places: [
+              { id: 'synthetic-suffix-1', formattedAddress: '1 Synthetic St, McAllen, TX 78501, USA' },
+              { id: 'synthetic-suffix-2', formattedAddress: 'Calle 1, Reynosa, Tamps., Mexico' },
+            ],
+          },
+        ],
+      },
+    ]);
+    const page = (await (await search(VALID_BODY)).json()) as Served;
+    expect(page.places?.map((p) => p.formattedAddress)).toEqual([
+      '1 Synthetic St, McAllen, TX 78501',
+      'Calle 1, Reynosa, Tamps., Mexico',
+    ]);
   });
 
   it('the places handler serves the error envelopes', async () => {
@@ -239,27 +347,28 @@ describe('the Places replay harness (plan 04-10)', () => {
     expect(daily.status).toBe(429);
     expect(await daily.json()).toEqual(dailyEnvelope.body);
 
-    // `times` defaults to 1: the second identical request falls through (here, to `{}`).
+    // `times` defaults to 1: the second identical request falls through — here to no route at
+    // all, which is refused (B-WR-10), never an empty page.
     const after = await search(VALID_BODY);
-    expect(after.status).toBe(200);
-    expect(await after.json()).toEqual({});
+    expect(after.status).toBe(501);
 
-    const minute = await search({ ...VALID_BODY, includedType: 'electrician' });
+    const minute = await search(typed('electrician'));
     expect(minute.status).toBe(429);
     expect(await minute.json()).toEqual(minuteEnvelope.body);
 
-    const invalid = await search({ ...VALID_BODY, includedType: 'locksmith' });
+    const invalid = await search(typed('locksmith'));
     expect(invalid.status).toBe(400);
     expect(await invalid.json()).toEqual(invalidEnvelope.body);
 
-    const unavailable = await search({ ...VALID_BODY, includedType: 'roofing_contractor' });
+    const unavailable = await search(typed('roofing_contractor'));
     expect(unavailable.status).toBe(503);
     expect(await unavailable.json()).toEqual(unavailableEnvelope.body);
   });
 
   it('the places sentinels cover every google string in the fixtures', () => {
     expect(PLACES_SENTINELS).toContain('Ortiz Plumbing');
-    expect(PLACES_SENTINELS).toContain('1200 N 10th St, McAllen, TX 78501, USA');
+    // B-CR-01: the realistic regionCode=US shape, no country suffix.
+    expect(PLACES_SENTINELS).toContain('1200 N 10th St, McAllen, TX 78501');
     expect(PLACES_SENTINELS).toContain('(956) 631-0001');
     expect(PLACES_SENTINELS).toContain('https://garza-electric-synthetic.business.site');
     // Every page's strings, not just the match page's.

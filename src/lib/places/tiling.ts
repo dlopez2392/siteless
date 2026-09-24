@@ -131,8 +131,15 @@ export function tileKeyOf(
 
 // ─── Saturation ─────────────────────────────────────────────────────────────────────────────
 
-export function isSaturated(resultsCount: number): boolean {
-  return resultsCount === SATURATION_RESULTS;
+/**
+ * A search is saturated when it returned exactly the cap, OR when it reached its last page
+ * (B-WR-01). Google caps what it RETRIEVES at 60; `strictTypeFiltering` and duplicates can then
+ * drop some, so a capped search can serve 57 on page 3 with no further token. Page 3 is only ever
+ * requested because page 2 carried a token, so reaching it IS the cap — however many came back.
+ * (Two pages that ran out on their own are not saturation, however full.)
+ */
+export function isSaturated(resultsCount: number, pagesServed = 0): boolean {
+  return resultsCount === SATURATION_RESULTS || pagesServed >= MAX_PAGES;
 }
 
 // ─── Geometry ───────────────────────────────────────────────────────────────────────────────
@@ -310,10 +317,10 @@ export function rootSpec(a: {
  */
 export function decideSubdivision(
   spec: TileSpec,
-  obs: { resultsCount: number; overlapWithParent: number | null },
+  obs: { resultsCount: number; pagesServed?: number; overlapWithParent: number | null },
   shape: UnitShape,
 ): Next {
-  if (!isSaturated(obs.resultsCount)) return { action: 'done' };
+  if (!isSaturated(obs.resultsCount, obs.pagesServed)) return { action: 'done' };
   if (spec.depth >= MAX_DEPTH) return { action: 'truncate', why: 'max_depth' };
   const { heightM, widthM } = rectSidesM(spec.rect);
   if (Math.min(heightM, widthM) / 2 < MIN_TILE_SIDE_M) {
@@ -322,6 +329,17 @@ export function decideSubdivision(
   if (obs.overlapWithParent !== null && obs.overlapWithParent >= NOVELTY_MAX_OVERLAP) {
     return { action: 'truncate', why: 'novelty' };
   }
+  const children = childrenOf(spec, shape);
+  return children.length === 0 ? { action: 'done' } : { action: 'subdivide', children };
+}
+
+/**
+ * The quadrants of `spec` that touch the unit's shape, as child specs. Pure geometry — the same
+ * spec and shape always give the same children, which is what lets a replayed search that was
+ * already `done` + `subdivided` re-plan exactly the children it planned the first time (B-CR-02;
+ * `plan_run_searches` is idempotent per run × tile, so they come back with the same ids).
+ */
+export function childrenOf(spec: TileSpec, shape: UnitShape): TileSpec[] {
   const children: TileSpec[] = [];
   quadrants(spec.rect).forEach((rect, digit) => {
     if (!rectIntersectsShape(rect, shape)) return;
@@ -335,5 +353,5 @@ export function decideSubdivision(
       parentTileKey: spec.tileKey,
     });
   });
-  return children.length === 0 ? { action: 'done' } : { action: 'subdivide', children };
+  return children;
 }

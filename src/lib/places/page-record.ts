@@ -14,10 +14,16 @@
  * `distanceM` (metres to Google's location) are the scorer's CONTINUOUS inputs, computed straight
  * from Google content. They score the match in memory and are DROPPED here — the one deliberate
  * drop in this module, of exactly two named keys. What persists is the coarse integer points the
- * scorer derived from them (`name` 0–45, `distance` 0/4/10/15) and the `signals` enum. The DB
- * CHECK (app.places_features_ok, 0029) still ADMITS both keys — a numbers-only wall, unchanged
- * to avoid a migration — so this function is the wall that keeps them out, pinned by
- * tests/unit/page-record.test.ts "persisted place features carry no nameSim or distanceM".
+ * scorer derived from them (`name` 0–45, `distance` 0/4/10/15) and the `signals` enum. Since
+ * drizzle/0030 (A-WR-06) the DB CHECK (app.places_features_ok) admits exactly the 11 keys below,
+ * with integer points, so the database is a second wall behind this one; this function is still
+ * the first, pinned by tests/unit/page-record.test.ts "persisted place features carry no nameSim
+ * or distanceM".
+ *
+ * 🔴 AN ENTERPRISE PAGE OR NOTHING (A-WR-07). An IDs-only (Essentials) page carries no
+ * `websiteUri`, so every observation written from one would be a false "no website" in an
+ * append-only table. `toPageRecord` refuses any other SKU; 0030's `record_places_page` refuses
+ * it too.
  *
  * Every object is REBUILT key by key rather than spread, so a field added upstream (a matcher
  * that starts carrying `displayName`, say) can never ride along into the record unnoticed.
@@ -28,7 +34,7 @@
 import { HOST_CLASSES, type HostClass } from '@/lib/places/host-class';
 import type { MatchDecision } from '@/lib/places/match';
 
-/** The feature keys that PERSIST (11). A subset of what app.places_features_ok admits (13). */
+/** The feature keys that PERSIST (11) — exactly what app.places_features_ok admits since 0030. */
 export const FEATURE_KEYS = [
   'name',
   'phone',
@@ -70,7 +76,7 @@ export type PageRecordPlace = {
 
 export type PageRecord = {
   page: 1 | 2 | 3;
-  sku: 'ts_enterprise' | 'ts_essentials';
+  sku: 'ts_enterprise';
   resultsSoFar: number;
   places: PageRecordPlace[];
 };
@@ -97,8 +103,20 @@ const RULES = new Set<string>([
 ]);
 const ALLOWED = new Set<string>(FEATURE_KEYS);
 
+/**
+ * Every refusal below. A named class so the step wrapper (src/workflows/places-sweep/
+ * step-errors.ts) can tell it apart: a record this module refuses is refused the same way on a
+ * retry — after the page was already bought — so it is FATAL, never retried (B-CR-02).
+ */
+export class PageRecordRefusal extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PageRecordRefusal';
+  }
+}
+
 function refuse(key: string): never {
-  throw new Error(`toPageRecord: feature ${key} is not a permitted value`);
+  throw new PageRecordRefusal(`toPageRecord: feature ${key} is not a permitted value`);
 }
 
 function isFiniteNumber(v: unknown): v is number {
@@ -109,14 +127,14 @@ function isFiniteNumber(v: unknown): v is number {
  *  offending VALUE never is — it may be exactly the Places text being refused. */
 function checkFeatures(raw: unknown): PersistedPlaceFeatures {
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
-    throw new Error('toPageRecord: features must be an object');
+    throw new PageRecordRefusal('toPageRecord: features must be an object');
   }
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
     // Scored with in memory; never written (see the header).
     if (MEMORY_ONLY.has(key)) continue;
     if (!ALLOWED.has(key)) {
-      throw new Error(`toPageRecord: feature ${key} is not allow-listed`);
+      throw new PageRecordRefusal(`toPageRecord: feature ${key} is not allow-listed`);
     }
     const k = key as FeatureKey;
     if (SCORE_KEYS.has(k)) {
@@ -137,13 +155,13 @@ function checkFeatures(raw: unknown): PersistedPlaceFeatures {
 
 function checkMatch(m: Match): PersistedMatch {
   if (!Number.isInteger(m.score) || m.score < 0 || m.score > 100) {
-    throw new Error('toPageRecord: match score must be an integer 0..100');
+    throw new PageRecordRefusal('toPageRecord: match score must be an integer 0..100');
   }
   if (m.status !== 'attached' && m.status !== 'tentative') {
-    throw new Error('toPageRecord: match status must be attached or tentative');
+    throw new PageRecordRefusal('toPageRecord: match status must be attached or tentative');
   }
   if (m.reason !== 'score' && m.reason !== 'tie') {
-    throw new Error('toPageRecord: match reason must be score or tie');
+    throw new PageRecordRefusal('toPageRecord: match reason must be score or tie');
   }
   return {
     businessId: m.businessId,
@@ -157,28 +175,29 @@ function checkMatch(m: Match): PersistedMatch {
 
 export function toPageRecord(i: {
   page: 1 | 2 | 3;
-  sku: PageRecord['sku'];
+  /** Checked at run time: anything but ts_enterprise is refused. */
+  sku: string;
   resultsSoFar: number;
   items: PageRecordItem[];
 }): PageRecord {
   if (i.page !== 1 && i.page !== 2 && i.page !== 3) {
-    throw new Error('toPageRecord: page must be 1, 2 or 3');
+    throw new PageRecordRefusal('toPageRecord: page must be 1, 2 or 3');
   }
-  if (i.sku !== 'ts_enterprise' && i.sku !== 'ts_essentials') {
-    throw new Error('toPageRecord: sku must be ts_enterprise or ts_essentials');
+  if (i.sku !== 'ts_enterprise') {
+    throw new PageRecordRefusal('toPageRecord: sku must be ts_enterprise');
   }
   if (!Number.isInteger(i.resultsSoFar) || i.resultsSoFar < 0) {
-    throw new Error('toPageRecord: resultsSoFar must be a non-negative integer');
+    throw new PageRecordRefusal('toPageRecord: resultsSoFar must be a non-negative integer');
   }
 
   const places = i.items.map((it): PageRecordPlace => {
     const outOfArea = it.decision.outcome === 'outside';
     if (!(HOST_CLASSES as readonly string[]).includes(it.hostClass)) {
-      throw new Error('toPageRecord: hostClass is not a known class');
+      throw new PageRecordRefusal('toPageRecord: hostClass is not a known class');
     }
     // po_host_class_agrees (drizzle/0026): refused here too, before a page half-writes.
     if ((it.hadWebsiteUri === true) !== (it.hostClass !== 'none')) {
-      throw new Error('toPageRecord: hadWebsiteUri disagrees with hostClass');
+      throw new PageRecordRefusal('toPageRecord: hadWebsiteUri disagrees with hostClass');
     }
     const located = isFiniteNumber(it.lat) && isFiniteNumber(it.lng);
     return {
