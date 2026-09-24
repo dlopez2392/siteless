@@ -4,6 +4,7 @@ import { resolveEtlOrg, type EtlExecutor } from '@/lib/ingest/etl-actor';
 import { placesKeyConfigured, searchText, type SearchTextFailure } from '@/lib/places/client';
 import {
   reservePage,
+  settleInFlight,
   settleOrRelease,
   type ModeRefusal,
   type PlacesMode,
@@ -273,16 +274,27 @@ const STOPS = new Set<RecordOutcome>(['budget_cap_reached', 'exceeded_estimate',
  * As the owner, inside the caller's transaction: the run ends `complete` (ok), `partial` (a
  * budget or quota stop) or `failed`, and the search is marked `stopped` — never `done`, because
  * a recording writes no membership and must not claim the tile was swept or checked.
+ *
+ * 🔴 A-WR-12. FIRST, whatever attempt the search still has in flight is settled AS CHARGED
+ * (`settleInFlight`, the product's own replay rule). `recordPages` can throw after `reservePage`
+ * but before `settleOrRelease` — a database error inside the settle, or the anonymizer throwing
+ * after a settled page — and the request may already have left and been billed. The cursor is
+ * the only record of it; `settleInFlight` ledgers it under the attempt's own request id and
+ * clears it in the same transaction, and a no-op when nothing is in flight. If that settle
+ * itself fails, this throws BEFORE the cursor is touched, so the record survives for the next
+ * admission's abandoned-run reclaim (queue-run.ts, A-WR-09) to settle. The cursor is therefore
+ * never cleared here: the payload below names status only.
  */
 export async function closeRecordingRun(
   c: EtlExecutor,
   run: RecordingRun,
   outcome: RecordOutcome | 'crashed',
 ): Promise<void> {
+  await settleInFlight({ clerkOrgId: run.clerkOrgId, runId: run.runId }, run.searchId);
   await claim(c, run.clerkOrgId);
   await c.query('select app.mark_run_search($1::uuid, $2::jsonb)', [
     run.searchId,
-    JSON.stringify({ status: 'stopped', inflight_reservation_id: null, inflight_request_id: null }),
+    JSON.stringify({ status: 'stopped' }),
   ]);
   const status =
     outcome === 'ok'

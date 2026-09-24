@@ -98,21 +98,24 @@ async function release(c: Client, reservationId: string): Promise<string> {
 /** One planned search element, in the shape 04-13's planner hands app.plan_run_searches. */
 function searchEl(
   tileKey: string,
-  opts: { kind?: 'enterprise' | 'ids_only'; parentTileKey?: string | null; depth?: number } = {},
+  opts: {
+    kind?: 'enterprise' | 'ids_only';
+    parentTileKey?: string | null;
+    depth?: number;
+    rect?: { south: number; west: number; north: number; east: number };
+  } = {},
 ) {
+  const rect = opts.rect ?? { south: 26.15, west: -98.3, north: 26.3, east: -98.18 };
   return {
     tileKey,
     cellKey: 'home_services/48215/McAllen',
     clusterKey: 'home_services',
     unitKind: 'city',
     unitId: '48215/McAllen',
-    placesType: 'plumber',
+    placesType: tileKey.split('|')[1] ?? 'plumber',
     quadPath: tileKey.split('|')[2] ?? 'r',
     depth: opts.depth ?? 0,
-    south: 26.15,
-    west: -98.3,
-    north: 26.3,
-    east: -98.18,
+    ...rect,
     parentTileKey: opts.parentTileKey ?? null,
     kind: opts.kind ?? 'enterprise',
   };
@@ -439,6 +442,172 @@ describe('app.plan_run_searches / app.mark_run_search (D-15, D-16, T-4-06, T-4-1
       // Cleared, and the status the call did not name is untouched.
       expect(cleared.rows[0]).toEqual({ res: null, req: null, status: 'searching' });
     }));
+
+  // A-WR-11 / B-CR-03. place_tiles is shared across runs and presets, keyed by tile_key, and the
+  // key does not encode the rectangle. Keeping the FIRST rect ever written meant a re-fetched
+  // outline (or two presets colliding on one key) had change checks search stale geography
+  // while sweeps searched the new one. The plan now refreshes the stored geometry.
+  it('plan_run_searches refreshes a tile’s stored rectangle', () =>
+    withRollback(async (c) => {
+      const { a } = await seedTwoOrgs(c);
+      // An earlier preset / outline wrote the tile with its rectangle…
+      await seedRunSearch(c, a, (await seedPlacesRun(c, a, { status: 'complete' })).runId, {
+        tileKey: TILE_ROOT,
+        placesType: 'plumber',
+        rect: { south: 26.15, west: -98.3, north: 26.3, east: -98.18 },
+      });
+      const run = await seedPlacesRun(c, a);
+      await actAs(c, CLAIMS_A);
+      // …and this run plans the same key over the re-fetched outline.
+      const after = { south: 26.1, west: -98.35, north: 26.32, east: -98.12 };
+      await plan(c, run.runId, [searchEl(TILE_ROOT, { rect: after })]);
+
+      const tiles = await c.query<{
+        n: string;
+        south: number;
+        west: number;
+        north: number;
+        east: number;
+      }>(
+        `select count(*) over () ::text as n, south, west, north, east
+           from place_tiles where org_id = $1 and tile_key = $2`,
+        [a, TILE_ROOT],
+      );
+      expect(tiles.rows).toEqual([{ n: '1', ...after }]);
+    }));
+
+  // A-WR-10 / B-WR-04. A search that closes WITHOUT subdividing makes its tile a leaf; every
+  // stored descendant of that tile — left is_leaf by an older, deeper tree — is retired in the
+  // same statement, so a change check never lists the root and its old children (overlapping
+  // rectangles, extra requests, stale diffs).
+  it('a search that closes unsubdivided retires its tile’s stale descendants', () =>
+    withRollback(async (c) => {
+      const { a, b } = await seedTwoOrgs(c);
+      const run = await seedPlacesRun(c, a);
+      const runB = await seedPlacesRun(c, b);
+      // As the owner: the stale tree of an older sweep (r split into r0, r0 into r00), a tile of
+      // ANOTHER type under the same path, and the same key in another org — all leaves.
+      const older = await seedPlacesRun(c, a, { status: 'complete' });
+      for (const [key, depth] of [
+        ['city:48215/McAllen|plumber|r0', 1],
+        ['city:48215/McAllen|plumber|r00', 2],
+        ['city:48215/McAllen|electrician|r0', 1],
+      ] as const) {
+        await seedRunSearch(c, a, older.runId, {
+          tileKey: key,
+          placesType: key.split('|')[1]!,
+          depth,
+        });
+      }
+      await seedRunSearch(c, b, runB.runId, {
+        tileKey: 'city:48215/McAllen|plumber|r0',
+        placesType: 'plumber',
+        depth: 1,
+      });
+      await actAs(c, CLAIMS_A);
+      const [s] = await plan(c, run.runId, [searchEl(TILE_ROOT)]);
+      await c.query('select app.mark_run_search($1, $2::jsonb)', [
+        s!.search_id,
+        JSON.stringify({ status: 'done', subdivided: false }),
+      ]);
+      await actAsOwner(c);
+      const leaves = await c.query<{ org: string; tile_key: string; is_leaf: boolean }>(
+        `select case when org_id = $1 then 'a' else 'b' end as org, tile_key, is_leaf
+           from place_tiles where org_id = any($2::uuid[]) order by 1, 2`,
+        [a, [a, b]],
+      );
+      expect(leaves.rows).toEqual([
+        { org: 'a', tile_key: 'city:48215/McAllen|electrician|r0', is_leaf: true },
+        { org: 'a', tile_key: 'city:48215/McAllen|plumber|r', is_leaf: true },
+        { org: 'a', tile_key: 'city:48215/McAllen|plumber|r0', is_leaf: false },
+        { org: 'a', tile_key: 'city:48215/McAllen|plumber|r00', is_leaf: false },
+        { org: 'b', tile_key: 'city:48215/McAllen|plumber|r0', is_leaf: true },
+      ]);
+    }));
+
+  it('a search that closes subdivided leaves its descendants alone', () =>
+    withRollback(async (c) => {
+      const { a } = await seedTwoOrgs(c);
+      const run = await seedPlacesRun(c, a);
+      await actAs(c, CLAIMS_A);
+      // This run's own tree: r subdivided, its child r0 planned and closed as a leaf FIRST
+      // would be the wrong order, so the child is planned after the parent closes, as the
+      // executor does — and a subdivided close must not touch it.
+      const [root] = await plan(c, run.runId, [searchEl(TILE_ROOT)]);
+      await c.query('select app.mark_run_search($1, $2::jsonb)', [
+        root!.search_id,
+        JSON.stringify({ status: 'done', subdivided: true }),
+      ]);
+      const [child] = await plan(c, run.runId, [
+        searchEl('city:48215/McAllen|plumber|r0', { depth: 1, parentTileKey: TILE_ROOT }),
+      ]);
+      await c.query('select app.mark_run_search($1, $2::jsonb)', [
+        child!.search_id,
+        JSON.stringify({ status: 'done', subdivided: false }),
+      ]);
+      // A replayed close of the subdivided parent (at-least-once delivery) retires nothing.
+      await c.query('select app.mark_run_search($1, $2::jsonb)', [
+        root!.search_id,
+        JSON.stringify({ status: 'done', subdivided: true }),
+      ]);
+      const leaves = await c.query<{ tile_key: string; is_leaf: boolean }>(
+        'select tile_key, is_leaf from place_tiles where org_id = $1 order by tile_key',
+        [a],
+      );
+      expect(leaves.rows).toEqual([
+        { tile_key: TILE_ROOT, is_leaf: false },
+        { tile_key: 'city:48215/McAllen|plumber|r0', is_leaf: true },
+      ]);
+    }));
+});
+
+describe('drizzle/0030 definer grants', () => {
+  // Every function 0030 re-issues or adds, read off the catalog. 0000_bootstrap's default
+  // privileges grant EXECUTE to authenticated, anon AND service_role explicitly, so each is
+  // revoked by name; the definers keep authenticated, the audit trigger function keeps no one.
+  // search_path is pinned with pg_temp on every one (a definer with an attacker-influenced
+  // search_path runs as the owner).
+  it('every definer 0030 re-issues is executable by authenticated only, search_path pinned', () =>
+    withRollback(async (c) => {
+      const fns = [
+        'app.settle_reservation(uuid,text,bigint,integer,text,text,uuid)',
+        'app.plan_run_searches(uuid,jsonb)',
+        'app.mark_run_search(uuid,jsonb)',
+        'app.record_places_page(uuid,jsonb)',
+        'app.record_change_check(uuid,jsonb,jsonb,text,integer)',
+        'app.decide_place_attachment(uuid,text)',
+        'app.log_place_attachment_event()',
+      ];
+      const r = await c.query<{ fn: string; role: string; can: boolean }>(
+        `select f.fn, r.role, has_function_privilege(r.role, f.fn, 'EXECUTE') as can
+           from unnest($1::text[]) as f(fn)
+          cross join unnest(array['authenticated','anon','service_role']) as r(role)
+          order by 1, 2`,
+        [fns],
+      );
+      expect(r.rows).toHaveLength(fns.length * 3);
+      for (const x of r.rows) {
+        const expected = x.role === 'authenticated' && !x.fn.includes('log_place_attachment_event');
+        expect({ fn: x.fn, role: x.role, can: x.can }).toEqual({
+          fn: x.fn,
+          role: x.role,
+          can: expected,
+        });
+      }
+      const cfg = await c.query<{ fn: string; definer: boolean; cfg: string[] | null }>(
+        `select p.oid::regprocedure::text as fn, p.prosecdef as definer, p.proconfig as cfg
+           from pg_proc p where p.oid = any($1::text[]::regprocedure[]) order by 1`,
+        [fns],
+      );
+      expect(cfg.rows).toHaveLength(fns.length);
+      for (const x of cfg.rows) {
+        expect({ fn: x.fn, definer: x.definer, cfg: x.cfg }).toEqual({
+          fn: x.fn,
+          definer: true,
+          cfg: ['search_path=public, pg_temp'],
+        });
+      }
+    }));
 });
 
 describe('app.purge_expired_place_coordinates (D-12, M38, M39, T-4-07)', () => {
@@ -490,6 +659,29 @@ describe('app.purge_expired_place_coordinates (D-12, M38, M39, T-4-07)', () => {
   it('the purge removes expired coordinates and keeps the observation', () =>
     withRollback(async (c) => {
       const { a, b, expiredA, freshA, expiredB } = await seedPurgeWorld(c);
+      // 🔴 A-WR-13. The purge is cross-org and the lane shares ONE database: any other org's
+      // expired coordinate — a local D-04 recording, an interrupted workflow-lane test that
+      // skipped its teardown — is purged too. This third org stands in for that data, inside
+      // the rolled-back transaction, so an assertion over "every org other than a and b"
+      // fails here, on the code, instead of 30 days after somebody's committed run.
+      const other = await c.query<{ id: string }>(
+        `insert into orgs (clerk_org_id, name_internal, display_name)
+         values ('org_purge_bystander', 'Bystander (test)', 'Bystander') returning id`,
+      );
+      const otherOrg = other.rows[0]!.id;
+      const spineOther = await seedPlacesSpine(c, otherOrg);
+      const runOther = await seedPlacesRun(c, otherOrg);
+      await seedAttachmentWithObservation(c, {
+        orgId: otherOrg,
+        businessId: spineOther.ortiz,
+        placeId: 'synthetic-place-bystander-expired',
+        runId: runOther.runId,
+        status: 'attached',
+        hadWebsiteUri: false,
+        hostClass: 'none',
+        observedAt: new Date(Date.now() - 31 * DAY_MS),
+        withCoordinates: true,
+      });
       const obsBefore = await c.query<{ n: string }>(
         'select count(*)::text as n from place_observations where org_id = any($1::uuid[])',
         [[a, b]],
@@ -508,11 +700,10 @@ describe('app.purge_expired_place_coordinates (D-12, M38, M39, T-4-07)', () => {
       const byOrg = new Map(r.rows.map((row) => [row.purged_org, row.purged_rows]));
       expect(byOrg.get(a)).toBe(1);
       expect(byOrg.get(b)).toBe(1);
-      // One row per org, zero-count included.
+      // One row per org, zero-count included. Only the orgs this test seeded are asserted by
+      // count: what any OTHER org held is not this test's to know (A-WR-13).
       expect(r.rows).toHaveLength(orgCount.rows[0]!.n);
-      for (const row of r.rows) {
-        if (row.purged_org !== a && row.purged_org !== b) expect(row.purged_rows).toBe(0);
-      }
+      expect(byOrg.get(otherOrg)).toBe(1);
 
       const left = await c.query<{ id: string }>(
         'select id from place_coordinates where id = any($1::uuid[]) order by id',

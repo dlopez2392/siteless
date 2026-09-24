@@ -365,6 +365,54 @@ describe('app.record_places_page (D-05, D-06, D-08, D-10, PLACE-02)', () => {
       expect(await membersOf(c, s.tileId, 'ChIJ-ortiz')).toBe(1);
     }));
 
+  // A-WR-01. The scorer's cluster feature compares the business's cluster with the SEARCH's,
+  // so one (business, place) pair scores differently in two clusters' searches. The upsert
+  // must never let the lower one downgrade an auto-attached listing: the status would depend
+  // on step order, each flip would write an events row, and the listing would leave
+  // business_place_signal (a false "no website" if it was the one with a site).
+  for (const order of ['attached first', 'tentative first'] as const) {
+    it(`the same place seen by two cluster searches ends attached (${order})`, () =>
+      withRollback(async (c) => {
+        const s = await setup(c);
+        const other = await seedRunSearch(c, s.a, s.runId, {
+          tileKey: 'city:48215/McAllen|car_repair|r',
+          placesType: 'car_repair',
+          clusterKey: 'auto_retail',
+        });
+        await actAs(c, CLAIMS_A);
+        const hi = page(1, [listing('ChIJ-ortiz', [cand(s.spine.ortiz, 96)], { host: 'social' })]);
+        const lo = page(1, [listing('ChIJ-ortiz', [cand(s.spine.ortiz, 91)], { host: 'social' })]);
+        if (order === 'attached first') {
+          await writePage(c, s.searchId, hi);
+          await writePage(c, other.runSearchId, lo);
+        } else {
+          await writePage(c, other.runSearchId, lo);
+          await writePage(c, s.searchId, hi);
+        }
+
+        const att = await attachments(c, s.a, 'ChIJ-ortiz');
+        expect(att).toEqual([
+          expect.objectContaining({ status: 'attached', reason: 'score', score: 96 }),
+        ]);
+        // Still a verdict input, whichever search wrote last.
+        const sig = await c.query<{ business_id: string }>(
+          'select business_id from business_place_signal where business_id = $1',
+          [s.spine.ortiz],
+        );
+        expect(sig.rows).toEqual([{ business_id: s.spine.ortiz }]);
+        await actAsOwner(c);
+        // No attached → tentative flip was written: at most the one upgrade.
+        const ev = await c.query<{ before: string; after: string }>(
+          `select before->>'status' as before, after->>'status' as after from events
+            where entity_type = 'place_attachments' and entity_id = $1 order by id`,
+          [att[0]!.id],
+        );
+        expect(ev.rows).toEqual(
+          order === 'attached first' ? [] : [{ before: 'tentative', after: 'attached' }],
+        );
+      }));
+  }
+
   it('a confirmed attachment is not re-scored by a later run', () =>
     withRollback(async (c) => {
       const s = await setup(c);
@@ -411,6 +459,37 @@ describe('app.record_places_page (D-05, D-06, D-08, D-10, PLACE-02)', () => {
       });
       expect(counts).toEqual({ attached: 0, tentative: 1, unmatched: 0, outside: 0 });
       expect(await outcomeOf(c, s.runId, 'ChIJ-rio')).toBe('tentative');
+    }));
+
+  // A-WR-03 (3). D-08: a tie is always tentative, and a tie always names its other business.
+  // The writer validated status and reason independently, so (attached, tie) was accepted.
+  // Positive control: "a tie writes two tentative rows naming each other".
+  it('a tie cannot be recorded as attached', () =>
+    withRollback(async (c) => {
+      const s = await setup(c);
+      await actAs(c, CLAIMS_A);
+      const record = page(1, [
+        listing('ChIJ-rio', [cand(s.spine.rio, 97), cand(s.spine.rioCo, 96)]),
+      ]);
+      (record.places[0]!.matches[0] as { status: string }).status = 'attached';
+      const attempt = writePage(c, s.searchId, record);
+      await expect(attempt).rejects.toMatchObject({ code: '22023' });
+      await expect(attempt).rejects.toThrow(/record_places_page: a tie is always tentative/);
+    }));
+
+  it('a tie must name its other business, and only a tie may', () =>
+    withRollback(async (c) => {
+      const s = await setup(c);
+      await actAs(c, CLAIMS_A);
+      const record = page(1, [listing('ChIJ-ortiz', [cand(s.spine.ortiz, 97)])]);
+      // A score match carrying a tie pointer: the pair would render "ties with …" for a
+      // listing that never tied.
+      record.places[0]!.matches[0]!.tieBusinessId = s.spine.garza;
+      const attempt = writePage(c, s.searchId, record);
+      await expect(attempt).rejects.toMatchObject({ code: '22023' });
+      await expect(attempt).rejects.toThrow(
+        /record_places_page: a tie names its other business, and only a tie does/,
+      );
     }));
 
   it('a tentative match is observed but not a signal', () =>
@@ -566,6 +645,27 @@ describe('app.record_places_page (D-05, D-06, D-08, D-10, PLACE-02)', () => {
       );
     }));
 
+  // A-WR-07. An Essentials (IDs-only) page carries no websiteUri, so every observation written
+  // from one would be a false had_website_uri=false in an append-only table. An enterprise
+  // search records ts_enterprise pages only. Positive control: every page() above is
+  // ts_enterprise and writes.
+  it('record_places_page refuses an essentials page on an enterprise search', () =>
+    withRollback(async (c) => {
+      const s = await setup(c);
+      await actAs(c, CLAIMS_A);
+      const record = toPageRecord({
+        page: 1,
+        sku: 'ts_essentials',
+        resultsSoFar: 1,
+        items: [listing('ChIJ-ortiz', [cand(s.spine.ortiz, 97)])],
+      });
+      const attempt = writePage(c, s.searchId, record);
+      await expect(attempt).rejects.toMatchObject({ code: '22023' });
+      await expect(attempt).rejects.toThrow(
+        /record_places_page: an enterprise search records ts_enterprise pages only/,
+      );
+    }));
+
   it('record_places_page refuses a place id that is not a place id', () =>
     withRollback(async (c) => {
       const s = await setup(c);
@@ -605,6 +705,51 @@ describe('pa_features_numeric (T-3-11 / T-4-05, M36)', () => {
       // application regressed, and the table is the last wall.
       (record.places[0]!.matches[0]!.features as unknown as Record<string, unknown>).name =
         'Ortiz Plumbing';
+      const attempt = writePage(c, s.searchId, record);
+      await expect(attempt).rejects.toMatchObject({
+        code: '23514',
+        constraint: 'pa_features_numeric',
+      });
+    }));
+
+  // A-WR-06. The legal line is the 11 persisted keys (page-record.ts FEATURE_KEYS) with INTEGER
+  // points; the continuous nameSim / distanceM are memory-only. The CHECK is the wall behind
+  // toPageRecord, so each is refused at the table, through the writer, as the user. The
+  // positive control is "record_places_page attaches, observes and records outcomes" (the same
+  // record without the mutation writes).
+  it('features carrying nameSim is 23514', () =>
+    withRollback(async (c) => {
+      const s = await setup(c);
+      await actAs(c, CLAIMS_A);
+      const record = page(1, [listing('ChIJ-ortiz', [cand(s.spine.ortiz, 97)])]);
+      (record.places[0]!.matches[0]!.features as unknown as Record<string, unknown>).nameSim = 0.93;
+      const attempt = writePage(c, s.searchId, record);
+      await expect(attempt).rejects.toMatchObject({
+        code: '23514',
+        constraint: 'pa_features_numeric',
+      });
+    }));
+
+  it('features carrying distanceM is 23514', () =>
+    withRollback(async (c) => {
+      const s = await setup(c);
+      await actAs(c, CLAIMS_A);
+      const record = page(1, [listing('ChIJ-ortiz', [cand(s.spine.ortiz, 97)])]);
+      (record.places[0]!.matches[0]!.features as unknown as Record<string, unknown>).distanceM = 12;
+      const attempt = writePage(c, s.searchId, record);
+      await expect(attempt).rejects.toMatchObject({
+        code: '23514',
+        constraint: 'pa_features_numeric',
+      });
+    }));
+
+  it('a non-integer point value is 23514', () =>
+    withRollback(async (c) => {
+      const s = await setup(c);
+      await actAs(c, CLAIMS_A);
+      const record = page(1, [listing('ChIJ-ortiz', [cand(s.spine.ortiz, 97)])]);
+      // A continuous similarity smuggled in under an allow-listed points key.
+      (record.places[0]!.matches[0]!.features as unknown as Record<string, unknown>).name = 29.7;
       const attempt = writePage(c, s.searchId, record);
       await expect(attempt).rejects.toMatchObject({
         code: '23514',
@@ -716,6 +861,37 @@ describe('app.record_change_check (D-16)', () => {
       expect(tile.rows[0]).toEqual({ changed: false });
     }));
 
+  // A-WR-02 / B-WR-03. A saturated listing is Google's top 60: a stored member past the cap is
+  // hidden, not gone. The writer refuses gone ids on a saturated check, so a regression in
+  // diffTile fails loudly instead of writing gone_at onto members that still exist.
+  it('a saturated change check records added ids and marks nothing gone', () =>
+    withRollback(async (c) => {
+      const s = await changeSetup(c);
+      await actAs(c, CLAIMS_A);
+      await check(c, s.searchId, ['ChIJ-new1'], [], 'saturated', 60);
+      expect(await members(c, s.tileId)).toEqual([
+        { place_id: 'ChIJ-gone1', gone: false },
+        { place_id: 'ChIJ-keep', gone: false },
+        { place_id: 'ChIJ-new1', gone: false },
+      ]);
+      const rs = await c.query(
+        'select change_verdict, new_ids, gone_ids from run_searches where id = $1',
+        [s.searchId],
+      );
+      expect(rs.rows[0]).toEqual({ change_verdict: 'saturated', new_ids: 1, gone_ids: 0 });
+    }));
+
+  it('a saturated change check cannot mark a member gone', () =>
+    withRollback(async (c) => {
+      const s = await changeSetup(c);
+      await actAs(c, CLAIMS_A);
+      const attempt = check(c, s.searchId, [], ['ChIJ-gone1'], 'saturated', 60);
+      await expect(attempt).rejects.toMatchObject({ code: '22023' });
+      await expect(attempt).rejects.toThrow(
+        /record_change_check: a saturated listing cannot prove a member gone/,
+      );
+    }));
+
   it("record_change_check refuses another org's search", () =>
     withRollback(async (c) => {
       const s = await changeSetup(c);
@@ -795,6 +971,87 @@ describe('app.decide_place_attachment (D-05)', () => {
         decided_by: 'user_reviewer_A',
         decided: true,
       });
+    }));
+
+  // A-WR-03 (1, 2). D-08: a tie is DECIDED, not duplicated. Confirming one side rejects the
+  // other side's row for the same place in the same statement, so the place is never attached
+  // to two businesses and the other side leaves /review.
+  it('confirming one side of a tie rejects the other side', () =>
+    withRollback(async (c) => {
+      const s = await setup(c);
+      await actAs(c, CLAIMS_A);
+      await writePage(
+        c,
+        s.searchId,
+        page(1, [listing('ChIJ-rio', [cand(s.spine.rio, 97), cand(s.spine.rioCo, 96)])]),
+      );
+      const before = await attachments(c, s.a, 'ChIJ-rio');
+      const rio = before.find((r) => r.business_id === s.spine.rio)!;
+      const rioCo = before.find((r) => r.business_id === s.spine.rioCo)!;
+
+      // Only the confirmed row is returned: the caller's contract is unchanged.
+      expect(await decideAs(c, rio.id, 'confirm')).toEqual([
+        { business_id: s.spine.rio, place_id: 'ChIJ-rio', status: 'attached' },
+      ]);
+      expect(await row(c, rio.id)).toEqual({
+        status: 'attached',
+        reason: 'confirmed',
+        decided_by: 'user_reviewer_A',
+        decided: true,
+      });
+      expect(await row(c, rioCo.id)).toEqual({
+        status: 'rejected',
+        reason: 'rejected',
+        decided_by: 'user_reviewer_A',
+        decided: true,
+      });
+      // One business carries the place as a verdict input, never two.
+      const sig = await c.query<{ business_id: string }>(
+        'select business_id from business_place_signal where business_id = any($1::uuid[])',
+        [[s.spine.rio, s.spine.rioCo]],
+      );
+      expect(sig.rows).toEqual([{ business_id: s.spine.rio }]);
+    }));
+
+  it('confirming a tie rejects an other side a later run auto-attached', () =>
+    withRollback(async (c) => {
+      const s = await setup(c);
+      // A later run matched the place to rioCo alone (≥95): its row became attached/score while
+      // rio's row still names it as a tie (A-WR-03 part 2).
+      const rioId = await seedAttachment(c, s.a, s.spine.rio, 'ChIJ-rio', 'tentative', 'tie', 97);
+      await c.query('update place_attachments set tie_business_id = $1 where id = $2', [
+        s.spine.rioCo,
+        rioId,
+      ]);
+      const rioCoId = await seedAttachment(
+        c,
+        s.a,
+        s.spine.rioCo,
+        'ChIJ-rio',
+        'attached',
+        'score',
+        96,
+      );
+      await actAs(c, CLAIMS_A);
+      await decideAs(c, rioId, 'confirm');
+      expect(await row(c, rioCoId)).toMatchObject({ status: 'rejected', reason: 'rejected' });
+    }));
+
+  it('confirming a tie whose other side a human confirmed is refused', () =>
+    withRollback(async (c) => {
+      const s = await setup(c);
+      const rioId = await seedAttachment(c, s.a, s.spine.rio, 'ChIJ-rio', 'tentative', 'tie', 97);
+      await c.query('update place_attachments set tie_business_id = $1 where id = $2', [
+        s.spine.rioCo,
+        rioId,
+      ]);
+      await seedAttachment(c, s.a, s.spine.rioCo, 'ChIJ-rio', 'attached', 'confirmed', 96);
+      await actAs(c, CLAIMS_A);
+      // The tie was decided the other way; confirming this side would attach one place to two
+      // businesses. Positive control: "confirming one side of a tie rejects the other side".
+      const attempt = decideAs(c, rioId, 'confirm');
+      await expect(attempt).rejects.toMatchObject({ code: '55000' });
+      await expect(attempt).rejects.toThrow(/decide_place_attachment: already decided/);
     }));
 
   it('decide_place_attachment rejects a tentative listing', () =>
@@ -942,6 +1199,46 @@ describe('app.decide_place_attachment (D-05)', () => {
       expect(ev.rows).toEqual([
         { action: 'update', actor_id: 'user_reviewer_A', before: 'tentative', after: 'attached' },
       ]);
+    }));
+
+  // A-WR-05. events is immutable by grant, so whatever the audit copies is kept forever. The
+  // place_attachments audit carries ids, the status and who decided — never the Google-derived
+  // score or features (docs/legal/places-persistence.md §1.10). place_id stays: it is the
+  // Terms-exempt id (Service Specific Terms §A.3), and the audit is useless without it.
+  it('a listing event carries ids and status only, never score or features', () =>
+    withRollback(async (c) => {
+      const s = await setup(c);
+      const id = await seedAttachment(
+        c,
+        s.a,
+        s.spine.ortiz,
+        'ChIJ-ortiz',
+        'tentative',
+        'score',
+        85,
+      );
+      await actAs(c, CLAIMS_A);
+      await decideAs(c, id, 'confirm');
+      await actAsOwner(c);
+      const ev = await c.query<{ before_keys: string[]; after_keys: string[] }>(
+        `select array(select jsonb_object_keys(before) order by 1) as before_keys,
+                array(select jsonb_object_keys(after) order by 1) as after_keys
+           from events where entity_type = 'place_attachments' and entity_id = $1`,
+        [id],
+      );
+      const ALLOWED = [
+        'business_id',
+        'decided_at',
+        'decided_by',
+        'id',
+        'last_seen_run_id',
+        'org_id',
+        'place_id',
+        'reason',
+        'status',
+        'tie_business_id',
+      ];
+      expect(ev.rows).toEqual([{ before_keys: ALLOWED, after_keys: ALLOWED }]);
     }));
 });
 

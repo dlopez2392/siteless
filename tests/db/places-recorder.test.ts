@@ -47,10 +47,12 @@ vi.hoisted(() => {
 vi.mock('server-only', () => ({}));
 
 type RecordPages = typeof import('../../scripts/lib/record-pages');
+type Meter = typeof import('@/lib/places/meter');
 
 const state: { tx: Tx | null } = { tx: null };
 
 let lib: RecordPages;
+let meter: Meter;
 let realDb: typeof import('@/db/client').db;
 
 const workerDouble = async <T>(
@@ -80,6 +82,8 @@ beforeAll(async () => {
   realDb = (await import('@/db/client')).db;
   vi.doMock('@/db/with-worker-org', () => ({ withWorkerOrg: workerDouble }));
   lib = await import('../../scripts/lib/record-pages');
+  // The same module instance record-pages imported, so it runs through the worker double.
+  meter = await import('@/lib/places/meter');
   startReplayServer();
 });
 
@@ -332,6 +336,52 @@ describe('the recorder legs (D-04, D-20, criterion 5)', () => {
           select released_at is not null as released from cost_reservations where run_id = ${run.runId}`),
       );
       expect(res).toEqual([{ released: true }]);
+    }));
+
+  // A-WR-12. recordPages can throw after reservePage but before settleOrRelease (a DB error in
+  // the settle itself, or the anonymizer throwing after a settled page). The desk script's
+  // `finally` then closes the run as 'crashed' — and clearing the cursor there destroyed the only
+  // record that a billed request may have left. closeRecordingRun now settles the attempt as
+  // charged first (settleInFlight, the product's own replay rule), so the ledger has it.
+  it('a crashed recording settles its in-flight attempt before it closes', () =>
+    inWorld(async (w) => {
+      const { run } = await open(w, { idsOnly: false, maxRequests: 3 });
+      // The attempt was reserved — the request may have left — and then the recorder died.
+      const reserved = await meter.reservePage(
+        { clerkOrgId: run.clerkOrgId, runId: run.runId },
+        {
+          searchId: run.searchId,
+          page: 1,
+          sku: 'ts_enterprise',
+          mode: 'enterprise',
+          keyConfigured: true,
+        },
+      );
+      if (reserved.kind !== 'reserved') throw new Error('expected a reservation');
+
+      await lib.closeRecordingRun(asPg(w.tx), run, 'crashed');
+
+      // Charged (inside the free 1,000, so $0 — but a unit counted against the allowance).
+      expect(await ledgerOf(w.tx, run.runId)).toEqual([
+        { sku: 'ts_enterprise', units: 1, micro: '0' },
+      ]);
+      const res = rows<{ settled: boolean }>(
+        await w.tx.execute(sql`
+          select settled_at is not null as settled from cost_reservations
+           where id = ${reserved.call.reservationId}`),
+      );
+      expect(res).toEqual([{ settled: true }]);
+      const s = rows<{ status: string; res: string | null; req: string | null }>(
+        await w.tx.execute(sql`
+          select status, inflight_reservation_id::text as res, inflight_request_id as req
+            from run_searches where id = ${run.searchId}`),
+      )[0];
+      expect(s).toEqual({ status: 'stopped', res: null, req: null });
+      const r = rows<{ status: string; reason: string | null }>(
+        await w.tx.execute(sql`
+          select status, stopped_reason as reason from runs where id = ${run.runId}`),
+      )[0];
+      expect(r).toEqual({ status: 'failed', reason: 'crashed' });
     }));
 
   it('the recorder closes its run without claiming the tile was swept', () =>

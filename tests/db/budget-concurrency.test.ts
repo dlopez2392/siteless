@@ -218,6 +218,90 @@ describe('the budget meter under genuine concurrency', () => {
       }
     }));
 
+  // A-WR-08. settle_reservation read the hold WITHOUT a lock and computed "how much is still
+  // held" from that snapshot. A release (release_reservation, or the page-view self-heal
+  // release_expired_reservations) committing between the settle's read and its update freed the
+  // hold, and the settle then subtracted it AGAIN: with no other hold, reserved went negative,
+  // bp_non_negative raised, the exception block swallowed it and rolled back the whole balance
+  // update — spent_micro_usd missed a real charge. Phase 4's settleInFlight settles exactly at
+  // the TTL edge, where the self-heal races it. The settle now locks the reservation at the
+  // read (0030), so it waits for the release and sees it.
+  //
+  // Deterministic, not a timing race: the release holds its row lock in an OPEN transaction,
+  // the settle is started and observed WAITING on a lock (pg_stat_activity), and only then does
+  // the release commit.
+  it('a settle racing a release of the same hold counts the hold once', () =>
+    withCommittedFixture(async (c) => {
+      const orgId = await concurrencyOrgId(c);
+      const HOLD = 40;
+      const ACTUAL = 25;
+      const period = await seedPeriod(c, orgId, HOLD);
+      const r = await c.query<{ id: string }>(
+        `insert into cost_reservations (org_id, budget_period_id, sku, est_micro_usd, expires_at)
+         values ($1, $2, $3, $4, now() + interval '10 minutes') returning id`,
+        [orgId, period, SKU, HOLD],
+      );
+      const reservation = r.rows[0]!.id;
+
+      const [releaser, settler] = await openTestClients(2);
+      try {
+        await becomeTenant(releaser!);
+        await becomeTenant(settler!);
+        const pid = (await settler!.query<{ pid: number }>('select pg_backend_pid() as pid'))
+          .rows[0]!.pid;
+
+        await releaser!.query('begin');
+        const freed = await releaser!.query<{ freed: string }>(
+          'select app.release_reservation($1)::text as freed',
+          [reservation],
+        );
+        expect(freed.rows[0]?.freed).toBe(String(HOLD));
+
+        await settler!.query('begin');
+        const settling = settler!.query<{ ok: boolean }>(
+          'select app.settle_reservation($1, $2, $3, 1, $4, $5) as ok',
+          [reservation, 'a-wr-08-race-attempt-1', ACTUAL, SKU, CONCURRENCY_PROVIDER],
+        );
+        // Wait until the settle is BLOCKED on the release's row lock — otherwise the test
+        // would not be exercising the interleaving at all.
+        const deadline = Date.now() + 10_000;
+        for (;;) {
+          const w = await c.query<{ wait: string | null }>(
+            'select wait_event_type as wait from pg_stat_activity where pid = $1',
+            [pid],
+          );
+          if (w.rows[0]?.wait === 'Lock') break;
+          if (Date.now() > deadline) throw new Error('the settle never waited on the release');
+          await new Promise((resolve) => setTimeout(resolve, 25));
+        }
+        await releaser!.query('commit');
+        const settled = await settling;
+        await settler!.query('commit');
+        expect(settled.rows[0]?.ok).toBe(true);
+
+        // The hold left `reserved` exactly once (the release), and the charge is in `spent`.
+        const after = await totals(c, period);
+        expect({ reserved: after.reserved, spent: after.spent }).toEqual({
+          reserved: '0',
+          spent: String(ACTUAL),
+        });
+        // And nothing fell back to the overrun path.
+        const overrun = await c.query<{ n: number }>(
+          `select count(*)::int as n from events where org_id = $1 and action = 'budget_overrun'`,
+          [orgId],
+        );
+        expect(overrun.rows[0]?.n).toBe(0);
+        const ledger = await c.query<{ n: number; micro: string }>(
+          `select count(*)::int as n, coalesce(sum(micro_usd), 0)::text as micro
+             from cost_ledger where reservation_id = $1`,
+          [reservation],
+        );
+        expect(ledger.rows[0]).toEqual({ n: 1, micro: String(ACTUAL) });
+      } finally {
+        await closeAll([releaser!, settler!]);
+      }
+    }));
+
   it('the fixture cleans up after itself and leaves the org in place', () =>
     withCommittedFixture(async (c) => {
       // A committing test is only safe if its cleanup is itself verified. This runs LAST in

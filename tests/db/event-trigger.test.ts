@@ -146,6 +146,15 @@ const LATEST_BUSINESS_EVENT = `
    order by id desc
    limit 1`;
 
+/**
+ * The audit functions: app.log_event (whole-row before/after) and, since drizzle/0030
+ * (A-WR-05), app.log_place_attachment_event — place_attachments' audit with an allow-listed
+ * payload (ids and status, never the Google-derived score or features). Both write the same
+ * events row shape through the same actor resolution, so both count as "this table is audited".
+ * A new audit function must be added here by name, which is a diff a reviewer sees.
+ */
+const AUDIT_FUNCTIONS = ['log_event', 'log_place_attachment_event'];
+
 const LOG_EVENT_TRIGGERS = `
   select c.relname   as table_name,
          t.tgenabled::text as enabled
@@ -155,7 +164,7 @@ const LOG_EVENT_TRIGGERS = `
     join pg_namespace n on n.oid = c.relnamespace
    where not t.tgisinternal
      and n.nspname = 'public'
-     and p.proname = 'log_event'
+     and p.proname in (${AUDIT_FUNCTIONS.map((f) => `'${f}'`).join(', ')})
    order by c.relname`;
 
 describe('attribution is a property of the database', () => {

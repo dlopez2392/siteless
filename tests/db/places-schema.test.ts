@@ -311,6 +311,51 @@ describe('places schema', () => {
       });
     }));
 
+  // A-WR-04. No merge definer touches place_attachments, so a listing that attached BEFORE its
+  // business was merged away stays keyed to the loser. The signal resolves live roots instead:
+  // the survivor's verdict input includes the loser's attached listings, and the loser (hidden
+  // everywhere once merged) has no row of its own. An unmerge restores both, with no data moved.
+  it("a merged business's attached listing counts toward its survivor's signal", () =>
+    withRollback(async (c) => {
+      const { a } = await seedTwoOrgs(c);
+      const spine = await seedPlacesSpine(c, a);
+      const run = await seedPlacesRun(c, a);
+      // garza (the survivor) has a listing with no website; ortiz (the loser) has one WITH a
+      // website, attached before the merge.
+      await seedAttachmentWithObservation(c, {
+        orgId: a,
+        businessId: spine.garza,
+        placeId: 'synthetic-place-garza',
+        runId: run.runId,
+        status: 'attached',
+        hadWebsiteUri: false,
+        hostClass: 'none',
+      });
+      await seedAttachmentWithObservation(c, {
+        orgId: a,
+        businessId: spine.ortiz,
+        placeId: 'synthetic-place-ortiz',
+        runId: run.runId,
+        status: 'attached',
+        hadWebsiteUri: true,
+        hostClass: 'social',
+      });
+      await c.query(`update businesses set merged_into_id = $1, status = 'merged' where id = $2`, [
+        spine.garza,
+        spine.ortiz,
+      ]);
+      await actAs(c, CLAIMS_A);
+      const { rows } = await c.query<SignalRow>(
+        `select business_id, had_website_uri, host_class, listings from business_place_signal
+          where business_id = any($1::uuid[])`,
+        [[spine.garza, spine.ortiz]],
+      );
+      // Not a false "no website": the survivor carries the loser's listing.
+      expect(rows).toEqual([
+        { business_id: spine.garza, had_website_uri: true, host_class: 'social', listings: 2 },
+      ]);
+    }));
+
   it('the signal view is tenant-scoped', () =>
     withRollback(async (c) => {
       const { a, b } = await seedTwoOrgs(c);
