@@ -34,6 +34,8 @@ import {
   RUN_DRAWER_TITLE_PARTITION,
   RUN_MODE_REFUSED,
   RUN_OPEN_RUNNING,
+  RUN_REFUSED,
+  RUN_REFUSED_CHECK_NOTE,
   RUN_START_UNKNOWN,
   RUN_START_UNKNOWN_ACTION,
 } from '@/lib/ui/copy';
@@ -208,6 +210,38 @@ describe('run drawer', () => {
     // Following it closes the drawer and re-reads the page, so a run that was created shows up.
     fireEvent.click(recent);
     expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('the check drawer never says nothing is reserved, and a refused check says why', async () => {
+    const d = openDrawer('check');
+    const drawer = screen.getByTestId('run-drawer');
+    // C-WR-05: queueRun holds 1 µUSD on the free SKU, so "nothing is reserved" is false.
+    expect(drawer).not.toHaveTextContent(/nothing is reserved/i);
+    expect(drawer).toHaveTextContent(RUN_DRAWER_CHECK_NOTE);
+
+    await confirmWith(d, {
+      ok: false,
+      code: 'budget_refused',
+      message: RUN_REFUSED(50_000_000),
+      detail: { pctAfter: 100 },
+    });
+    const alert = d.getByTestId('run-refused');
+    expect(alert).toHaveTextContent(RUN_REFUSED(50_000_000));
+    expect(within(alert).getByTestId('run-refused-check-note')).toHaveTextContent(
+      RUN_REFUSED_CHECK_NOTE,
+    );
+    cleanup();
+
+    // A paid run's refusal needs no such note.
+    const f = openDrawer('full');
+    await confirmWith(f, {
+      ok: false,
+      code: 'budget_refused',
+      message: RUN_REFUSED(50_000_000),
+      detail: { pctAfter: 100 },
+    });
+    expect(f.getByTestId('run-refused')).toBeInTheDocument();
+    expect(f.queryByTestId('run-refused-check-note')).toBeNull();
   });
 
   it('a second active run links to the running run', async () => {

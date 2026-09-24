@@ -44,6 +44,7 @@ import {
   RUN_DRAWER_TITLE_FULL,
   RUN_DRAWER_TITLE_PARTITION,
   RUN_OPEN_RUNNING,
+  RUN_REFUSED_CHECK_NOTE,
   RUN_START_UNKNOWN,
   RUN_START_UNKNOWN_ACTION,
 } from '@/lib/ui/copy';
@@ -353,7 +354,13 @@ export function RunDrawer(props: RunDrawerProps) {
           <AlertTitle className="text-base font-semibold text-balance">
             {outcome.message}
           </AlertTitle>
-          <AlertDescription className="text-inherit">
+          <AlertDescription className="flex flex-col items-start gap-2 text-inherit">
+            {/* C-WR-05: a FREE check refused at the cap needs to say why a free run met it. */}
+            {kind === 'check' ? (
+              <p data-testid="run-refused-check-note" className="text-sm font-normal">
+                {RUN_REFUSED_CHECK_NOTE}
+              </p>
+            ) : null}
             {/* The way out. Admin or not, the sentence ends somewhere the reader can
                 actually go — T-2-02 makes this an affordance only: the boundary is
                 `app.set_budget_cap` plus the absent UPDATE grant on budget_periods. */}

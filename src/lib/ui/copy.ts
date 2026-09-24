@@ -1534,8 +1534,19 @@ export function RUN_DRAWER_CELLS(cells: number, totalCells: number, week: number
 
 export const RUN_DRAWER_COST_LABEL = 'Cost';
 export const RUN_DRAWER_CHECK_COST = '$0.00 — IDs-only searches are free';
+/**
+ * C-WR-05: NOT "nothing is reserved". `queueRun` holds one micro-dollar on the free SKU so the
+ * check goes through the meter like every run — which also means a fully spent cap refuses it.
+ */
 export const RUN_DRAWER_CHECK_NOTE =
-  'Nothing is reserved; each request is still written to the ledger.';
+  'Siteless holds a placeholder of one millionth of a dollar so the check goes through the ' +
+  'budget meter like every run — if the monthly cap is already spent, the check is refused ' +
+  'too. Each request is still written to the ledger.';
+
+/** C-WR-05: under a refused CHANGE CHECK, why a free run met the cap. */
+export const RUN_REFUSED_CHECK_NOTE =
+  'Change checks cost nothing, but each one holds a one-millionth-of-a-dollar placeholder on ' +
+  'the meter, so a spent cap refuses them too.';
 
 export const RUN_DRAWER_CONFIRM_FULL = 'Reserve budget & start the sweep';
 
