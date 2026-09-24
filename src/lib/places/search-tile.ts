@@ -232,9 +232,18 @@ async function persistPage(
   );
 }
 
-/** Share of this search's place ids that its parent tile already held (the novelty floor). */
+/**
+ * Share of this search's place ids that its parent tile held IN THIS RUN (the novelty floor).
+ *
+ * B-WR-02 (part). The parent's membership is shared across runs and presets and only grows
+ * (Enterprise sweeps never set `gone_at`), so reading all of it made the overlap drift upward run
+ * after run and truncate children as `novelty` that were finding plenty. Only the members the
+ * parent's search saw in THIS run count — the parent is always searched earlier in the same run
+ * than the child it planned, so those are exactly the ids it just returned.
+ */
 async function overlapWithParent(
   tx: Tx,
+  runId: string,
   parentTileKey: string,
   ids: ReadonlySet<string>,
 ): Promise<number> {
@@ -245,7 +254,9 @@ async function overlapWithParent(
         join place_tiles t on t.id = m.tile_id
        where t.org_id = (select app.current_org_id())
          and t.tile_key = ${parentTileKey}
-         and m.gone_at is null`),
+         and m.gone_at is null
+         and m.last_seen_at >= (select coalesce(r.started_at, r.created_at)
+                                  from runs r where r.id = ${runId}::uuid)`),
   );
   const held = new Set(parent.map((r) => r.place_id));
   let shared = 0;
@@ -541,7 +552,9 @@ export async function runSearchTile(
   const shape = shapeFor(search.shape, deps.shapes);
   const next = await withWorkerOrg(input.clerkOrgId, actor, async (tx) => {
     const overlap =
-      search.parentTileKey === null ? null : await overlapWithParent(tx, search.parentTileKey, ids);
+      search.parentTileKey === null
+        ? null
+        : await overlapWithParent(tx, input.runId, search.parentTileKey, ids);
     const decided = decideSubdivision(
       search,
       { resultsCount: total, pagesServed, overlapWithParent: overlap },

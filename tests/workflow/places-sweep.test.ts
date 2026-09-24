@@ -17,7 +17,13 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { start } from 'workflow/api';
 import { PLACES_IDS_ONLY_FIELD_MASK } from '@/lib/budget/field-mask-tier';
 import { PRICE_BOOK } from '@/lib/budget/price-book';
-import { quadrants, type GeoShapesFile, type Rect } from '@/lib/places/tiling';
+import {
+  quadrants,
+  rectIntersectsShape,
+  shapeFor,
+  type GeoShapesFile,
+  type Rect,
+} from '@/lib/places/tiling';
 import geoShapes from '@/seed/data/geo-shapes.json';
 import { placesSweep, type SweepOutcome } from '@/workflows/places-sweep/workflow';
 import { server, startReplayServer } from '../unit/msw/server';
@@ -279,6 +285,61 @@ describe('places-sweep workflow', () => {
     expect(await sweep(w)).toEqual({ status: 'complete', reason: null });
     const root = (await searchesOf(w.runId)).find((s) => s.tile_key === tileKey('plumber', 'r'));
     expect(root).toMatchObject({ status: 'done', saturated: true, subdivided: true });
+  });
+
+  it("novelty reads only the parent's members from this run", async () => {
+    // B-WR-02 (part): the parent's membership only grows across runs. A child whose 60 ids an
+    // OLD run had filed under the parent — but that this run's parent search did not return —
+    // is finding new places and must be split, not truncated as `novelty`.
+    const childIds = Array.from({ length: 60 }, (_, i) => `synthetic-dense-${i + 1}`);
+    const childPage = (n: number) => ({
+      places: childIds.slice((n - 1) * 20, n * 20).map((id) => ({ id })),
+      ...(n < 3 ? { nextPageToken: `dense:p${n + 1}` } : {}),
+    });
+    // The first quadrant McAllen's outline actually touches (a pruned one is never searched).
+    const shape = shapeFor({ kind: 'polygon', unitKind: 'city', unitId: MCALLEN.unitId }, SHAPES);
+    const digit = quadrants(MCALLEN_BBOX).findIndex((q) => rectIntersectsShape(q, shape));
+    const childRect = quadrants(MCALLEN_BBOX)[digit]!;
+    const childKey = tileKey('plumber', `r${digit}`);
+    const w = await world({
+      extra: async (c, orgId) => {
+        const t = await c.query<{ id: string }>(
+          `insert into place_tiles (org_id, tile_key, unit_kind, unit_id, places_type, quad_path,
+                                    depth, south, west, north, east, is_leaf)
+           values ($1, $2, 'city', '48215/McAllen', 'plumber', 'r', 0, $3, $4, $5, $6, false)
+           returning id`,
+          [
+            orgId,
+            tileKey('plumber', 'r'),
+            MCALLEN_BBOX.south,
+            MCALLEN_BBOX.west,
+            MCALLEN_BBOX.north,
+            MCALLEN_BBOX.east,
+          ],
+        );
+        for (const placeId of childIds) {
+          await c.query(
+            `insert into place_tile_members (org_id, tile_id, place_id, first_seen_at, last_seen_at)
+             values ($1, $2, $3, now() - interval '30 days', now() - interval '30 days')`,
+            [orgId, t.rows[0]!.id, placeId],
+          );
+        }
+      },
+    });
+    setPlacesRoutes([
+      SATURATED_ROUTES[0]!,
+      {
+        name: 'child-dense',
+        when: (b) => isType('plumber')(b) && sameRect(rectOf(b), childRect),
+        pages: [childPage(1), childPage(2), childPage(3)],
+      },
+      { name: 'everything-else-empty', when: () => true, pages: PLACES_PAGES.empty },
+    ]);
+
+    expect(await sweep(w)).toEqual({ status: 'complete', reason: null });
+    const child = (await searchesOf(w.runId)).find((s) => s.tile_key === childKey);
+    expect(child).toMatchObject({ status: 'done', saturated: true, subdivided: true });
+    expect(child?.truncated).toBe(false);
   });
 
   it('a refused reservation ends the run partial', async () => {
