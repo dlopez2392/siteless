@@ -98,21 +98,24 @@ async function release(c: Client, reservationId: string): Promise<string> {
 /** One planned search element, in the shape 04-13's planner hands app.plan_run_searches. */
 function searchEl(
   tileKey: string,
-  opts: { kind?: 'enterprise' | 'ids_only'; parentTileKey?: string | null; depth?: number } = {},
+  opts: {
+    kind?: 'enterprise' | 'ids_only';
+    parentTileKey?: string | null;
+    depth?: number;
+    rect?: { south: number; west: number; north: number; east: number };
+  } = {},
 ) {
+  const rect = opts.rect ?? { south: 26.15, west: -98.3, north: 26.3, east: -98.18 };
   return {
     tileKey,
     cellKey: 'home_services/48215/McAllen',
     clusterKey: 'home_services',
     unitKind: 'city',
     unitId: '48215/McAllen',
-    placesType: 'plumber',
+    placesType: tileKey.split('|')[1] ?? 'plumber',
     quadPath: tileKey.split('|')[2] ?? 'r',
     depth: opts.depth ?? 0,
-    south: 26.15,
-    west: -98.3,
-    north: 26.3,
-    east: -98.18,
+    ...rect,
     parentTileKey: opts.parentTileKey ?? null,
     kind: opts.kind ?? 'enterprise',
   };
@@ -438,6 +441,39 @@ describe('app.plan_run_searches / app.mark_run_search (D-15, D-16, T-4-06, T-4-1
       );
       // Cleared, and the status the call did not name is untouched.
       expect(cleared.rows[0]).toEqual({ res: null, req: null, status: 'searching' });
+    }));
+
+  // A-WR-11 / B-CR-03. place_tiles is shared across runs and presets, keyed by tile_key, and the
+  // key does not encode the rectangle. Keeping the FIRST rect ever written meant a re-fetched
+  // outline (or two presets colliding on one key) had change checks search stale geography
+  // while sweeps searched the new one. The plan now refreshes the stored geometry.
+  it('plan_run_searches refreshes a tile’s stored rectangle', () =>
+    withRollback(async (c) => {
+      const { a } = await seedTwoOrgs(c);
+      // An earlier preset / outline wrote the tile with its rectangle…
+      await seedRunSearch(c, a, (await seedPlacesRun(c, a, { status: 'complete' })).runId, {
+        tileKey: TILE_ROOT,
+        placesType: 'plumber',
+        rect: { south: 26.15, west: -98.3, north: 26.3, east: -98.18 },
+      });
+      const run = await seedPlacesRun(c, a);
+      await actAs(c, CLAIMS_A);
+      // …and this run plans the same key over the re-fetched outline.
+      const after = { south: 26.1, west: -98.35, north: 26.32, east: -98.12 };
+      await plan(c, run.runId, [searchEl(TILE_ROOT, { rect: after })]);
+
+      const tiles = await c.query<{
+        n: string;
+        south: number;
+        west: number;
+        north: number;
+        east: number;
+      }>(
+        `select count(*) over () ::text as n, south, west, north, east
+           from place_tiles where org_id = $1 and tile_key = $2`,
+        [a, TILE_ROOT],
+      );
+      expect(tiles.rows).toEqual([{ n: '1', ...after }]);
     }));
 });
 

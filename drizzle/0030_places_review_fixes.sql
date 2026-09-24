@@ -668,3 +668,99 @@ create trigger place_attachments_event_upd after update on place_attachments
 comment on function app.log_place_attachment_event() is
   'A-WR-05. The place_attachments audit trigger (AFTER UPDATE, status changes only): inserts ONE events row whose before/after carry an allow-list — id, org_id, business_id, place_id, status, reason, tie_business_id, decided_by, decided_at, last_seen_run_id — and never the Google-derived score or features. place_id is the Terms-exempt id and is retained indefinitely in events (docs/legal/places-persistence.md).';
 --> statement-breakpoint
+
+-- ===========================================================================
+-- 7. A-WR-11 / B-CR-03 — app.plan_run_searches refreshes a tile's stored geometry.
+-- ===========================================================================
+--
+-- place_tiles is keyed per (org, tile_key) and shared across runs and presets, and the key
+-- names the unit, type and quad path — NOT the rectangle. 0028's `do update set updated_at`
+-- kept the FIRST rectangle ever written, so:
+--   * a re-run of scripts/fetch-geo-shapes.ts (TIGERweb or the city list changed) made sweeps
+--     search the new rectangle while change checks, which read the rectangle from place_tiles,
+--     searched the old one and diffed a different area (A-WR-11);
+--   * two radius presets in one county with the same radius share a key (the centre is not in
+--     the radius unit id), so preset B's change checks read preset A's ground (B-CR-03 — the
+--     key itself is fixer B's half: src/lib/estimate/expand-cells.ts puts the centre in it).
+--
+-- The upsert now writes the incoming geometry (bounds, depth, quad path, unit and type) over
+-- the stored one. Membership is left as history: the first check after a geometry change
+-- diffs the new rectangle against members recorded for the old one, reports the churn once,
+-- and flags the tile changed — which is what a moved tile should do (re-sweep candidate).
+-- Refusing on a mismatch (the review's alternative) would leave an operator no path forward
+-- short of hand-deleting tiles. Otherwise the 0028 body, unchanged.
+create or replace function app.plan_run_searches(p_run uuid, p_searches jsonb)
+returns table (search_id uuid, tile_key text)
+language plpgsql security definer set search_path = public, pg_temp as $$
+#variable_conflict use_column
+declare v_org uuid; v_status text; v_run_kind text; v_expected text;
+        el jsonb; v_tile uuid;
+begin
+  v_org := app.current_org_id();
+  if v_org is null then
+    raise exception 'plan_run_searches: no current org' using errcode = '42501';
+  end if;
+
+  select r.status, r.kind into v_status, v_run_kind
+    from runs r where r.id = p_run and r.org_id = v_org;
+  if not found then
+    raise exception 'plan_run_searches: run belongs to another org or does not exist'
+      using errcode = '42501';
+  end if;
+  if v_status not in ('queued', 'running') then
+    raise exception 'plan_run_searches: run is not active' using errcode = '55000';
+  end if;
+
+  if p_searches is null or jsonb_typeof(p_searches) <> 'array' then
+    raise exception 'plan_run_searches: searches must be a json array' using errcode = '22023';
+  end if;
+
+  v_expected := case when v_run_kind = 'change_check' then 'ids_only' else 'enterprise' end;
+
+  for el in select e.value from jsonb_array_elements(p_searches) e loop
+    if jsonb_typeof(el) <> 'object' or el->>'tileKey' is null then
+      raise exception 'plan_run_searches: each search needs a tileKey' using errcode = '22023';
+    end if;
+    if (el->>'kind') is distinct from v_expected then
+      raise exception 'plan_run_searches: search kind does not match the run'
+        using errcode = '22023';
+    end if;
+
+    insert into place_tiles as t (org_id, tile_key, unit_kind, unit_id, places_type, quad_path,
+                                  depth, south, west, north, east)
+         values (v_org, el->>'tileKey', el->>'unitKind', el->>'unitId', el->>'placesType',
+                 el->>'quadPath', (el->>'depth')::int,
+                 (el->>'south')::double precision, (el->>'west')::double precision,
+                 (el->>'north')::double precision, (el->>'east')::double precision)
+    -- A-WR-11 / B-CR-03: the incoming geometry wins; the key does not encode it.
+    on conflict on constraint place_tiles_key do update
+       set updated_at = now(),
+           unit_kind = excluded.unit_kind, unit_id = excluded.unit_id,
+           places_type = excluded.places_type, quad_path = excluded.quad_path,
+           depth = excluded.depth,
+           south = excluded.south, west = excluded.west,
+           north = excluded.north, east = excluded.east
+    returning t.id into v_tile;
+
+    insert into run_searches (org_id, run_id, tile_id, tile_key, cell_key, cluster_key,
+                              places_type, kind, depth, parent_tile_key)
+         values (v_org, p_run, v_tile, el->>'tileKey', el->>'cellKey', el->>'clusterKey',
+                 el->>'placesType', el->>'kind', (el->>'depth')::int, el->>'parentTileKey')
+    on conflict on constraint run_searches_key do nothing;
+
+    return query
+      select rs.id, rs.tile_key from run_searches rs
+       where rs.run_id = p_run and rs.org_id = v_org and rs.tile_key = el->>'tileKey';
+  end loop;
+end $$;
+--> statement-breakpoint
+
+revoke execute on function app.plan_run_searches(uuid, jsonb) from public, anon, service_role;
+--> statement-breakpoint
+
+grant execute on function app.plan_run_searches(uuid, jsonb) to authenticated;
+--> statement-breakpoint
+
+comment on function app.plan_run_searches(uuid, jsonb) is
+  'D-15 / D-16 / T-4-06 / A-WR-11. Records each planned (type x tile) search for an active run of the caller''s org: upserts place_tiles per (org, tile_key) — writing the incoming rectangle, depth, quad path, unit and type over the stored ones, so a re-fetched outline or a re-keyed preset never leaves change checks on stale geometry — inserts run_searches do-nothing per (run, tile_key), returns (search_id, tile_key); a replay returns the same ids. 42501 foreign-or-missing run (one message), 55000 inactive run, 22023 a kind that disagrees with the run (change_check <=> ids_only).';
+--> statement-breakpoint
