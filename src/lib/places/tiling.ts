@@ -322,6 +322,17 @@ export function decideSubdivision(
   if (obs.overlapWithParent !== null && obs.overlapWithParent >= NOVELTY_MAX_OVERLAP) {
     return { action: 'truncate', why: 'novelty' };
   }
+  const children = childrenOf(spec, shape);
+  return children.length === 0 ? { action: 'done' } : { action: 'subdivide', children };
+}
+
+/**
+ * The quadrants of `spec` that touch the unit's shape, as child specs. Pure geometry — the same
+ * spec and shape always give the same children, which is what lets a replayed search that was
+ * already `done` + `subdivided` re-plan exactly the children it planned the first time (B-CR-02;
+ * `plan_run_searches` is idempotent per run × tile, so they come back with the same ids).
+ */
+export function childrenOf(spec: TileSpec, shape: UnitShape): TileSpec[] {
   const children: TileSpec[] = [];
   quadrants(spec.rect).forEach((rect, digit) => {
     if (!rectIntersectsShape(rect, shape)) return;
@@ -335,5 +346,5 @@ export function decideSubdivision(
       parentTileKey: spec.tileKey,
     });
   });
-  return children.length === 0 ? { action: 'done' } : { action: 'subdivide', children };
+  return children;
 }

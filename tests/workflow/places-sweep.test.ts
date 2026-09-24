@@ -368,6 +368,80 @@ describe('places-sweep workflow', () => {
     expect(await openHoldsOf(w.runId)).toBe(0);
   });
 
+  it('a page that fails mid-tile is retried in the step and no page is bought twice', async () => {
+    // B-CR-02: page 3 of the saturated plumber root answers 503 once. The page token lives only
+    // in the step's memory, so a step-level retry would start again at page 1 and re-buy pages
+    // 1 and 2 (6 root requests). Retried in the step, it is 4: p1, p2, p3 (503), p3.
+    const w = await world();
+    let rootCalls = 0;
+    setPlacesRoutes([
+      {
+        name: 'root-p3-down-once',
+        when: (b) => isType('plumber')(b) && isRoot(b) && ++rootCalls === 3,
+        error: 'unavailable',
+        times: 1,
+      },
+      ...SATURATED_ROUTES,
+      { name: 'other-types-empty', when: (b) => !isType('plumber')(b), pages: PLACES_PAGES.empty },
+    ]);
+
+    const outcome = await sweep(w);
+    expect(outcome).toEqual({ status: 'complete', reason: null });
+
+    const root = placesRequests.filter((r) => isType('plumber')(r.body) && isRoot(r.body));
+    expect(root.map((r) => r.body.pageToken)).toEqual([
+      undefined,
+      'saturated:p2',
+      'saturated:p3',
+      'saturated:p3',
+    ]);
+    // Every attempt was its own reservation and counted; the 503 was released, not ledgered.
+    const run = await runRow(w.runId);
+    const ledger = await ledgerOf(w.runId);
+    expect(run.calls_count).toBe(placesRequests.length);
+    expect(ledger).toHaveLength(placesRequests.length - 1);
+    expect(await openHoldsOf(w.runId)).toBe(0);
+    const searches = await searchesOf(w.runId);
+    expect(searches.find((s) => s.tile_key === tileKey('plumber', 'r'))).toMatchObject({
+      status: 'done',
+      saturated: true,
+      subdivided: true,
+    });
+  });
+
+  it('a database refusal after a bought page fails the run without buying it again', async () => {
+    // B-CR-02 case 2 / B-WR-07: a place id outside the writer's alphabet makes
+    // app.record_places_page refuse with 22023 — AFTER the page was bought. The refusal is the
+    // same on every retry, so it is fatal: one request, one charged ledger row, run failed.
+    const w = await world();
+    const badPage = {
+      places: [
+        {
+          id: 'synthetic bad id',
+          displayName: { text: 'Synthetic Refused Plumber' },
+          formattedAddress: '77 Synthetic Refused St, McAllen, TX 78501',
+          location: { latitude: 26.2, longitude: -98.23 },
+        },
+      ],
+    };
+    setPlacesRoutes([
+      { name: 'plumber-refused', when: isType('plumber'), pages: [badPage] },
+      { name: 'other-types-empty', when: () => true, pages: PLACES_PAGES.empty },
+    ]);
+
+    const outcome = await sweep(w);
+    expect(outcome).toEqual({ status: 'failed', reason: 'places_unavailable' });
+    expect(placesRequests.filter((r) => isType('plumber')(r.body))).toHaveLength(1);
+    // The rolled-back page left its attempt in flight; finishRun settled it AS CHARGED.
+    const ledger = await ledgerOf(w.runId);
+    expect(ledger).toHaveLength(placesRequests.length);
+    expect(await openHoldsOf(w.runId)).toBe(0);
+    expect((await searchesOf(w.runId)).filter((s) => s.inflight)).toEqual([]);
+    // The step failed with the SQLSTATE, read through drizzle's `.cause` (B-WR-07).
+    const scan = scanWorldFiles(Date.now() - 120_000);
+    expect([...scan.raw, ...scan.payloads].some((t) => t.includes('step_error:22023'))).toBe(true);
+  });
+
   it('a step that keeps failing stops retrying and fails the run', async () => {
     const w = await world();
     setPlacesRoutes([{ name: 'down', when: () => true, error: 'unavailable', times: 100 }]);

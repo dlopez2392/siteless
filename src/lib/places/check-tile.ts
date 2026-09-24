@@ -72,6 +72,24 @@ export async function runCheckTile(
   // 0. A crashed earlier attempt is settled as charged before anything is called again.
   await settleInFlight(ctx, searchId);
 
+  // 0b. B-CR-02 (case 3). A check already recorded `done` is never listed again: a re-executed
+  //     step would re-diff against the membership its own first pass just wrote, and overwrite
+  //     the recorded verdict with `unchanged`. Its result is rebuilt from the row.
+  const prior = (
+    await withWorkerOrg(ctx.clerkOrgId, `workflow:${ctx.runId}`, async (tx) =>
+      rowsOf<{ status: string; change_verdict: string | null; run_status: string }>(
+        await tx.execute(sql`
+          select s.status, s.change_verdict, r.status as run_status
+            from run_searches s join runs r on r.id = s.run_id
+           where s.id = ${searchId}::uuid and s.run_id = ${ctx.runId}::uuid`),
+      ),
+    )
+  )[0];
+  if (prior?.status === 'done') {
+    if (prior.run_status !== 'running') return fail(tileKey, 'places_unavailable', false);
+    return { kind: 'checked', tileKey, changed: CHANGED.has(prior.change_verdict ?? '') };
+  }
+
   const first = buildFirstPage({
     placesType: search.placesType,
     rect: search.rect,
