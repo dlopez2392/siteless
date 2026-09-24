@@ -155,7 +155,7 @@ function listing(placeId: string, cands: ScoredCandidate[], host: HostClass): Pa
   const pfm = toPlaceForMatch(
     {
       id: placeId,
-      formattedAddress: 'McAllen, TX 78501, USA',
+      formattedAddress: 'McAllen, TX 78501',
       location: { latitude: 26.2159, longitude: -98.2336 },
       pureServiceAreaBusiness: false,
     },
