@@ -1763,6 +1763,18 @@ export const REVIEW_GOOGLE_ALREADY_DECIDED =
   'Someone already decided this listing while it was open here. Their decision stands. Reload ' +
   "the queue to see what's next.";
 
+/**
+ * A tie's OTHER side was already confirmed for its business (drizzle/0030 refuses the confirm,
+ * 55000): nobody decided THIS listing, so "someone already decided this listing" would be
+ * false. `other` = the other business's spine `display_name` (never Google text, Rule 30).
+ */
+export function REVIEW_GOOGLE_TIE_TAKEN(other: string) {
+  return (
+    `This listing was already confirmed for "${other}", so it can't also be this business's. ` +
+    "Reload the queue to see what's next."
+  );
+}
+
 /* --- Reject dialog (the irreversible "Not this business", Rule 42) ------------------------ */
 
 export function REJECT_TITLE(name: string) {

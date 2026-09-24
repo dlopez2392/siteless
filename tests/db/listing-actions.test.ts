@@ -22,6 +22,7 @@ import {
   DETACH_FAILED,
   NOT_FOUND,
   REVIEW_GOOGLE_ALREADY_DECIDED,
+  REVIEW_GOOGLE_TIE_TAKEN,
 } from '@/lib/ui/copy';
 import type { Tx } from '@/server/queries/budget';
 import { actAs, actAsOwner, seedTwoOrgs } from './_fixtures';
@@ -243,6 +244,58 @@ describe('recordListingDecision', () => {
       });
       // The first decision stands.
       expect((await attachmentRow(tx, attachmentId))?.status).toBe('attached');
+    }));
+
+  // 0030 (A-WR-03) refuses confirming one side of a tie whose OTHER side a human already
+  // confirmed — 55000, the same code as a stale screen. The generic "someone already decided
+  // this listing" is false here: nobody decided THIS row. The action says what happened: the
+  // place was confirmed for the other business, so it can't also be this one's.
+  it('confirming a tie the other business already holds says which business has it', () =>
+    withTxRollback(async (tx) => {
+      const { c, orgs, spine, run } = await seedOrgA(tx);
+      const mine = await seedAttachmentWithObservation(c, {
+        orgId: orgs.a,
+        businessId: spine.rio,
+        placeId: 'ChIJ_rio_tie',
+        runId: run.runId,
+        status: 'tentative',
+        hadWebsiteUri: false,
+        hostClass: 'none',
+      });
+      const theirs = await seedAttachmentWithObservation(c, {
+        orgId: orgs.a,
+        businessId: spine.rioCo,
+        placeId: 'ChIJ_rio_tie',
+        runId: run.runId,
+        status: 'attached',
+        hadWebsiteUri: false,
+        hostClass: 'none',
+      });
+      await c.query(
+        `update place_attachments set reason = 'tie', tie_business_id = $1 where id = $2`,
+        [spine.rioCo, mine.attachmentId],
+      );
+      await c.query(`update place_attachments set reason = 'confirmed' where id = $1`, [
+        theirs.attachmentId,
+      ]);
+
+      expect(
+        await actions.recordListingDecision({
+          attachmentId: mine.attachmentId,
+          decision: 'attached',
+        }),
+      ).toEqual({
+        ok: false,
+        code: 'conflict',
+        message: REVIEW_GOOGLE_TIE_TAKEN('Rio Roofing Co'),
+        detail: { reason: 'tie_confirmed_elsewhere' },
+      });
+      // Nothing moved: this side is still pending, the other still confirmed.
+      expect((await attachmentRow(tx, mine.attachmentId))?.status).toBe('tentative');
+      expect(await attachmentRow(tx, theirs.attachmentId)).toMatchObject({
+        status: 'attached',
+        reason: 'confirmed',
+      });
     }));
 
   it("another org's listing is not found", () =>

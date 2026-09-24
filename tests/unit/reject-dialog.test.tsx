@@ -37,6 +37,7 @@ import {
   REVIEW_GOOGLE_DECISION_FAILED,
   REVIEW_GOOGLE_HELPER_NOT_THIS,
   REVIEW_GOOGLE_HELPER_SKIP,
+  REVIEW_GOOGLE_TIE_TAKEN,
   TOAST_ATTACHED,
   TOAST_ATTACHED_TIE,
   TOAST_REJECTED,
@@ -146,14 +147,16 @@ describe('google listing actions', () => {
   });
 
   it('confirming a tie side whose other side a human already confirmed offers only a reload (0030)', async () => {
-    // 0030's `decide_place_attachment` refuses 55000; `_listing-decisions.ts` maps 55000 to
-    // `conflict` / `already_decided`. The bar must not claim success, must not advance, and must
-    // not offer a retry that can only be refused again.
+    // 0030's `decide_place_attachment` refuses 55000; `_listing-decisions.ts` maps THIS 55000
+    // (a pending tie whose other side is confirmed) to `conflict` / `tie_confirmed_elsewhere`
+    // with the sentence that names the other business. The bar shows that sentence — not "someone
+    // already decided this listing", which is false here — must not claim success, must not
+    // advance, and must not offer a retry that can only be refused again.
     action.mockResolvedValueOnce({
       ok: false,
       code: 'conflict',
-      message: REVIEW_GOOGLE_ALREADY_DECIDED,
-      detail: { reason: 'already_decided' },
+      message: REVIEW_GOOGLE_TIE_TAKEN('Valley Lock Co'),
+      detail: { reason: 'tie_confirmed_elsewhere' },
     });
     render(
       <ReviewActions
@@ -168,7 +171,8 @@ describe('google listing actions', () => {
       fireEvent.click(screen.getByTestId('review-action-same'));
     });
     const actions = screen.getByTestId('review-actions');
-    expect(actions).toHaveTextContent(REVIEW_GOOGLE_ALREADY_DECIDED);
+    expect(actions).toHaveTextContent(REVIEW_GOOGLE_TIE_TAKEN('Valley Lock Co'));
+    expect(actions).not.toHaveTextContent(REVIEW_GOOGLE_ALREADY_DECIDED);
     expect(within(actions).queryByRole('button', { name: /try again/i })).toBeNull();
     expect(within(actions).getByRole('button', { name: /reload the queue/i })).toBeInTheDocument();
     expect(toastFn).not.toHaveBeenCalled();

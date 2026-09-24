@@ -5,6 +5,7 @@ import {
   NOT_FOUND,
   REVIEW_GOOGLE_ALREADY_DECIDED,
   REVIEW_GOOGLE_DECISION_FAILED,
+  REVIEW_GOOGLE_TIE_TAKEN,
 } from '@/lib/ui/copy';
 import { rowsOf, type Tx } from '@/server/queries/budget';
 import { readGoogleReviewRemaining } from '@/server/queries/review-queue';
@@ -26,8 +27,9 @@ import { fail, type ActionResult } from './_result';
  * SELECT-only for `authenticated`; the definer re-reads the listing under the caller's org
  * (42501 for a foreign OR unknown id → `not_found`, never a permission error), moves it only
  * from its from-state (`tentative` for confirm/reject, `attached` for detach — anything else is
- * 55000 → `conflict`), and takes `decided_by` from the claims' `sub`, never from input
- * (T-4-06). Its status change writes the one `events` row (place_attachments_event_upd, 0027).
+ * 55000 → `conflict`; a confirm refused because the tie's OTHER side is already confirmed is
+ * told apart after the fact, `tie_confirmed_elsewhere`), and takes `decided_by` from the
+ * claims' `sub`, never from input (T-4-06). Its status change writes the one `events` row (place_attachments_event_upd, 0027).
  *
  * 🔴 NEVER GOOGLE TEXT (Rule 30). `businessName` is the SPINE business's `display_name`.
  *
@@ -40,7 +42,8 @@ export type ListingDecision = 'attached' | 'rejected' | 'skip';
 export type ListingOutcome =
   | { kind: 'decided'; businessId: string; businessName: string; remaining: number }
   | { kind: 'missing' }
-  | { kind: 'already_decided' };
+  | { kind: 'already_decided' }
+  | { kind: 'tie_taken'; otherName: string };
 
 async function spineName(tx: Tx, businessId: string): Promise<string> {
   const row = rowsOf<{ display_name: string }>(
@@ -84,14 +87,50 @@ export async function decideListing(
   }
 
   const verb = input.decision === 'attached' ? 'confirm' : 'reject';
-  const row = rowsOf<{ business_id: string }>(
-    await tx.execute(sql`
-      select d.business_id
-        from app.decide_place_attachment(${input.attachmentId}::uuid, ${verb}) d`),
-  )[0];
+  let row: { business_id: string } | undefined;
+  try {
+    // A savepoint, so a refusal leaves this transaction usable for the read below.
+    row = await tx.transaction(async (sp) => {
+      const rows = rowsOf<{ business_id: string }>(
+        await (sp as unknown as Tx).execute(sql`
+          select d.business_id
+            from app.decide_place_attachment(${input.attachmentId}::uuid, ${verb}) d`),
+      );
+      return rows[0];
+    });
+  } catch (error) {
+    if (verb === 'confirm' && pgFailure(error)?.code === '55000') {
+      const otherName = await tieTakenBy(tx, input.attachmentId);
+      if (otherName !== null) return { kind: 'tie_taken', otherName };
+    }
+    throw error;
+  }
   // The definer raises rather than returning nothing; an empty result is a contract break.
   if (!row) throw new Error('decideListing: decide_place_attachment returned no row');
   return decided(tx, row.business_id);
+}
+
+/**
+ * Why a confirm was refused 55000, when the reason is the TIE (0030, A-WR-03): this listing is
+ * still a pending tie, and its other side — the same place on `tie_business_id` — is already
+ * attached/confirmed. Returns that business's spine `display_name`; null for any other 55000
+ * (a stale screen: this listing itself was decided), which keeps the generic answer. Read under
+ * RLS after the definer's savepoint rolled back; the definer's refusal stays authoritative.
+ */
+async function tieTakenBy(tx: Tx, attachmentId: string): Promise<string | null> {
+  const row = rowsOf<{ other_name: string }>(
+    await tx.execute(sql`
+      select b.display_name as other_name
+        from place_attachments a
+        join place_attachments o
+          on o.org_id = a.org_id and o.place_id = a.place_id and o.business_id = a.tie_business_id
+        join businesses b on b.id = o.business_id
+       where a.id = ${attachmentId}
+         and a.org_id = (select app.current_org_id())
+         and a.status = 'tentative' and a.reason = 'tie'
+         and o.status = 'attached' and o.reason = 'confirmed'`),
+  )[0];
+  return row?.other_name ?? null;
 }
 
 /** "Detach this listing": `attached` → `rejected` / `detached`. */
@@ -116,6 +155,14 @@ export function listingNotFound<T>(): ActionResult<T> {
 /** The review queue's stale-screen answer: someone else decided this listing first. */
 export function listingAlreadyDecided<T>(): ActionResult<T> {
   return fail('conflict', REVIEW_GOOGLE_ALREADY_DECIDED, { reason: 'already_decided' });
+}
+
+/** A tie whose other side was already confirmed for `otherName` (0030 refuses the confirm).
+ *  Not retryable: like `already_decided`, only a reload of the queue helps. */
+export function listingTieTaken<T>(otherName: string): ActionResult<T> {
+  return fail('conflict', REVIEW_GOOGLE_TIE_TAKEN(otherName), {
+    reason: 'tie_confirmed_elsewhere',
+  });
 }
 
 /** A malformed id reads as not found; a malformed decision is the generic failure. */

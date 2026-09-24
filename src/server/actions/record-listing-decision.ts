@@ -10,6 +10,7 @@ import {
   listingAlreadyDecided,
   listingFailure,
   listingNotFound,
+  listingTieTaken,
   listingValidation,
 } from './_listing-decisions';
 import { ok, type ActionResult } from './_result';
@@ -27,7 +28,9 @@ import { ok, type ActionResult } from './_result';
  *
  * 🔴 WRITES ONLY THROUGH `app.decide_place_attachment` (see `_listing-decisions.ts`). A foreign
  * or unknown id is `not_found`; a listing someone else already decided is `conflict` with
- * `detail.reason = 'already_decided'`; `decided_by` comes from the claims, never from input.
+ * `detail.reason = 'already_decided'`; confirming a tie whose other side is already confirmed
+ * is `conflict` with `detail.reason = 'tie_confirmed_elsewhere'` and names that business;
+ * `decided_by` comes from the claims, never from input.
  *
  * "Skip" writes nothing and revalidates nothing — it leaves the listing pending. The screen
  * moves on client-side (the queue is score-ordered, so a re-read returns the same listing).
@@ -57,6 +60,7 @@ export async function recordListingDecision(
     const outcome = await withOrg(claims, (tx) => decideListing(tx, parsed.data));
     if (outcome.kind === 'missing') return listingNotFound();
     if (outcome.kind === 'already_decided') return listingAlreadyDecided();
+    if (outcome.kind === 'tie_taken') return listingTieTaken(outcome.otherName);
     if (parsed.data.decision !== 'skip') {
       revalidatePath('/review');
       revalidatePath(`/businesses/${outcome.businessId}`);
