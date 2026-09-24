@@ -17,6 +17,26 @@ draws no legal conclusion.
   these tables;
 - and the code paths named in each row.
 
+**Revised 2026-09-23** @ `dc8e057` after two scope reductions (below). No schema change: the
+column count was re-queried on the same local database, in a read-only transaction, and is still
+**115** (16 + 14 + 10 + 22 + 10 + 26 + 9 + 8; drizzle journal still 30 entries).
+
+**Changes before the decision (2026-09-23).** danlo approved both ("Go with your
+recommendations") before the D-01 call was recorded. Each one narrows what this document
+describes; neither adds anything.
+
+- `53e5650` — **fix(04): stop requesting unused Places types/businessStatus.** Nothing in `src/`
+  read either field. They are no longer in the field mask or the response schema. The anonymizer
+  no longer keeps them, and every fixture check now refuses a file that carries either one.
+- `dc8e057` — **fix(04): persist only integer match signals, not Google-derived
+  nameSim/distanceM.** The matcher's two continuous inputs are now memory-only:
+  - the name similarity to Google's `displayName`;
+  - the metres to Google's `location`.
+
+  `place_attachments.features` keeps only the scorer's integer points, its fixed enums and its
+  0/1 flags (§1.1). The review card now labels a name or distance chip by its band instead of
+  printing the figure (§5).
+
 **Where things stand today.** No Places call of any SKU has been made. Nothing Places-derived exists
 in any database. Production has `PLACES_MODE` unset, which is `off` (`src/env.ts`, D-02): `off`
 refuses before any reservation, `ids_only` permits only the free IDs-only mask, `enterprise`
@@ -49,37 +69,62 @@ tenant privilege at all (see 1.3).
 One row per (org, business, `place_id`) pair the matcher scored as attached, tentative or rejected.
 Retention: **indefinite** (no purge; the pair's decision is sticky — D-05).
 
-| Column              | Label                         | What it holds                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| ------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `id`                | ours                          | row key                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| `org_id`            | ours                          | tenant key                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| `created_at`        | ours                          | timestamp                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| `updated_at`        | ours                          | timestamp                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| `updated_by`        | ours                          | actor key                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| `business_id`       | ours                          | our spine business (Comptroller/Overture-sourced)                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| `place_id`          | **Google — verbatim**         | Google's place id — the field the Service Specific Terms §A.3 permit caching                                                                                                                                                                                                                                                                                                                                                                                                                |
-| `status`            | Google-derived — computed     | `attached` / `tentative` / `rejected` — the outcome of scoring the listing against our business (D-05)                                                                                                                                                                                                                                                                                                                                                                                      |
-| `reason`            | ours / computed               | `score` / `tie` / `confirmed` / `rejected` / `detached` — how the status was reached (a human decision or the matcher)                                                                                                                                                                                                                                                                                                                                                                      |
-| `score`             | **Google-derived — computed** | integer 0–100, CHECK `pa_score_range` — the match score of Google's name/phone/address/location against ours (D-05)                                                                                                                                                                                                                                                                                                                                                                         |
-| `features`          | **Google-derived — computed** | jsonb, **numbers and fixed enums only**, CHECK `pa_features_numeric` → `app.places_features_ok` (0029). Allowed keys, exactly 13: `name`, `phone`, `address`, `distance`, `cluster`, `nameSim` (numbers); `distanceM` (number or null); `signals` (array drawn only from `name`/`phone`/`address`/`distance`); `rule` (one of `phone_locality_name`, `phone_locality_review`, `over_25km`, `sab_phone_city`); `city`, `sab`, `listingPhone`, `listingLocation` (0 or 1). See the note below |
-| `tie_business_id`   | ours                          | a second business of ours the listing tied with                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| `first_seen_run_id` | ours                          | run key                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| `last_seen_run_id`  | ours                          | run key                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| `decided_by`        | ours                          | the human who confirmed/rejected                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| `decided_at`        | ours                          | timestamp                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| Column              | Label                         | What it holds                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| ------------------- | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`                | ours                          | row key                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `org_id`            | ours                          | tenant key                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `created_at`        | ours                          | timestamp                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `updated_at`        | ours                          | timestamp                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `updated_by`        | ours                          | actor key                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `business_id`       | ours                          | our spine business (Comptroller/Overture-sourced)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `place_id`          | **Google — verbatim**         | Google's place id — the field the Service Specific Terms §A.3 permit caching                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `status`            | Google-derived — computed     | `attached` / `tentative` / `rejected` — the outcome of scoring the listing against our business (D-05)                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `reason`            | ours / computed               | `score` / `tie` / `confirmed` / `rejected` / `detached` — how the status was reached (a human decision or the matcher)                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `score`             | **Google-derived — computed** | integer 0–100, CHECK `pa_score_range` — the match score of Google's name/phone/address/location against ours (D-05)                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `features`          | **Google-derived — computed** | jsonb, **integers, fixed enums and 0/1 flags only**. Written with exactly these 11 keys at most (`src/lib/places/page-record.ts` `FEATURE_KEYS`): `name`, `phone`, `address`, `distance`, `cluster` (integer points); `signals` (array drawn only from `name`/`phone`/`address`/`distance`); `rule` (one of `phone_locality_name`, `phone_locality_review`, `over_25km`, `sab_phone_city`); `city`, `sab`, `listingPhone`, `listingLocation` (0 or 1). The database CHECK `pa_features_numeric` → `app.places_features_ok` (0029) is the wall behind it. See the note below |
+| `tie_business_id`   | ours                          | a second business of ours the listing tied with                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `first_seen_run_id` | ours                          | run key                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `last_seen_run_id`  | ours                          | run key                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `decided_by`        | ours                          | the human who confirmed/rejected                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `decided_at`        | ours                          | timestamp                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 
-**Note on `features` (stated plainly, because these are indefinite).** Several `features` numbers
-are computed directly from Google content. They are kept for the life of the attachment:
+**Note on `features` (stated plainly, because these are indefinite).** Every `features` value is
+computed from Google content compared with ours, then reduced to an integer, an enum or a flag.
+They are kept for the life of the attachment:
 
-- `nameSim` is the trigram similarity between Google's `displayName` and our name.
-- `distanceM` is the distance in metres between Google's `location` and our spine point. Its
-  lifetime is **not** the 30-day coordinate TTL.
-- `name`, `phone`, `address` and `distance` are the per-feature sub-scores.
-- `city`, `listingPhone` and `listingLocation` are flags recording whether Google's address city
-  matched, whether the listing had a phone, and whether it had a location.
+- `name` is `round(45 × clamp((similarity − 0.40) / 0.60, 0, 1))`. The similarity is the trigram
+  similarity between Google's `displayName` and our name. The points are a coarsened, monotone
+  function of it: 46 possible values, all similarities below 0.40 collapse to 0, and each step
+  above that is about 0.013 of similarity.
+- `distance` is one of four tiers: 15 (≤ 100 m), 10 (≤ 500 m), 4 (≤ 2 km), or 0 (farther, or a
+  location too coarse to score). The distance is measured between Google's `location` and our
+  spine point.
+- `phone` and `address` are per-feature points from comparing Google's normalized phone and
+  address with ours. `cluster` compares our own two cluster keys.
+- `signals` names which independent signals fired. `rule` names which scoring rule, if any,
+  lifted or capped the score.
+- `city`, `listingPhone` and `listingLocation` are flags. They record whether Google's address
+  city matched, whether the listing had a phone, and whether it had a location. `sab` is the
+  service-area flag.
+
+**Not persisted since `dc8e057`:**
+
+- the similarity figure itself (`nameSim`);
+- the metres (`distanceM`).
+
+Both still exist **in memory** during the call, because they are what the scorer computes the
+points from. `toPageRecord` drops exactly these two keys before the write. The unit test
+"persisted place features carry no nameSim or distanceM" pins that. The writer test in
+`tests/db/places-writer.test.ts` reads the stored row back and asserts neither key is there.
+
+**The database CHECK was not changed.** `app.places_features_ok` still admits `nameSim` and
+`distanceM` as numbers (13 keys). It is a numbers-only wall, not the keep-out for these two. If
+the application regressed, the database would accept either number. It would still refuse any
+text.
 
 No text from Google can be stored here. The database refuses any non-numeric value or unknown key
-(M36), and `src/lib/places/page-record.ts` `toPageRecord` refuses the same shapes before the write.
+(M36), and `toPageRecord` refuses the same shapes before the write. Since `dc8e057` it also
+refuses a non-integer under a points key.
 
 ### 1.2 `place_observations` — 14 columns (append-only history of what one run saw)
 
@@ -270,19 +315,19 @@ Retention: indefinite. **No Google content.**
 
 ### 1.9 Summary of Google values at rest
 
-| Value                                                               | Where                                                                                 | Retention                                                                                                         |
-| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `place_id` (verbatim)                                               | `place_attachments`, `place_observations`, `place_tile_members`, `run_place_outcomes` | indefinite (Terms §A.3 names it)                                                                                  |
-| `lat`, `lng` (verbatim)                                             | `place_coordinates` only                                                              | `expires_at ≤ observed_at + 30 days`, CHECK-enforced. No tenant read. Deleted daily; on disk ≤ ~1 day past expiry |
-| `had_website_uri` (derived boolean)                                 | `place_observations`                                                                  | indefinite                                                                                                        |
-| `host_class` (derived six-value class; URL discarded — D-09)        | `place_observations`                                                                  | indefinite                                                                                                        |
-| `pure_sab` (derived flag — D-13)                                    | `place_observations`                                                                  | indefinite                                                                                                        |
-| match `score` + `features` (numbers/enums only — D-05)              | `place_attachments`                                                                   | indefinite                                                                                                        |
-| attachment `status`, per-place `outcome` incl. `outside`            | `place_attachments`, `run_place_outcomes`                                             | indefinite                                                                                                        |
-| tile membership (`place_id` per tile; first/last seen; gone — D-06) | `place_tile_members`                                                                  | indefinite                                                                                                        |
-| per-cluster unmatched counts (D-06)                                 | computed from `run_place_outcomes`                                                    | indefinite                                                                                                        |
-| response counts (results, pages, new/gone ids, saturation)          | `run_searches`, `place_tiles`                                                         | indefinite                                                                                                        |
-| `sku`, `observed_at`                                                | `place_observations`                                                                  | indefinite                                                                                                        |
+| Value                                                                | Where                                                                                 | Retention                                                                                                         |
+| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `place_id` (verbatim)                                                | `place_attachments`, `place_observations`, `place_tile_members`, `run_place_outcomes` | indefinite (Terms §A.3 names it)                                                                                  |
+| `lat`, `lng` (verbatim)                                              | `place_coordinates` only                                                              | `expires_at ≤ observed_at + 30 days`, CHECK-enforced. No tenant read. Deleted daily; on disk ≤ ~1 day past expiry |
+| `had_website_uri` (derived boolean)                                  | `place_observations`                                                                  | indefinite                                                                                                        |
+| `host_class` (derived six-value class; URL discarded — D-09)         | `place_observations`                                                                  | indefinite                                                                                                        |
+| `pure_sab` (derived flag — D-13)                                     | `place_observations`                                                                  | indefinite                                                                                                        |
+| match `score` + `features` (integer points, enums, 0/1 flags — D-05) | `place_attachments`                                                                   | indefinite                                                                                                        |
+| attachment `status`, per-place `outcome` incl. `outside`             | `place_attachments`, `run_place_outcomes`                                             | indefinite                                                                                                        |
+| tile membership (`place_id` per tile; first/last seen; gone — D-06)  | `place_tile_members`                                                                  | indefinite                                                                                                        |
+| per-cluster unmatched counts (D-06)                                  | computed from `run_place_outcomes`                                                    | indefinite                                                                                                        |
+| response counts (results, pages, new/gone ids, saturation)           | `run_searches`, `place_tiles`                                                         | indefinite                                                                                                        |
+| `sku`, `observed_at`                                                 | `place_observations`                                                                  | indefinite                                                                                                        |
 
 ---
 
@@ -296,12 +341,21 @@ a committed file**:
 - `formattedAddress` — parsed in memory for street number / street / unit / ZIP / country, then dropped (D-05)
 - `nationalPhoneNumber` — normalized in memory to E.164 for matching, then dropped (D-05)
 - `websiteUri` — reduced to `had_website_uri` + `host_class` at call time, then dropped (D-09)
-- `types`, `businessStatus` — parsed, not used by any code (see §4)
 - `rating`, `userRatingCount` — parsed, not used by any code (D-21)
-- `location` — kept only as §1.3 describes (30-day row) and as the computed `distanceM` in §1.1
+- `location` — kept only as §1.3 describes (30-day row). It is also compared with our spine
+  point in memory, and only the resulting distance **tier** (§1.1 `distance`) persists. The
+  metres (`distanceM`) are memory-only since `dc8e057`.
+- `displayName` again, as a similarity: the trigram similarity (`nameSim`) is computed in memory
+  and only its integer points (§1.1 `name`) persist, since `dc8e057`.
 - `nextPageToken` — used to fetch the next page within the same step, never stored
-- reviews and photos — **not requested at all** (`places.reviews` is not in the mask; a mutation
-  test, M11, goes red if it is added)
+
+**Not requested at all** (so they never arrive):
+
+- `types`, `businessStatus` — removed from the mask and the response schema by `53e5650`,
+  because no code read them. If Google sent them anyway, the schema would strip them at parse
+  (the schema strips unknown keys).
+- reviews and photos — `places.reviews` is not in the mask. A mutation test, M11, goes red if it
+  is added.
 
 How this is enforced, not merely intended:
 
@@ -347,17 +401,22 @@ How this is enforced, not merely intended:
     data (sidecar `places-recordings.json`: `synthetic: true`, `anonymized: false`).
   - **After a yes:** 04-32's recorder (`scripts/record-places-fixtures.ts`) anonymizes each real
     page **in memory** before writing (`scripts/lib/anonymize-places.ts`).
-    - **Kept as returned:** `id` (the place id); `types` and `businessStatus` (Google's own enum
-      values); `pureServiceAreaBusiness`; page sizes and whether a next-page token existed; each
-      place's website **host class**; which fields were present at all.
+    - **Kept as returned:** `id` (the place id); `pureServiceAreaBusiness`; page sizes and
+      whether a next-page token existed; each place's website **host class**; which fields were
+      present at all.
+    - **Refused:** `types` and `businessStatus`. The recorder never receives them (not
+      requested since `53e5650`), and the anonymizer never copies them. `assertAnonymizedPage`
+      refuses any fixture that carries either key. The msw harness also refuses them at load in
+      every `places-*.json`, synthetic or recorded (`NEVER_KEPT` in
+      `scripts/lib/anonymize-places.ts`).
     - **Synthesized:** name (`Synthetic <type> NNN`), address, phone (`(956) 555-01NN`), website
       (a synthetic URL of the same host class), location (a hashed point inside the searched
       rectangle), `rating` → 4, `userRatingCount` → 10, and the next-page token.
     - **Dropped:** every other key.
     - `assertAnonymizedPage` rejects any non-synthetic value at write time and again when the msw
       harness loads the fixture.
-    - So a committed recording **will contain real place ids and Google's `types` /
-      `businessStatus` enum values verbatim**. It will contain no Google text.
+    - So a committed recording **will contain real place ids verbatim**. It will contain no
+      Google text and no Google enum values.
   - **The recorder's guard.** It refuses to run until PROJECT.md Key Decisions carries a D-01
     Places row that says yes: `scripts/lib/record-guard.ts` `assertLegalRecord`. It also refuses
     any non-local database target (`assertLocalTarget`) and more than 10 requests per invocation.
@@ -372,9 +431,18 @@ parsed, and **nothing in the code uses or persists them**:
 - `places.rating`, `places.userRatingCount` (D-21). Both are Enterprise tier, so they cost nothing
   extra under the Enterprise SKU `websiteUri` already requires. They are kept in the mask
   deliberately, for Phase 6.
-- `places.types`, `places.businessStatus`. Both are Pro tier, so free at the margin. No `src/` code
-  reads them after parsing (verified by grep on 2026-09-23). They reach a committed file only as
-  §3 describes.
+
+**No longer requested (since `53e5650`):** `places.types` and `places.businessStatus`.
+
+- Both were Pro tier, so they cost nothing at the margin. They were requested, parsed and never
+  read. A grep on 2026-09-23 found no reader in `src/`.
+- Removing them does not change the SKU: the mask stays `ts_enterprise` because of `websiteUri`.
+- The unit test "the Places mask requests no field nothing reads" pins the mask's exact
+  contents.
+
+The Enterprise mask is now exactly: `places.id`, `places.displayName`, `places.formattedAddress`,
+`places.location`, `places.pureServiceAreaBusiness`, `places.websiteUri`,
+`places.nationalPhoneNumber`, `places.rating`, `places.userRatingCount`, `nextPageToken`.
 
 **Planned, not built — covered now so it is not a later surprise.** Phase 6 intends to persist a
 **derived review-volume bucket**, a coarse category computed from `userRatingCount`. Neither the raw
@@ -404,7 +472,9 @@ only.
   - It exists so a human can adjudicate a tentative match whose Google name was never stored.
 - **What a user sees that is Google-derived:**
   - the website signal as a sentence (e.g. "No website listed"), with its host class;
-  - the match score and its numeric feature chips on the review card;
+  - the match score and its feature chips on the review card. Since `dc8e057`, the name and
+    distance chips name a band ("name match", "name similar", "different name"; "within
+    100 m", "within 500 m", "within 2 km") instead of printing the similarity or the metres;
   - tile, outcome and change counts on the run report;
   - `/sources` counts (place ids held, coordinates held, oldest coordinate age, last purge).
 
@@ -422,8 +492,10 @@ document takes no position on any of them.
    - `had_website_uri` (boolean);
    - `host_class` (six-value class);
    - `pure_sab` (flag);
-   - the match `score`, and the numeric `features` including `nameSim` (computed from Google's
-     name) and `distanceM` (computed from Google's location);
+   - the match `score`, and the `features`: integer points (including `name`, a coarsened
+     function of the similarity to Google's name, and `distance`, a four-value tier of the
+     distance to Google's location), the `signals` and `rule` enums, and 0/1 flags (§1.1). The
+     similarity and the metres themselves are memory-only since `dc8e057`;
    - the per-place `outcome`, including `outside` (from Google's address);
    - tile membership and the per-cluster unmatched counts;
    - planned: the Phase 6 derived review-volume bucket.
@@ -439,8 +511,10 @@ document takes no position on any of them.
    tab) acceptable?
 5. **Surfaced while generating this list (not in the plan's original four).** Two items do not fit
    the four questions above:
-   - Anonymized fixtures committed to git would hold real `place_id`s plus Google's `types` and
-     `businessStatus` enum values verbatim (§3).
+   - Anonymized fixtures committed to git would hold real `place_id`s verbatim (§3). Since
+     `53e5650` they can no longer hold Google's `types` / `businessStatus` enum values: those
+     fields are not requested, and every fixture check refuses them. Real place ids in git are
+     the only fixture question left.
    - The database owner and `service_role` can read coordinates until the daily purge deletes
      them, and a local database purges only by hand (§1.3).
 
