@@ -30,6 +30,10 @@ vi.mock('next/link', () => ({
 }));
 
 import { RunReportView } from '@/components/runs/run-report-view';
+import {
+  RUN_OUTCOMES_NONE_REACHED_BODY,
+  RUN_OUTCOMES_NONE_REACHED_HEADING,
+} from '@/lib/ui/copy';
 import { STOPPED_REASONS, type RunStatus, type StoppedReason } from '@/lib/ui/run-tone';
 
 afterEach(cleanup);
@@ -724,6 +728,43 @@ describe('run report — cards (04-23 Task 3)', () => {
     expect(open).toHaveAttribute('href', `/presets/${PRESET_ID}`);
     expect(open.textContent).toBe('Open McAllen roofers');
     expect(screen.queryByTestId('run-outcomes-pending')).toBeNull();
+  });
+
+  it('a run that stopped before any listing never claims every tile was searched', () => {
+    const none: Partial<RunReport['outcomes']> = { found: 0, attached: 0, tentative: 0, unmatched: 0 };
+    const cases: Array<[RunStatus, StoppedReason]> = [
+      ['failed', 'places_key_missing'],
+      ['failed', 'never_started'],
+      ['failed', 'abandoned'],
+      ['failed', 'places_unavailable'],
+      ['partial', 'budget_cap_reached'],
+      ['partial', 'google_daily_quota'],
+      ['partial', 'exceeded_estimate'],
+    ];
+    for (const [status, reason] of cases) {
+      const { unmount } = renderReport(
+        reportOf({ run: { status, stoppedReason: reason }, outcomes: none }),
+      );
+      const label = `${status} · ${reason}`;
+      const card = screen.getByTestId('run-outcomes');
+      expect(card.textContent, label).not.toContain('Every tile was searched');
+      expect(screen.queryByTestId('run-outcomes-empty'), label).toBeNull();
+      const reached = within(card).getByTestId('run-outcomes-none-reached');
+      expect(reached.textContent, label).toContain(RUN_OUTCOMES_NONE_REACHED_HEADING);
+      expect(reached.textContent, label).toContain(RUN_OUTCOMES_NONE_REACHED_BODY);
+      expect(within(reached).getByTestId('run-outcomes-open-preset'), label).toHaveAttribute(
+        'href',
+        `/presets/${PRESET_ID}`,
+      );
+      unmount();
+    }
+
+    // Only a COMPLETE run with nothing found gets the "every tile was searched" sentence.
+    renderReport(reportOf({ run: { status: 'complete' }, outcomes: none }));
+    expect(screen.getByTestId('run-outcomes-empty').textContent).toContain(
+      'Every tile was searched',
+    );
+    expect(screen.queryByTestId('run-outcomes-none-reached')).toBeNull();
   });
 
   it('every testid on the report is on one element only', () => {

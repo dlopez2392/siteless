@@ -1317,6 +1317,16 @@ export const RUN_ZERO_PLACES_BODY =
   "means a type in this preset's clusters doesn't match how Google categorises these " +
   "businesses — check the cluster's Places types at the desk.";
 
+/**
+ * C-CR-03: a run that ended WITHOUT completing (failed, or stopped early) and brought back no
+ * listing. `RUN_ZERO_PLACES_BODY` is only true of a complete run — here the tiles were not all
+ * searched, and the reason (a missing key, the cap, Google's daily limit…) is the stop alert's.
+ */
+export const RUN_OUTCOMES_NONE_REACHED_HEADING = 'No Google places came back from this run';
+export const RUN_OUTCOMES_NONE_REACHED_BODY =
+  "This run ended before every tile was searched, and no listing came back before it stopped — " +
+  "the alert at the top of this report says why. It doesn't mean the Places types are wrong.";
+
 export const RUN_REPORT_LOAD_FAILED =
   "We couldn't load this run's report. The run itself is unaffected — if it's running, it " +
   'keeps running and keeps writing to the ledger. Try again, or open the spend view to see ' +

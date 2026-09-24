@@ -28,6 +28,8 @@ import {
   RUN_CLUSTER_FOOTNOTE,
   RUN_MATCHING_COUNT,
   RUN_OPEN_PRESET,
+  RUN_OUTCOMES_NONE_REACHED_BODY,
+  RUN_OUTCOMES_NONE_REACHED_HEADING,
   RUN_REPORT_CARD,
   RUN_RESULTS_PENDING_BODY,
   RUN_RESULTS_PENDING_HEADING,
@@ -250,6 +252,20 @@ export function OutcomesCard({
 }) {
   const live = LIVE.has(run.status);
   const empty = outcomes.found === 0;
+  // 🔴 C-CR-03. "Every tile was searched and none returned a listing" is only true of a run that
+  // COMPLETED. A failed or stopped-early run with nothing found (a missing key, the cap, the
+  // daily limit, never started, abandoned) says so instead, and defers to the stop alert.
+  const finishedClean = run.status === 'complete';
+
+  const openPreset = (
+    <EmptyContent>
+      <Button asChild variant="outline" className="h-11 px-4 text-base font-normal">
+        <Link href={`/presets/${run.presetId}`} data-testid="run-outcomes-open-preset">
+          {RUN_OPEN_PRESET(run.presetName)}
+        </Link>
+      </Button>
+    </EmptyContent>
+  );
 
   return (
     <Card data-testid="run-outcomes" data-places-content className={RUN_CARD_CLASS}>
@@ -265,7 +281,7 @@ export function OutcomesCard({
               {RUN_RESULTS_PENDING_BODY}
             </p>
           </div>
-        ) : empty ? (
+        ) : empty && finishedClean ? (
           <Empty data-testid="run-outcomes-empty" className="py-12">
             <EmptyHeader>
               <EmptyMedia
@@ -281,13 +297,25 @@ export function OutcomesCard({
                 {RUN_ZERO_PLACES_BODY}
               </EmptyDescription>
             </EmptyHeader>
-            <EmptyContent>
-              <Button asChild variant="outline" className="h-11 px-4 text-base font-normal">
-                <Link href={`/presets/${run.presetId}`} data-testid="run-outcomes-open-preset">
-                  {RUN_OPEN_PRESET(run.presetName)}
-                </Link>
-              </Button>
-            </EmptyContent>
+            {openPreset}
+          </Empty>
+        ) : empty ? (
+          <Empty data-testid="run-outcomes-none-reached" className="py-12">
+            <EmptyHeader>
+              <EmptyMedia
+                variant="icon"
+                className="size-12 rounded-full bg-muted text-muted-foreground"
+              >
+                <MapPinOff aria-hidden="true" className="size-6" />
+              </EmptyMedia>
+              <EmptyTitle className="text-xl font-semibold leading-tight">
+                {RUN_OUTCOMES_NONE_REACHED_HEADING}
+              </EmptyTitle>
+              <EmptyDescription className="max-w-[60ch] text-base font-normal">
+                {RUN_OUTCOMES_NONE_REACHED_BODY}
+              </EmptyDescription>
+            </EmptyHeader>
+            {openPreset}
           </Empty>
         ) : (
           <>
