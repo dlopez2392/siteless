@@ -1,5 +1,9 @@
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+
+const { toastError } = vi.hoisted(() => ({ toastError: vi.fn() }));
+vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: toastError } }));
+
 import { TransientCard, TransientCardSkeleton } from '@/components/sources/transient-card';
 import {
   PURGE_OVERDUE_HOURS,
@@ -8,12 +12,14 @@ import {
   type TransientStats,
 } from '@/lib/places/purge-status';
 import {
+  COPY_FAILED,
   PLACES_ACTION,
   SOURCES_TRANSIENT_EMPTY_HEADING,
   SOURCES_TRANSIENT_LABEL,
   SOURCES_TRANSIENT_LOAD_FAILED,
   SOURCES_TRANSIENT_NEVER_RUN,
   SOURCES_TRANSIENT_NONE_HELD,
+  SOURCES_TRANSIENT_PURGE_AWAITING,
   SOURCES_TRANSIENT_PURGE_COPY,
   SOURCES_TRANSIENT_TITLE,
 } from '@/lib/ui/copy';
@@ -209,6 +215,74 @@ describe('the transient card', () => {
     expect(writeText).toHaveBeenCalledWith('pnpm purge:places --target=prod');
   });
 
+  it('a refused clipboard still leaves the purge command readable (C-WR-08)', async () => {
+    const writeText = vi.fn(async () => {
+      throw new DOMException('denied', 'NotAllowedError');
+    });
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    toastError.mockClear();
+
+    const now = PURGED_AT + 40 * HOUR;
+    render(
+      <TransientCard
+        stats={stats({ placeIdsHeld: 5, coordinatesHeld: 2, lastPurgeMs: PURGED_AT })}
+        nowMs={now}
+      />,
+    );
+    const alert = screen.getByTestId('sources-transient-purge-overdue');
+    // The command is on screen whether or not the clipboard works — the sentence doesn't name it.
+    expect(within(alert).getByTestId('sources-transient-purge-command')).toHaveTextContent(
+      PURGE_PLACES_COMMAND,
+    );
+    await act(async () => {
+      fireEvent.click(within(alert).getByTestId('sources-transient-purge-copy'));
+    });
+    expect(writeText).toHaveBeenCalled();
+    // A refused copy says so, with the command itself — never silence.
+    expect(toastError).toHaveBeenCalledWith(COPY_FAILED(PURGE_PLACES_COMMAND));
+  });
+
+  it('the overdue sentence follows its cause and never contradicts itself (C-WR-10)', () => {
+    // Cause: rows expired since a purge that ran on time. Not "last ran 3 hours ago" under a
+    // heading that means "late" — it says the next daily purge removes them.
+    const now = PURGED_AT + 3 * HOUR;
+    const { unmount } = render(
+      <TransientCard
+        stats={stats({
+          placeIdsHeld: 5,
+          coordinatesHeld: 2,
+          oldestCoordinateMs: now - 20 * DAY,
+          expiredAwaitingPurge: 4,
+          lastPurgeMs: PURGED_AT,
+          lastRowsPurged: 1,
+        })}
+        nowMs={now}
+      />,
+    );
+    const waiting = screen.getByTestId('sources-transient-purge-overdue');
+    expect(waiting).toHaveAttribute('data-cause', 'awaiting');
+    expect(waiting).toHaveTextContent(
+      SOURCES_TRANSIENT_PURGE_AWAITING('Sep 22, 10:30 PM', 3, 4),
+    );
+    expect(waiting.textContent).not.toMatch(/last ran .* — 3 hours ago\. /);
+    unmount();
+
+    // Cause: the purge itself is late and nothing has expired yet — no "0 coordinates are past
+    // 30 days" clause.
+    const late = PURGED_AT + 40 * HOUR;
+    render(
+      <TransientCard
+        stats={stats({ placeIdsHeld: 5, coordinatesHeld: 2, lastPurgeMs: PURGED_AT })}
+        nowMs={late}
+      />,
+    );
+    const stale = screen.getByTestId('sources-transient-purge-overdue');
+    expect(stale).toHaveAttribute('data-cause', 'stale');
+    expect(stale).toHaveTextContent('40 hours ago');
+    expect(stale.textContent).not.toContain('0 coordinates');
+    expect(stale.textContent).not.toContain('past 30 days');
+  });
+
   it('the overdue alert names a purge that never ran', () => {
     const now = PURGED_AT;
     render(
@@ -218,8 +292,11 @@ describe('the transient card', () => {
       />,
     );
     const alert = screen.getByTestId('sources-transient-purge-overdue');
+    expect(alert).toHaveAttribute('data-cause', 'never');
     expect(alert).toHaveTextContent('never run');
     expect(alert).toHaveTextContent('72 hours');
+    // C-WR-10: nothing has expired, so no "0 coordinates are past 30 days".
+    expect(alert.textContent).not.toContain('0 coordinates');
     expect(alert).not.toHaveTextContent(SOURCES_TRANSIENT_NEVER_RUN + ' —');
     expect(within(alert).getByTestId('sources-transient-purge-copy')).toBeInTheDocument();
   });

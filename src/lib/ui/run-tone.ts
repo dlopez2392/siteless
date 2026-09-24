@@ -20,6 +20,8 @@
  * beside its tone. UI-SPEC § Accessibility makes that a requirement, not a preference,
  * and it is why the two maps ship together rather than the tone map shipping alone.
  */
+import { isoWeekOf } from '@/lib/places/partition';
+import { RUN_KIND_PARTITION_PAST, RUN_KIND_PARTITION_WEEK } from './copy';
 
 /**
  * The six values of the `runs_status_known` CHECK constraint, and exactly those.
@@ -110,6 +112,23 @@ export const RUN_KIND_LABEL: Record<RunKind, string> = {
   partition: "This week's partition",
   change_check: 'Change check',
 };
+
+/**
+ * 🔴 C-WR-06: THE LABEL FOR A RUN THAT HAPPENED — the report header, the preset's recent runs,
+ * `/spend` By-run. `RUN_KIND_LABEL.partition` ("This week's partition") is deictic: true on the
+ * preset page's action row, false on a partition run from three weeks ago. A past partition run
+ * is "Weekly partition · week 36", its ISO week taken in APP_TZ from when it started (or was
+ * created); with no instant at all, just "Weekly partition". The other kinds read the same as
+ * `RUN_KIND_LABEL`. An unknown kind is `null` — rendered as nothing, never as its key.
+ */
+export function runKindLabelOf(kind: string, atMs: number | null): string | null {
+  if (kind === 'partition') {
+    return atMs === null
+      ? RUN_KIND_PARTITION_PAST
+      : RUN_KIND_PARTITION_WEEK(isoWeekOf(new Date(atMs)).isoWeek);
+  }
+  return Object.hasOwn(RUN_KIND_LABEL, kind) ? RUN_KIND_LABEL[kind as RunKind] : null;
+}
 
 /* --- Ingest runs (03-UI-SPEC § 2, `/sources`) -------------------------------------------
  *

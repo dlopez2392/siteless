@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { RunReport } from '@/server/queries/run-report';
 
@@ -21,6 +21,9 @@ vi.mock('next/navigation', () => ({
   useRouter: () => ({ refresh: vi.fn(), push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
 }));
 
+const { toastError } = vi.hoisted(() => ({ toastError: vi.fn() }));
+vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: toastError } }));
+
 vi.mock('next/link', () => ({
   default: ({ children, href, ...rest }: { children: React.ReactNode; href: string }) => (
     <a href={href} {...rest}>
@@ -30,6 +33,15 @@ vi.mock('next/link', () => ({
 }));
 
 import { RunReportView } from '@/components/runs/run-report-view';
+import {
+  RUN_OUTCOMES_NONE_REACHED_BODY,
+  RUN_OUTCOMES_NONE_REACHED_HEADING,
+  RUN_REFUSED_PAST,
+  RUN_STOP_CAP_PAST,
+  RUN_TILE_UNIT_UNKNOWN,
+  RUN_TRUNCATION_COPY_FAILED,
+} from '@/lib/ui/copy';
+import { describeTileKey, placesTypeLabel } from '@/lib/ui/places-format';
 import { STOPPED_REASONS, type RunStatus, type StoppedReason } from '@/lib/ui/run-tone';
 
 afterEach(cleanup);
@@ -74,6 +86,8 @@ function reportOf(over: Over = {}): RunReport {
       ceilingRequests: 108,
       capMicroUsd: 50_000_000,
       capResetMs: Date.UTC(2026, 9, 1, 5, 0, 0),
+      capPeriodStart: '2026-09-01',
+      capPeriodIsCurrent: true,
     },
     requests: {
       rows: [
@@ -149,25 +163,47 @@ function renderReport(report: RunReport, opts: { canRaiseCap?: boolean } = {}) {
   );
 }
 
+/** The names `readRunReport` resolves (C-WR-04) are written out by hand here, so the rows below
+ *  are the component's claim, not a re-run of the resolver. */
 const THREE_TRUNCATED: RunReport['tiles']['truncated'] = [
   {
-    tileKey: 'city:4845384|roofing_contractor|r012',
-    cellKey: 'home_services/4845384',
+    tileKey: 'city:48215/McAllen|roofing_contractor|r012',
+    cellKey: 'home_services/48215/McAllen',
     placesType: 'roofing_contractor',
+    unitName: 'McAllen',
+    typeLabel: 'roofing contractor',
+    quadPath: 'r012',
     why: 'min_size',
   },
   {
-    tileKey: 'city:4845384|roofing_contractor|r013',
-    cellKey: 'home_services/4845384',
+    tileKey: 'city:48215/McAllen|roofing_contractor|r013',
+    cellKey: 'home_services/48215/McAllen',
     placesType: 'roofing_contractor',
+    unitName: 'McAllen',
+    typeLabel: 'roofing contractor',
+    quadPath: 'r013',
     why: 'max_depth',
   },
   // A truncated tile whose reason was never written still shows (04-20: `why` may be null).
   {
-    tileKey: 'city:4822660|plumber|r2',
-    cellKey: 'home_services/4822660',
+    tileKey: 'county:48061|plumber|r2',
+    cellKey: 'home_services/48061',
     placesType: 'plumber',
+    unitName: 'Cameron County',
+    typeLabel: 'plumber',
+    quadPath: 'r2',
     why: null,
+  },
+];
+
+const SUBDIVIDING_ONE: RunReport['tiles']['stillSubdividing'] = [
+  {
+    tileKey: 'city:48215/McAllen|roofing_contractor|r0',
+    cellKey: 'home_services/48215/McAllen',
+    placesType: 'roofing_contractor',
+    unitName: 'McAllen',
+    typeLabel: 'roofing contractor',
+    quadPath: 'r0',
   },
 ];
 
@@ -203,7 +239,10 @@ describe('run report — header and alerts (04-23 Task 2)', () => {
       );
       const warning = screen.getByTestId('run-truncation-warning');
       expect(warning, status).toHaveAttribute('data-count', '3');
-      expect(warning, status).toHaveAttribute('role', 'status');
+      // C-WR-12: NOT a live region — its count changes every refresh during a live run, and
+      // RunAutoRefresh already announces the first truncation once.
+      expect(warning, status).toHaveAttribute('role', 'note');
+      expect(warning, status).not.toHaveAttribute('aria-live');
       expect(warning.textContent, status).toContain(
         "3 tiles still hit Google's 60-result limit at the smallest tile size.",
       );
@@ -286,6 +325,59 @@ describe('run report — header and alerts (04-23 Task 2)', () => {
     expect(within(alert).getByTestId('run-stop-ask-admin')).toHaveTextContent(
       'Ask an admin to raise the cap',
     );
+  });
+
+  it("a cap stop or refusal from a month that has ended speaks in the past tense", () => {
+    // Opened in the run's own month: the present tense, with the reset date.
+    const { unmount } = renderReport(
+      reportOf({ run: { status: 'partial', stoppedReason: 'budget_cap_reached' } }),
+    );
+    const now = screen.getByTestId('run-stop-alert');
+    expect(now.textContent).toContain('Stopped at your $50.00 monthly cap');
+    expect(now.textContent).toContain('after the cap resets on Oct 1');
+    unmount();
+
+    // The same stop read after September ended: September's cap, no reset to wait for.
+    const past = renderReport(
+      reportOf({
+        run: {
+          status: 'partial',
+          stoppedReason: 'budget_cap_reached',
+          capMicroUsd: 40_000_000,
+          capPeriodStart: '2026-09-01',
+          capPeriodIsCurrent: false,
+        },
+        tiles: { total: 68, searched: 40 },
+      }),
+    );
+    const stop = screen.getByTestId('run-stop-alert');
+    expect(stop).toHaveAttribute('data-period', 'past');
+    expect(stop.textContent).toContain(
+      RUN_STOP_CAP_PAST(40_000_000, 2_310_000, 40, 28, 'September 2026'),
+    );
+    expect(stop.textContent).not.toMatch(/resets on|your \$/i);
+    expect(within(stop).getByTestId('run-stop-open-preset')).toHaveAttribute(
+      'href',
+      `/presets/${PRESET_ID}`,
+    );
+    expect(within(stop).queryByTestId('run-stop-raise-cap')).toBeNull();
+    past.unmount();
+
+    renderReport(
+      reportOf({
+        run: {
+          status: 'refused',
+          stoppedReason: 'budget_cap_reached',
+          costMicroUsd: 0,
+          capPeriodStart: '2026-08-01',
+          capPeriodIsCurrent: false,
+        },
+      }),
+    );
+    const refused = screen.getByTestId('run-stop-alert');
+    expect(refused.textContent).toContain(RUN_REFUSED_PAST(50_000_000, 'August 2026'));
+    expect(refused.textContent).not.toContain('Your $50.00 cap is spent');
+    expect(within(refused).getByTestId('run-stop-open-preset')).toBeInTheDocument();
   });
 
   it('the ceiling line shows the dollar and request ceilings', () => {
@@ -371,7 +463,10 @@ describe('run report — header and alerts (04-23 Task 2)', () => {
     renderReport(reportOf({ run: { kind: 'partition', partitionIndex: 2 } }));
     const kind = screen.getByTestId('run-kind');
     expect(kind).toHaveAttribute('data-kind', 'partition');
-    expect(kind.textContent).toBe("This week's partition · started Sep 23, 2:14 PM");
+    // C-WR-06: a run that happened is never "This week's partition" — it names its ISO week
+    // (Sep 23, 2026 is week 39 in Chicago).
+    expect(kind.textContent).toBe('Weekly partition · week 39 · started Sep 23, 2:14 PM');
+    expect(kind.textContent).not.toContain("This week's");
     expect(kind.getAttribute('data-slot')).not.toBe('badge');
     expect(screen.getByTestId('run-status-badge')).toHaveAttribute('data-status', 'complete');
   });
@@ -409,11 +504,18 @@ describe('run report — header and alerts (04-23 Task 2)', () => {
     expect(screen.queryAllByTestId('run-truncation-tile')).toHaveLength(0);
     fireEvent.click(toggle);
     const rows = screen.getAllByTestId('run-truncation-tile');
-    expect(rows.map((r) => r.textContent)).toEqual([
-      'city:4845384 · roofing_contractor · tile r012',
-      'city:4845384 · roofing_contractor · tile r013',
-      'city:4822660 · plumber · tile r2',
-    ]);
+    const expected = [
+      'McAllen · roofing contractor · tile r012',
+      'McAllen · roofing contractor · tile r013',
+      'Cameron County · plumber · tile r2',
+    ];
+    expect(rows.map((r) => r.textContent)).toEqual(expected);
+    // C-WR-04: a place name and a readable type — never `city:…`, a fips, or a `_` key. The
+    // stored key survives only as an attribute.
+    for (const row of rows) {
+      expect(row.textContent).not.toMatch(/[a-z]+:|_|\d{5}/);
+    }
+    expect(rows[0]).toHaveAttribute('data-tile-key', 'city:48215/McAllen|roofing_contractor|r012');
     // The null-reason tile is listed, not dropped (04-20; criterion 3).
     expect(rows[2]).toHaveAttribute('data-why', '');
     expect(toggle).toHaveAttribute('data-state', 'open');
@@ -422,13 +524,46 @@ describe('run report — header and alerts (04-23 Task 2)', () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
     fireEvent.click(screen.getByTestId('run-truncation-copy'));
-    expect(writeText).toHaveBeenCalledWith(
-      [
-        'city:4845384 · roofing_contractor · tile r012',
-        'city:4845384 · roofing_contractor · tile r013',
-        'city:4822660 · plumber · tile r2',
-      ].join('\n'),
-    );
+    expect(writeText).toHaveBeenCalledWith(expected.join('\n'));
+  });
+
+  it('a refused clipboard says the tile list could not be copied (C-WR-08)', async () => {
+    renderReport(reportOf({ tiles: { stillTruncated: 3, truncated: THREE_TRUNCATED } }));
+    const writeText = vi.fn().mockRejectedValue(new DOMException('denied', 'NotAllowedError'));
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    toastError.mockClear();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('run-truncation-copy'));
+    });
+    expect(writeText).toHaveBeenCalled();
+    // The list is collapsed, so there is nothing on screen to copy by hand: say where it is.
+    expect(toastError).toHaveBeenCalledWith(RUN_TRUNCATION_COPY_FAILED);
+  });
+
+  it('a stored tile key resolves to a place name, never itself (C-WR-04)', () => {
+    const counties = new Map([
+      ['48215', 'Hidalgo'],
+      ['48061', 'Cameron'],
+    ]);
+    expect(describeTileKey('city:48215/McAllen|plumber|r012', counties)).toEqual({
+      unitName: 'McAllen',
+      quadPath: 'r012',
+    });
+    expect(describeTileKey('county:48061|plumber|r2', counties)).toEqual({
+      unitName: 'Cameron County',
+      quadPath: 'r2',
+    });
+    expect(describeTileKey('radius:48215/10mi|car_repair|r', counties)).toEqual({
+      unitName: '10-mile radius in Hidalgo County',
+      quadPath: 'r',
+    });
+    // A county the table doesn't know, or a key of another shape: words, never the key.
+    expect(describeTileKey('county:48999|plumber|r', counties).unitName).toBe(RUN_TILE_UNIT_UNKNOWN);
+    expect(describeTileKey('garbage', counties)).toEqual({
+      unitName: RUN_TILE_UNIT_UNKNOWN,
+      quadPath: '',
+    });
+    expect(placesTypeLabel('roofing_contractor')).toBe('roofing contractor');
   });
 
   it('stop alerts stack before the truncation warning', () => {
@@ -438,13 +573,7 @@ describe('run report — header and alerts (04-23 Task 2)', () => {
         tiles: {
           stillTruncated: 3,
           truncated: THREE_TRUNCATED,
-          stillSubdividing: [
-            {
-              tileKey: 'city:4845384|roofing_contractor|r0',
-              cellKey: 'home_services/4845384',
-              placesType: 'roofing_contractor',
-            },
-          ],
+          stillSubdividing: SUBDIVIDING_ONE,
         },
       }),
     );
@@ -518,22 +647,15 @@ describe('run report — cards (04-23 Task 3)', () => {
     renderReport(
       reportOf({
         run: { status: 'partial', stoppedReason: 'exceeded_estimate' },
-        tiles: {
-          stillSubdividing: [
-            {
-              tileKey: 'city:4845384|roofing_contractor|r0',
-              cellKey: 'home_services/4845384',
-              placesType: 'roofing_contractor',
-            },
-          ],
-        },
+        tiles: { stillSubdividing: SUBDIVIDING_ONE },
       }),
     );
     const list = screen.getByTestId('run-tiles-subdividing');
     // The stop alert's "Show the tiles still subdividing" is an in-page link to this list.
     expect(screen.getByTestId('run-stop-show-subdividing')).toHaveAttribute('href', `#${list.id}`);
     expect(list.textContent).toContain('Tiles still subdividing when the run stopped (1)');
-    expect(list.textContent).toContain('city:4845384 · roofing_contractor · tile r0');
+    expect(list.textContent).toContain('McAllen · roofing contractor · tile r0');
+    expect(list.textContent).not.toMatch(/city:|_/);
   });
 
   it('the outcomes card links tentative listings to the Google review filter', () => {
@@ -724,6 +846,43 @@ describe('run report — cards (04-23 Task 3)', () => {
     expect(open).toHaveAttribute('href', `/presets/${PRESET_ID}`);
     expect(open.textContent).toBe('Open McAllen roofers');
     expect(screen.queryByTestId('run-outcomes-pending')).toBeNull();
+  });
+
+  it('a run that stopped before any listing never claims every tile was searched', () => {
+    const none: Partial<RunReport['outcomes']> = { found: 0, attached: 0, tentative: 0, unmatched: 0 };
+    const cases: Array<[RunStatus, StoppedReason]> = [
+      ['failed', 'places_key_missing'],
+      ['failed', 'never_started'],
+      ['failed', 'abandoned'],
+      ['failed', 'places_unavailable'],
+      ['partial', 'budget_cap_reached'],
+      ['partial', 'google_daily_quota'],
+      ['partial', 'exceeded_estimate'],
+    ];
+    for (const [status, reason] of cases) {
+      const { unmount } = renderReport(
+        reportOf({ run: { status, stoppedReason: reason }, outcomes: none }),
+      );
+      const label = `${status} · ${reason}`;
+      const card = screen.getByTestId('run-outcomes');
+      expect(card.textContent, label).not.toContain('Every tile was searched');
+      expect(screen.queryByTestId('run-outcomes-empty'), label).toBeNull();
+      const reached = within(card).getByTestId('run-outcomes-none-reached');
+      expect(reached.textContent, label).toContain(RUN_OUTCOMES_NONE_REACHED_HEADING);
+      expect(reached.textContent, label).toContain(RUN_OUTCOMES_NONE_REACHED_BODY);
+      expect(within(reached).getByTestId('run-outcomes-open-preset'), label).toHaveAttribute(
+        'href',
+        `/presets/${PRESET_ID}`,
+      );
+      unmount();
+    }
+
+    // Only a COMPLETE run with nothing found gets the "every tile was searched" sentence.
+    renderReport(reportOf({ run: { status: 'complete' }, outcomes: none }));
+    expect(screen.getByTestId('run-outcomes-empty').textContent).toContain(
+      'Every tile was searched',
+    );
+    expect(screen.queryByTestId('run-outcomes-none-reached')).toBeNull();
   });
 
   it('every testid on the report is on one element only', () => {

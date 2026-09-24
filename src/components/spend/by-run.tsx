@@ -19,7 +19,7 @@ import {
 import { formatUsd } from '@/lib/budget/money';
 import { formatLocal } from '@/lib/time';
 import { STOPPED_REASON } from '@/lib/ui/copy';
-import { RUN_KIND_LABEL } from '@/lib/ui/run-tone';
+import { runKindLabelOf } from '@/lib/ui/run-tone';
 import type { RunSpend } from '@/server/queries/budget';
 
 /**
@@ -93,10 +93,11 @@ function runHref(run: RunSpend): string {
   return `/runs/${run.runId}`;
 }
 
-/** "Full sweep" / "This week's partition" / "Change check" — the same words the run report
- *  and the preset's recent runs use. An unknown kind renders nothing, never its key. */
+/** "Full sweep" / "Weekly partition · week 36" / "Change check" — the same words the run report
+ *  and the preset's recent runs use (C-WR-06: a past partition names its week, never "this
+ *  week"). An unknown kind renders nothing, never its key. */
 function kindLabel(run: RunSpend): string | null {
-  return RUN_KIND_LABEL[run.kind] ?? null;
+  return runKindLabelOf(run.kind, run.startedAt?.getTime() ?? null);
 }
 
 export function ByRun({ runs }: { runs: RunSpend[] }) {

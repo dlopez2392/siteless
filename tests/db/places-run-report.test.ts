@@ -38,6 +38,7 @@ import {
   type ScoredCandidate,
 } from '@/lib/places/match';
 import { toPageRecord, type PageRecordItem } from '@/lib/places/page-record';
+import { readGoogleCheck } from '@/server/queries/businesses';
 import { readRunReport, type RunReport } from '@/server/queries/run-report';
 import type { Tx } from '@/server/queries/budget';
 
@@ -286,22 +287,68 @@ describe('run report (D-17, criterion 3)', () => {
         subdivided: 1,
         stillTruncated: 2,
       });
+      // C-WR-04: each row also carries the place NAME and a readable type, resolved from the
+      // stored key — the key itself is for attributes only.
       expect(r.tiles.truncated).toEqual([
         {
           tileKey: `city:${UNIT}|plumber|r0`,
           cellKey: `home_services/${UNIT}`,
           placesType: 'plumber',
+          unitName: 'McAllen',
+          typeLabel: 'plumber',
+          quadPath: 'r0',
           why: 'min_size',
         },
         {
           tileKey: `city:${UNIT}|plumber|r1`,
           cellKey: `home_services/${UNIT}`,
           placesType: 'plumber',
+          unitName: 'McAllen',
+          typeLabel: 'plumber',
+          quadPath: 'r1',
           why: 'novelty',
         },
       ]);
       // Still running: nothing is "still subdividing when it stopped".
       expect(r.tiles.stillSubdividing).toEqual([]);
+    }));
+
+  it('run report names a county tile from the counties table, never by its key', () =>
+    withTxRollback(async (tx) => {
+      const c = asPg(tx);
+      const s = await setup(c);
+      await actAs(c, CLAIMS_A);
+      const county = {
+        ...searchSpec('r'),
+        tileKey: 'county:48215|car_repair|r',
+        cellKey: 'auto_retail/48215',
+        clusterKey: 'auto_retail',
+        unitKind: 'county',
+        unitId: '48215',
+        placesType: 'car_repair',
+      };
+      const ids = await plan(c, s.runId, [county]);
+      await mark(c, ids.r!, {
+        status: 'done',
+        saturated: true,
+        truncated: true,
+        truncated_why: 'min_size',
+      });
+      const name = (
+        await c.query<{ name: string }>(
+          "select name from counties where org_id is null and fips = '48215'",
+        )
+      ).rows[0]?.name;
+      expect(name).toBeTruthy();
+
+      const r = await report(tx, s.runId);
+      expect(r.tiles.truncated).toHaveLength(1);
+      expect(r.tiles.truncated[0]).toMatchObject({
+        tileKey: 'county:48215|car_repair|r',
+        unitName: `${name} County`,
+        typeLabel: 'car repair',
+        quadPath: 'r',
+      });
     }));
 
   it('run report counts outcomes per cluster with zero rows included', () =>
@@ -433,11 +480,17 @@ describe('run report (D-17, criterion 3)', () => {
           tileKey: `city:${UNIT}|plumber|r0`,
           cellKey: `home_services/${UNIT}`,
           placesType: 'plumber',
+          unitName: 'McAllen',
+          typeLabel: 'plumber',
+          quadPath: 'r0',
         },
         {
           tileKey: `city:${UNIT}|plumber|r1`,
           cellKey: `home_services/${UNIT}`,
           placesType: 'plumber',
+          unitName: 'McAllen',
+          typeLabel: 'plumber',
+          quadPath: 'r1',
         },
       ]);
       expect(r.tiles).toMatchObject({ total: 3, searched: 1, stillTruncated: 0 });
@@ -478,6 +531,115 @@ describe('run report (D-17, criterion 3)', () => {
       });
       // A change check matches nothing: the outcome counts are zero, not absent.
       expect(r.outcomes).toMatchObject({ found: 0, attached: 0, tentative: 0, unmatched: 0 });
+    }));
+
+  /**
+   * C-CR-04: the stop and refusal alerts quote the cap of the RUN'S OWN budget month, never the
+   * month the report happens to be opened in.
+   *
+   * 🔴 ONE INSTANT, TWO ZONES, OPPOSITE VERDICTS. 2026-10-01T04:30:00Z is Sep 30, 11:30 PM in the
+   * RGV (CDT, UTC−5) and Oct 1 in UTC. This lane runs in UTC (vitest.db.config.ts, asserted
+   * below), so an implementation that took the month in the process zone — or in the database
+   * session's — would pick October's $75 and go red. The app's zone and locale are pinned inside
+   * `periodStart` (APP_TZ, APP_LOCALE); the second half of the pair (05:30Z, Oct 1 in both zones)
+   * proves the boundary moves at LOCAL midnight rather than never.
+   */
+  it("run report quotes the cap of the run's own budget month, not the current one", () =>
+    withTxRollback(async (tx) => {
+      // Precondition that makes the pair discriminating: the process zone is not the app's.
+      expect(Intl.DateTimeFormat().resolvedOptions().timeZone).toBe('UTC');
+
+      const c = asPg(tx);
+      const s = await setup(c, { status: 'partial' });
+      // Owner-side seeds (authenticated has no write grant on budget_periods, 0015): September's
+      // cap was $40, then it was raised to $75 for October.
+      await c.query(
+        `insert into budget_periods (org_id, provider, period_start, cap_micro_usd)
+         values ($1, 'places', '2026-09-01', 40000000), ($1, 'places', '2026-10-01', 75000000)`,
+        [s.a],
+      );
+      await c.query(
+        `update runs set stopped_reason = 'budget_cap_reached', created_at = $2::timestamptz,
+                         finished_at = $2::timestamptz where id = $1`,
+        [s.runId, '2026-10-01T04:30:00Z'],
+      );
+      await actAs(c, CLAIMS_A);
+
+      // Opened on Oct 2: the run belongs to SEPTEMBER in the RGV.
+      const openedAt = new Date('2026-10-02T15:00:00Z');
+      const september = await readRunReport(tx, s.runId, openedAt);
+      expect(september?.run).toMatchObject({
+        capMicroUsd: 40_000_000,
+        capPeriodStart: '2026-09-01',
+        capPeriodIsCurrent: false,
+        // Local midnight Oct 1 in CDT is 05:00Z — not UTC midnight, not a fixed −6h.
+        capResetMs: Date.UTC(2026, 9, 1, 5, 0, 0),
+      });
+
+      // Opened in September itself, the same run's period is the current one.
+      const sameMonth = await readRunReport(tx, s.runId, new Date('2026-09-30T23:00:00-05:00'));
+      expect(sameMonth?.run).toMatchObject({
+        capMicroUsd: 40_000_000,
+        capPeriodStart: '2026-09-01',
+        capPeriodIsCurrent: true,
+      });
+
+      // The other half of the pair: an hour later it is October in BOTH zones.
+      await actAsOwner(c);
+      await c.query('update runs set created_at = $2::timestamptz where id = $1', [
+        s.runId,
+        '2026-10-01T05:30:00Z',
+      ]);
+      await actAs(c, CLAIMS_A);
+      const october = await readRunReport(tx, s.runId, openedAt);
+      expect(october?.run).toMatchObject({
+        capMicroUsd: 75_000_000,
+        capPeriodStart: '2026-10-01',
+        capPeriodIsCurrent: true,
+        capResetMs: Date.UTC(2026, 10, 1, 5, 0, 0),
+      });
+    }));
+
+  /**
+   * Coordinator follow-up (fixer A's 0030): `business_place_signal` now counts a MERGED-AWAY
+   * business's attachments toward its survivor (`coalesce(b.merged_into_id, b.id)`). The
+   * business page's Google check must agree — its listings and history include the merged
+   * loser's, or the signal row would name a website no listing below explains.
+   * (In this file because it is the Places DB file this slice owns; same producer chain.)
+   */
+  it("the google check includes a merged-away business's listings and history", () =>
+    withTxRollback(async (tx) => {
+      const c = asPg(tx);
+      const s = await setup(c);
+      await actAs(c, CLAIMS_A);
+      const ids = await plan(c, s.runId, [searchSpec('r')]);
+      await writePage(c, ids.r!, [
+        listing('ChIJ-ortiz', [cand(s.spine.ortiz, 97)], { host: 'social' }),
+        listing('ChIJ-garza', [cand(s.spine.garza, 97)], { host: 'none' }),
+      ]);
+
+      // Positive control, before the merge: garza's check holds garza's listing only.
+      const before = await readGoogleCheck(tx, s.spine.garza);
+      expect(before.listings.map((l) => l.placeId)).toEqual(['ChIJ-garza']);
+
+      // Ortiz is merged into Garza (as the owner; flattened, as app merges are).
+      await actAsOwner(c);
+      await c.query(
+        `update businesses set status = 'merged', merged_into_id = $2
+          where id = $1 and org_id = $3`,
+        [s.spine.ortiz, s.spine.garza, s.a],
+      );
+      await actAs(c, CLAIMS_A);
+
+      const after = await readGoogleCheck(tx, s.spine.garza);
+      expect(after.listings.map((l) => l.placeId).sort()).toEqual(['ChIJ-garza', 'ChIJ-ortiz']);
+      expect(after.history.map((h) => h.placeId).sort()).toEqual(['ChIJ-garza', 'ChIJ-ortiz']);
+      // The signal (the view) and the listings now tell the same story: a social page is
+      // listed, and the listing that carries it is on the page.
+      expect(after.signal).toMatchObject({ hadWebsiteUri: true, hostClass: 'social' });
+      const ortiz = after.listings.find((l) => l.placeId === 'ChIJ-ortiz');
+      expect(ortiz).toMatchObject({ status: 'attached' });
+      expect(ortiz?.latest?.hostClass).toBe('social');
     }));
 
   it('run report is tenant-scoped', () =>

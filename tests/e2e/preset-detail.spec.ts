@@ -370,6 +370,25 @@ test('preset detail: with places off, all three run actions are disabled and exp
     await expect(action, id).toBeFocused();
   }
 
+  // C-CR-02: every version's "Run version N" — desk row or phone card, whichever is visible —
+  // is inert too, described by the same notice. Before this, each one opened a live drawer
+  // whose confirm answered "switched off after this page loaded" and looped on reload.
+  const versionRuns = page.locator(
+    '[data-testid^="version-row-"][data-testid$="-run"]:visible, ' +
+      '[data-testid^="version-card-"][data-testid$="-run"]:visible',
+  );
+  const versionRunCount = await versionRuns.count();
+  expect(versionRunCount, 'at least one visible version run button').toBeGreaterThan(0);
+  for (let i = 0; i < versionRunCount; i += 1) {
+    const button = versionRuns.nth(i);
+    await expect(button).toHaveAttribute('aria-disabled', 'true');
+    await expect(button).toHaveAttribute('data-enabled', 'false');
+    await expect(button).not.toHaveAttribute('disabled');
+    await expect(button).toHaveAttribute('aria-describedby', new RegExp(`\\b${noticeId}\\b`));
+  }
+  // Nothing opened a drawer, and this spec clicked nothing that could.
+  await expect(page.getByTestId('run-drawer')).toHaveCount(0);
+
   // No accent anywhere among the run actions in off mode (Rule 34).
   await expect(page.locator('[data-testid^="run-"][data-variant="default"]')).toHaveCount(0);
 

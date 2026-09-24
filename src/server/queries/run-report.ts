@@ -1,9 +1,10 @@
 import 'server-only';
 import { sql } from 'drizzle-orm';
 import { withOrg, type OrgClaims } from '@/db/with-org';
-import { periodResetInstant } from '@/lib/budget/period';
+import { periodResetInstant, periodStart } from '@/lib/budget/period';
 import { instantOf, requireInstant } from '@/lib/instant';
 import type { HostClass } from '@/lib/places/host-class';
+import { describeTileKey, placesTypeLabel } from '@/lib/ui/places-format';
 import {
   STOPPED_REASONS,
   type RunKind,
@@ -51,6 +52,20 @@ export type TextSearchSkuRow = 'ts_enterprise' | 'ts_essentials';
 
 export type TruncatedWhy = 'max_depth' | 'min_size' | 'novelty';
 
+/**
+ * One listed tile. `tileKey` / `cellKey` / `placesType` are machine keys, kept for attributes
+ * only; C-WR-04's `unitName` ("McAllen", "Hidalgo County"), `typeLabel` ("roofing contractor")
+ * and `quadPath` ("r012") are what a row renders.
+ */
+export type TileNames = {
+  tileKey: string;
+  cellKey: string;
+  placesType: string;
+  unitName: string;
+  typeLabel: string;
+  quadPath: string;
+};
+
 export type RunReport = {
   run: {
     id: string;
@@ -75,9 +90,18 @@ export type RunReport = {
     estimateMicroUsdLo: number | null;
     estimateMicroUsdHi: number | null;
     ceilingRequests: number;
-    /** The CURRENT month's Places cap and the instant it resets (the stop alert's copy). */
+    /**
+     * 🔴 C-CR-04: the Places cap of the RUN'S OWN budget month — the month (APP_TZ) its
+     * `created_at` falls in, which is the period `queueRun` reserved against — and the instant
+     * that month reset. Never the month the report happens to be opened in: a run stopped at
+     * September's cap and read on Oct 2 must not say "can run after the cap resets on Nov 1".
+     */
     capMicroUsd: number;
     capResetMs: number;
+    /** 'YYYY-MM-01' of the run's budget month. */
+    capPeriodStart: string;
+    /** False once that month is over — the alerts then speak in the past tense. */
+    capPeriodIsCurrent: boolean;
   };
   requests: {
     /** Always both rows, Enterprise first, even at zero. */
@@ -102,14 +126,9 @@ export type RunReport = {
     saturated: number;
     subdivided: number;
     stillTruncated: number;
-    truncated: Array<{
-      tileKey: string;
-      cellKey: string;
-      placesType: string;
-      why: TruncatedWhy | null;
-    }>;
+    truncated: Array<TileNames & { why: TruncatedWhy | null }>;
     /** Searches still `planned` / `searching` when the run is TERMINAL; empty while it runs. */
-    stillSubdividing: Array<{ tileKey: string; cellKey: string; placesType: string }>;
+    stillSubdividing: TileNames[];
   };
   outcomes: {
     /** Distinct place ids with any non-`outside` outcome in this run. */
@@ -223,7 +242,14 @@ type RawChanges = {
   changed_tiles: number;
 };
 
-export async function readRunReport(tx: Tx, runId: string): Promise<RunReport | null> {
+/**
+ * `now` exists so the month-boundary test can pin "when the report was opened"; callers leave it.
+ */
+export async function readRunReport(
+  tx: Tx,
+  runId: string,
+  now: Date = new Date(),
+): Promise<RunReport | null> {
   // A malformed id is an unknown run, not a 22P02 that aborts the transaction.
   if (!UUID.test(runId)) return null;
 
@@ -264,7 +290,13 @@ export async function readRunReport(tx: Tx, runId: string): Promise<RunReport | 
   );
   if (!run) return null;
 
-  const period = await readCurrentPeriod(tx, 'places');
+  // 🔴 C-CR-04. The RUN'S budget month, taken in APP_TZ by `periodStart` (never the process or
+  // session zone), from the run's `created_at` — the instant `queueRun` reserved against. The
+  // period row is read through the same get-or-create the rest of the app uses; for a run's own
+  // month it already exists (its reservation was made there), so this is a read.
+  const createdAt = requireInstant(run.created_ms, 'runs.created_at');
+  const period = await readCurrentPeriod(tx, 'places', createdAt);
+  const capPeriodIsCurrent = period.periodStart === periodStart(now);
 
   // ---- Requests by SKU: both rows always (static structure) -------------------------------
   const skuRows = rowsOf<RawSku>(
@@ -321,6 +353,25 @@ export async function readRunReport(tx: Tx, runId: string): Promise<RunReport | 
            order by rs.tile_key`),
       )
     : [];
+
+  // ---- Tile names (C-WR-04): a place name and a readable type, never the key ------------------
+  // Counties are named from the reference table; cities and radii carry what they need in the
+  // key. Read only when there is a row to name.
+  const countyNames = new Map<string, string>();
+  if (truncatedRows.length > 0 || stillSubdividing.length > 0) {
+    for (const c of rowsOf<{ fips: string; name: string }>(
+      await tx.execute(sql`select fips, name from counties where org_id is null`),
+    )) {
+      countyNames.set(c.fips, c.name);
+    }
+  }
+  const namesOf = (t: RawTileRow): TileNames => ({
+    tileKey: t.tile_key,
+    cellKey: t.cell_key,
+    placesType: t.places_type,
+    ...describeTileKey(t.tile_key, countyNames),
+    typeLabel: placesTypeLabel(t.places_type),
+  });
 
   // ---- Outcomes: run-wide (each place at its best outcome) and per cluster ---------------------
   const [outcomes] = rowsOf<RawOutcomes>(
@@ -462,7 +513,7 @@ export async function readRunReport(tx: Tx, runId: string): Promise<RunReport | 
       presetId: run.preset_id,
       presetName: run.preset_name,
       versionNumber: run.version,
-      createdMs: requireInstant(run.created_ms, 'runs.created_at').getTime(),
+      createdMs: createdAt.getTime(),
       startedMs: instantOf(run.started_ms)?.getTime() ?? null,
       finishedMs: instantOf(run.finished_ms)?.getTime() ?? null,
       costMicroUsd,
@@ -474,6 +525,8 @@ export async function readRunReport(tx: Tx, runId: string): Promise<RunReport | 
       ceilingRequests: run.ceiling_requests,
       capMicroUsd: intOf(period.capMicroUsd.toString(), 'the monthly cap'),
       capResetMs: periodResetInstant(period.periodStart).getTime(),
+      capPeriodStart: period.periodStart,
+      capPeriodIsCurrent,
     },
     requests: {
       rows: skuRows.map((r) => ({
@@ -492,17 +545,8 @@ export async function readRunReport(tx: Tx, runId: string): Promise<RunReport | 
       saturated: tileCounts.saturated,
       subdivided: tileCounts.subdivided,
       stillTruncated: tileCounts.truncated,
-      truncated: truncatedRows.map((t) => ({
-        tileKey: t.tile_key,
-        cellKey: t.cell_key,
-        placesType: t.places_type,
-        why: t.truncated_why,
-      })),
-      stillSubdividing: stillSubdividing.map((t) => ({
-        tileKey: t.tile_key,
-        cellKey: t.cell_key,
-        placesType: t.places_type,
-      })),
+      truncated: truncatedRows.map((t) => ({ ...namesOf(t), why: t.truncated_why })),
+      stillSubdividing: stillSubdividing.map(namesOf),
     },
     outcomes: {
       found: outcomes.found,

@@ -54,6 +54,15 @@ import { cn } from '@/lib/utils';
  *
  * `renderedAtMs` is `Date.now()` taken by the server at render time. The machine clocks
  * differ, but the watchdog compares it only for CHANGE, never against the browser's clock.
+ *
+ * 🔴 WHAT THIS ISLAND CANNOT SEE (C-WR-03, recorded, not solved here). The watchdog covers a
+ * refresh that never ANSWERS. A refresh whose server render THROWS (a DB blip on the `max: 1`
+ * pool mid-run) is a different failure: Next renders `runs/[id]/error.tsx` in place of the whole
+ * segment, this island unmounts with the report, polling stops, and the reader sees "We couldn't
+ * load this run's report" with its "Try again". `router.refresh()` returns void and never
+ * throws, so nothing in this file can catch that. Keeping the last good numbers through a
+ * thrown render needs a structural change — a client boundary around a child that does the read,
+ * or a route-handler probe before each refresh — and is a follow-up (04-REVIEW-FIX-partC).
  */
 
 export const REFRESH_MS = 5000;
@@ -170,18 +179,12 @@ export function RunAutoRefresh({
   routerRef.current = router;
 
   const refreshNow = useCallback(() => {
-    const at = Date.now();
     setCycle((c) => c + 1);
-    setPendingSince((prev) => prev ?? at);
-    try {
-      routerRef.current.refresh();
-    } catch {
-      // A refresh that throws is a failed refresh: the previous numbers stay, the line says so,
-      // and the next tick tries again.
-      setFailedAt(at);
-      setPendingSince(null);
-      setManualPending(false);
-    }
+    setPendingSince((prev) => prev ?? Date.now());
+    // No try/catch (C-WR-03): `router.refresh()` returns void and never throws, so a catch here
+    // was dead code that claimed a failure path it could not see. See the header's "WHAT THIS
+    // ISLAND CANNOT SEE".
+    routerRef.current.refresh();
   }, []);
 
   // The cadence: one timeout, re-armed after every refresh, only while live and visible.

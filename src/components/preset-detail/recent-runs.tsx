@@ -22,7 +22,7 @@ import {
   STOPPED_REASON,
   type PlacesModeName,
 } from '@/lib/ui/copy';
-import { RUN_KIND_LABEL, type RunKind, type StoppedReason } from '@/lib/ui/run-tone';
+import { runKindLabelOf, type StoppedReason } from '@/lib/ui/run-tone';
 
 /**
  * "Recent runs" on the preset page (04-UI-SPEC § Screen 2, Open Question 15): the five newest
@@ -32,7 +32,8 @@ import { RUN_KIND_LABEL, type RunKind, type StoppedReason } from '@/lib/ui/run-t
  * `Date`s, neither of which may cross into a client component.
  *
  * 🔴 KEYS NEVER RENDER (Rule 35). `kind` and `stopped_reason` are machine keys in the database;
- * they pass through `RUN_KIND_LABEL` and `STOPPED_REASON`, and a key either map lacks renders
+ * they pass through `runKindLabelOf` (C-WR-06: a past partition names its week) and
+ * `STOPPED_REASON`, and a key either map lacks renders
  * NOTHING rather than itself — there is deliberately no `?? key` fallback. The stopped sentence
  * shows for `partial` only, as on `/spend`: a refused run's reason is its badge.
  *
@@ -64,7 +65,7 @@ function RecentRunRow({ run }: { run: RecentRun }) {
     hour: 'numeric',
     minute: '2-digit',
   });
-  const kind = RUN_KIND_LABEL[run.kind as RunKind] ?? null;
+  const kind = runKindLabelOf(run.kind, run.at.getTime());
   const reason = reasonOf(run);
   return (
     <li>
@@ -97,7 +98,10 @@ export function RecentRuns({ runs, mode }: { runs: RecentRun[]; mode: PlacesMode
     .slice(0, RECENT_RUNS_LIMIT);
 
   return (
-    <Card data-testid="preset-recent-runs">
+    // `id` is the run drawer's C-CR-01 way out ("Check recent runs" → `#preset-recent-runs`).
+    // Written as a literal, not imported: `run-drawer.tsx` is a client module, and its plain
+    // exports are client references inside this server component.
+    <Card id="preset-recent-runs" data-testid="preset-recent-runs">
       <CardHeader>
         <CardTitle className="text-xl font-semibold">{PRESET_CARD.recentRuns}</CardTitle>
       </CardHeader>

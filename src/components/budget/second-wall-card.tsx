@@ -2,7 +2,8 @@ import { ShieldAlert } from 'lucide-react';
 import { FLAG_BADGE_SIZING } from '@/components/flags/flag-badge';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { GOOGLE_QUOTA_SET_ON } from '@/lib/budget/second-wall';
+import { PRICE_BOOK } from '@/lib/budget/price-book';
+import { GOOGLE_QUOTA_REQUESTS_PER_DAY, GOOGLE_QUOTA_SET_ON } from '@/lib/budget/second-wall';
 import { formatLocal } from '@/lib/time';
 import {
   SECOND_WALL_BODY,
@@ -15,6 +16,7 @@ import {
   SECOND_WALL_SET_TITLE,
   SECOND_WALL_TITLE,
   type EmphasisRun,
+  type SecondWallInputs,
 } from '@/lib/ui/copy';
 
 /**
@@ -78,9 +80,21 @@ function Runs({ runs }: { runs: readonly EmphasisRun[] }) {
   );
 }
 
+/** The project budget the recommended quota was derived against (docs/runbooks/google-quota.md),
+ *  in µUSD — see the header: deliberately not the org's live cap. */
+const PROJECT_BUDGET_MICRO_USD = 50_000_000;
+
 export function SecondWallCard() {
   const setOn = GOOGLE_QUOTA_SET_ON;
   const isSet = setOn !== null;
+  // 🔴 C-WR-09: every number on the card is derived from the ONE quota constant the run-stop
+  // alert reads and from the price book — never typed. Change the quota and both move.
+  const inputs: SecondWallInputs = {
+    quotaPerDay: GOOGLE_QUOTA_REQUESTS_PER_DAY,
+    microUsdPerRequest: PRICE_BOOK.ts_enterprise.microUsdPerRequest,
+    freePerMonth: PRICE_BOOK.ts_enterprise.freePerMonth ?? 0,
+    budgetMicroUsd: PROJECT_BUDGET_MICRO_USD,
+  };
 
   return (
     <Card data-testid="budget-second-wall" className="bg-muted ring-1 ring-border">
@@ -102,7 +116,7 @@ export function SecondWallCard() {
 
       <CardContent className="flex flex-col gap-4">
         <p data-testid="budget-second-wall-body" className="max-w-[60ch] text-base font-normal">
-          {isSet ? SECOND_WALL_SET_BODY(calendarDayLabel(setOn)) : SECOND_WALL_BODY}
+          {isSet ? SECOND_WALL_SET_BODY(calendarDayLabel(setOn), inputs) : SECOND_WALL_BODY}
         </p>
 
         {isSet ? null : (
@@ -110,7 +124,7 @@ export function SecondWallCard() {
             data-testid="budget-second-wall-derivation"
             className="max-w-[72ch] text-sm font-normal tabular-nums text-muted-foreground"
           >
-            <Runs runs={SECOND_WALL_DERIVATION} />
+            <Runs runs={SECOND_WALL_DERIVATION(inputs)} />
           </p>
         )}
 
@@ -118,7 +132,7 @@ export function SecondWallCard() {
           data-testid="budget-second-wall-limit"
           className="max-w-[72ch] text-sm font-normal tabular-nums text-muted-foreground"
         >
-          <Runs runs={SECOND_WALL_LIMIT} />
+          <Runs runs={SECOND_WALL_LIMIT(inputs)} />
         </p>
 
         {/* Inline text link inside body copy — accent, per UI-SPEC § Color item 6. 44px

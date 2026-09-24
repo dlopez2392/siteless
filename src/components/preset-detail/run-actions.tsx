@@ -65,6 +65,8 @@ export type RunActionsProps = {
   partition: RunPartition | null;
   drawer: {
     presetName: string;
+    /** The preset's editor — the drawer's way out of a refusal only geography can fix. */
+    editHref: string;
     initialVersionId: string;
     remainingLabel: string;
     isAdmin: boolean;
@@ -165,6 +167,7 @@ export function RunActions(props: RunActionsProps) {
 
     const common = {
       presetName: drawer.presetName,
+      editHref: drawer.editHref,
       versions: drawer.versions[key],
       initialVersionId: drawer.initialVersionId,
       pickable: false,

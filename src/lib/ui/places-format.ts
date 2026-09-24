@@ -1,11 +1,19 @@
 import type { HostClass } from '@/lib/places/host-class';
-import { DISTANCE_TIERS } from '@/lib/resolve/score';
+import {
+  ADDRESS_FULL,
+  ADDRESS_NUM_POSTAL,
+  ADDRESS_POSTAL_ONLY,
+  DISTANCE_TIERS,
+} from '@/lib/resolve/score';
 import {
   HOST_CLASS_SENTENCE,
   HOST_CLASS_SHORT_LABEL,
   PLACES_CHIP,
   PLACES_CHIP_WITHIN,
   REVIEW_CHIP,
+  RUN_TILE_UNIT_COUNTY,
+  RUN_TILE_UNIT_RADIUS,
+  RUN_TILE_UNIT_UNKNOWN,
   RUN_WEBSITE_ROW,
 } from './copy';
 
@@ -92,9 +100,8 @@ function flag(value: unknown): 0 | 1 | null {
  * value drops its chip and the function never throws. A fact with no chip wording in the spec (a
  * `city: 0` non-match, two different phones) renders no chip rather than an invented sentence.
  *
- * There is no `zip` chip for a listing: the resolver's own "same ZIP" chip compares two stored
- * records' postcodes, and the listing's address is never stored. The key stays in the union so
- * the band shares one key space with `ReviewChip`.
+ * The `zip` chip (C-WR-01) reads the persisted ADDRESS POINTS, never an address: the matcher
+ * compared Google's address in memory and `toPageRecord` stored only the integer it scored.
  */
 export function placesChips(features: unknown): PlacesChip[] {
   if (typeof features !== 'object' || features === null || Array.isArray(features)) return [];
@@ -122,6 +129,18 @@ export function placesChips(features: unknown): PlacesChip[] {
         ? PLACES_CHIP.nameSimilar
         : PLACES_CHIP.nameDifferent;
     chips.push({ key: 'name', label, agrees: namePoints > 0 });
+  }
+
+  // Address (C-WR-01): the scorer's integer points, which ARE persisted — the listing's address
+  // itself is not. 30 is the full match (and the address signal), 15 number + ZIP, 5 ZIP only;
+  // zero, or anything else, is no chip. Nothing Google-authored is read: only the points.
+  const addressPoints = num(f.address);
+  if (addressPoints !== null && addressPoints >= ADDRESS_FULL) {
+    chips.push({ key: 'zip', label: PLACES_CHIP.sameAddress, agrees: true });
+  } else if (addressPoints === ADDRESS_NUM_POSTAL) {
+    chips.push({ key: 'zip', label: PLACES_CHIP.sameNumberZip, agrees: true });
+  } else if (addressPoints === ADDRESS_POSTAL_ONLY) {
+    chips.push({ key: 'zip', label: REVIEW_CHIP.sameZip, agrees: true });
   }
 
   // Distance: the scorer's tier, as "within <tier>" — metres apart are memory-only too. Zero
@@ -155,6 +174,52 @@ export function placesChips(features: unknown): PlacesChip[] {
   }
 
   return chips;
+}
+
+/* --- Tile rows (C-WR-04: a place name and a readable type, never a key) ------------------ */
+
+/**
+ * OUR configured Places type key as words: `roofing_contractor` → "roofing contractor". The key
+ * is the one we configured per cluster (src/lib/places/place-types.ts), not a Google-returned
+ * type, so this is formatting our own vocabulary.
+ */
+export function placesTypeLabel(placesType: string): string {
+  return placesType.replaceAll('_', ' ').trim();
+}
+
+/**
+ * The place a stored tile key names, and its quad path, from
+ * `{unitKind}:{unitId}|{placesType}|{quadPath}` (`tileKeyOf` in src/lib/places/tiling.ts) with
+ * the unit id DB-safe (`/` for the cell separator):
+ *   city   `48215/McAllen`  → "McAllen"
+ *   county `48215`          → "Hidalgo County"   (from `countyNames`, fips → name)
+ *   radius `48215/10mi`     → "10-mile radius in Hidalgo County"
+ * A key of any other shape is `RUN_TILE_UNIT_UNKNOWN` — never the key itself (Rule 35).
+ */
+export function describeTileKey(
+  tileKey: string,
+  countyNames: ReadonlyMap<string, string>,
+): { unitName: string; quadPath: string } {
+  const parts = tileKey.split('|');
+  const quadPath = parts.length >= 3 ? (parts[parts.length - 1] ?? '') : '';
+  const unit = parts.length >= 3 ? (parts[0] ?? '') : '';
+  const colon = unit.indexOf(':');
+  const kind = colon > 0 ? unit.slice(0, colon) : '';
+  const id = colon > 0 ? unit.slice(colon + 1) : '';
+  const slash = id.indexOf('/');
+  const fips = slash >= 0 ? id.slice(0, slash) : id;
+  const rest = slash >= 0 ? id.slice(slash + 1) : '';
+
+  let unitName: string | null = null;
+  if (kind === 'city' && rest !== '') unitName = rest;
+  else if (kind === 'county' && id !== '') {
+    const name = countyNames.get(id);
+    unitName = name ? RUN_TILE_UNIT_COUNTY(name) : null;
+  } else if (kind === 'radius') {
+    const miles = /^(\d+(?:\.\d+)?)mi$/.exec(rest)?.[1];
+    unitName = miles ? RUN_TILE_UNIT_RADIUS(miles, countyNames.get(fips) ?? null) : null;
+  }
+  return { unitName: unitName ?? RUN_TILE_UNIT_UNKNOWN, quadPath };
 }
 
 /* --- The link out to Google Maps (Open Question 5; Executor Rule 31) -------------------- */

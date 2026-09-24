@@ -32,6 +32,7 @@ import {
   REVIEW_GOOGLE_HELPER_SKIP,
   REVIEW_SKIP_HELPER,
   TOAST_ATTACHED,
+  TOAST_ATTACHED_TIE,
   TOAST_DISTINCT,
   TOAST_MERGED,
 } from '@/lib/ui/copy';
@@ -68,7 +69,8 @@ import { RejectDialog } from './reject-dialog';
  * THE GOOGLE KIND (04-UI-SPEC § Screen 3, `kind="google"`): the same bar, busy states, refusal
  * Alert and focus move, over `recordListingDecision`:
  * - "Same business" confirms the listing (`attached`) with no confirmation — Detach on the
- *   business reverses it.
+ *   business reverses it. On a TIE, since 0030 the same write also REJECTS the other side (for
+ *   good); the tie reason on the card says so before the tap, and the toast says so after.
  * - "Not this business" is IRREVERSIBLE, so it only OPENS `RejectDialog` (Rule 42); the queue
  *   advances after the dialog's write lands.
  * - "Skip" records nothing (04-21), so a refresh would re-read the very same listing. After the
@@ -145,6 +147,9 @@ type GoogleActionsProps = {
   businessName: string;
   /** Where "Skip" goes: this `/review` URL with the listing added to the session's skipped ids. */
   skipHref: string;
+  /** A TIE's other business (display name), else null/absent. Since 0030 confirming this side
+   *  rejects the other in the same write, so the success toast names both. */
+  tieOtherName?: string | null;
 };
 
 /** The action bar for the item on screen — a duplicate pair (default) or a Google listing. */
@@ -155,6 +160,7 @@ export function ReviewActions(props: PairActionsProps | GoogleActionsProps) {
         attachmentId={props.attachmentId}
         businessName={props.businessName}
         skipHref={props.skipHref}
+        tieOtherName={props.tieOtherName ?? null}
       />
     );
   }
@@ -277,10 +283,12 @@ function GoogleActions({
   attachmentId,
   businessName,
   skipHref,
+  tieOtherName,
 }: {
   attachmentId: string;
   businessName: string;
   skipHref: string;
+  tieOtherName: string | null;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -317,7 +325,13 @@ function GoogleActions({
           return;
         }
         if (decision === 'attached') {
-          toast(TOAST_ATTACHED(result.data.businessName));
+          // 0030: a confirmed tie side rejects the other side in the same write, and both leave
+          // the queue — the toast says so, so the count dropping by two is never a surprise.
+          toast(
+            tieOtherName
+              ? TOAST_ATTACHED_TIE(result.data.businessName, tieOtherName)
+              : TOAST_ATTACHED(result.data.businessName),
+          );
           router.refresh();
           return;
         }
@@ -326,7 +340,7 @@ function GoogleActions({
         router.push(skipHref);
       });
     },
-    [attachmentId, router, skipHref],
+    [attachmentId, router, skipHref, tieOtherName],
   );
 
   const reload = useCallback(() => {

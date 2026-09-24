@@ -321,6 +321,9 @@ export default async function PresetDetailPage({
     remainingLabel: `${formatUsd(remaining < 0n ? 0n : remaining)} of ${formatUsd(
       period.capMicroUsd,
     )}`,
+    // C-CR-02: the version rows' "Run version N" obey the same mode as the run actions.
+    placesMode,
+    noticeId: NOTICE_ID,
   };
 
   const runOptions: RunVersionOption[] = history.map((v) => ({
@@ -383,6 +386,7 @@ export default async function PresetDetailPage({
         partition: runCosts.partition,
         drawer: {
           presetName: preset.displayName,
+          editHref,
           initialVersionId: preset.currentVersionId,
           remainingLabel: historyContext.remainingLabel,
           isAdmin,

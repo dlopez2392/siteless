@@ -905,6 +905,17 @@ export const PLACES_ACTION = {
   showGoogle: 'Show Google listings',
 } as const;
 
+/**
+ * C-WR-06: a partition run that HAPPENED (report header, recent runs, `/spend`). "This week's
+ * partition" stays the preset page's action-row title only — on a past run it is false.
+ */
+export const RUN_KIND_PARTITION_PAST = 'Weekly partition';
+
+/** "Weekly partition · week 36" — the ISO week (APP_TZ) the run started in. */
+export function RUN_KIND_PARTITION_WEEK(isoWeek: number) {
+  return `${RUN_KIND_PARTITION_PAST} · week ${isoWeek}`;
+}
+
 /** "Open {preset name}" — the way out of a failed, never-started or abandoned run. */
 export function RUN_OPEN_PRESET(presetName: string) {
   return `Open ${presetName}`;
@@ -1052,6 +1063,40 @@ export function RUN_STOP_CAP(
   );
 }
 
+/**
+ * C-CR-04: `partial` · `budget_cap_reached`, read after the run's budget month has ENDED. The cap
+ * named is that month's; there is no reset date to wait for — the month's budget has already
+ * reset, so the rest can run now. `month` is pre-formatted ("September 2026").
+ * Actions: `RUN_OPEN_PRESET(name)`, `RUN_STOP_ACTION.openSpend`.
+ */
+export function RUN_STOP_CAP_PAST(
+  cap: MicroUsd,
+  cost: MicroUsd,
+  searched: number,
+  notSearched: number,
+  month: string,
+) {
+  return (
+    `Stopped at the ${formatUsd(cap)} monthly cap for ${month} after ${formatUsd(cost)}. ` +
+    `Siteless refused the next request before it left, so nothing past the cap was charged. ` +
+    `The ${counted(searched, 'tile', 'tiles')} already searched ${searched === 1 ? 'is' : 'are'} ` +
+    `complete. ${month}'s budget has since reset, so the ${formatCount(notSearched)} not ` +
+    `searched can run now — start the run again from its preset.`
+  );
+}
+
+/**
+ * C-CR-04: `refused`, read after the run's budget month has ENDED — the cap that refused it was
+ * that month's, and this month's meter may well be at $0. `month` pre-formatted.
+ * Action: `RUN_OPEN_PRESET(name)`.
+ */
+export function RUN_REFUSED_PAST(capMicroUsd: bigint | number, month: string) {
+  return (
+    `This run was refused. The ${formatUsd(capMicroUsd)} cap for ${month} was spent, so ` +
+    `Siteless didn't call anything and nothing was charged. That month's budget has since reset.`
+  );
+}
+
 /** `partial` · `exceeded_estimate` (warning). `ceiling` is 2 × `hi` (RUN_CEILING_MULTIPLIER). */
 export function RUN_STOP_ESTIMATE(
   lo: MicroUsd,
@@ -1167,10 +1212,26 @@ export function RUN_TRUNCATION_SHOW(n: number) {
 export const RUN_TRUNCATION_HIDE = 'Hide the truncated tiles';
 export const RUN_TRUNCATION_COPY = 'Copy the tile list';
 
-/** One truncated tile. `placesType` is OUR configured type key, not a Google-returned type. */
+/** One truncated tile. `geography` is a place NAME and `placesType` a readable label of OUR
+ *  configured type (C-WR-04: never `city:48215/McAllen` or `car_repair`); `tileId` is the
+ *  tile's quad path ("r0213"). */
 export function RUN_TILE_ROW(geography: string, placesType: string, tileId: string) {
   return `${geography} · ${placesType} · tile ${tileId}`;
 }
+
+/** C-WR-04: a county unit's name in a tile row ("Hidalgo County"). */
+export function RUN_TILE_UNIT_COUNTY(name: string) {
+  return `${name} County`;
+}
+
+/** C-WR-04: a radius unit in a tile row ("10-mile radius in Hidalgo County"). */
+export function RUN_TILE_UNIT_RADIUS(miles: string, countyName: string | null) {
+  return countyName ? `${miles}-mile radius in ${countyName} County` : `${miles}-mile radius`;
+}
+
+/** C-WR-04: a tile whose stored key has a shape this report cannot read — said in words, never
+ *  by printing the key. */
+export const RUN_TILE_UNIT_UNKNOWN = 'Unnamed area';
 
 /* --- Run report → cards ------------------------------------------------------------------ */
 
@@ -1316,6 +1377,16 @@ export const RUN_ZERO_PLACES_BODY =
   'Every tile was searched and none returned a listing of these Places types. That usually ' +
   "means a type in this preset's clusters doesn't match how Google categorises these " +
   "businesses — check the cluster's Places types at the desk.";
+
+/**
+ * C-CR-03: a run that ended WITHOUT completing (failed, or stopped early) and brought back no
+ * listing. `RUN_ZERO_PLACES_BODY` is only true of a complete run — here the tiles were not all
+ * searched, and the reason (a missing key, the cap, Google's daily limit…) is the stop alert's.
+ */
+export const RUN_OUTCOMES_NONE_REACHED_HEADING = 'No Google places came back from this run';
+export const RUN_OUTCOMES_NONE_REACHED_BODY =
+  "This run ended before every tile was searched, and no listing came back before it stopped — " +
+  "the alert at the top of this report says why. It doesn't mean the Places types are wrong.";
 
 export const RUN_REPORT_LOAD_FAILED =
   "We couldn't load this run's report. The run itself is unaffected — if it's running, it " +
@@ -1474,8 +1545,19 @@ export function RUN_DRAWER_CELLS(cells: number, totalCells: number, week: number
 
 export const RUN_DRAWER_COST_LABEL = 'Cost';
 export const RUN_DRAWER_CHECK_COST = '$0.00 — IDs-only searches are free';
+/**
+ * C-WR-05: NOT "nothing is reserved". `queueRun` holds one micro-dollar on the free SKU so the
+ * check goes through the meter like every run — which also means a fully spent cap refuses it.
+ */
 export const RUN_DRAWER_CHECK_NOTE =
-  'Nothing is reserved; each request is still written to the ledger.';
+  'Siteless holds a placeholder of one millionth of a dollar so the check goes through the ' +
+  'budget meter like every run — if the monthly cap is already spent, the check is refused ' +
+  'too. Each request is still written to the ledger.';
+
+/** C-WR-05: under a refused CHANGE CHECK, why a free run met the cap. */
+export const RUN_REFUSED_CHECK_NOTE =
+  'Change checks cost nothing, but each one holds a one-millionth-of-a-dollar placeholder on ' +
+  'the meter, so a spent cap refuses them too.';
 
 export const RUN_DRAWER_CONFIRM_FULL = 'Reserve budget & start the sweep';
 
@@ -1514,6 +1596,28 @@ export function RUN_MODE_REFUSED(mode: PlacesModeName) {
 export const RUN_START_FAILED =
   "The run didn't start. Nothing was reserved and nothing was charged. Try again — if it keeps " +
   'failing, the spend view shows whether a run was created.';
+
+/**
+ * C-CR-01: the request to start a run never answered (lost signal, a 5xx, a retired action id).
+ * The server may have committed the run and started it BEFORE the answer was lost, so this
+ * sentence claims nothing about what was reserved or charged — it sends the reader to where
+ * runs are listed. Actions: `RUN_START_UNKNOWN_ACTION`.
+ */
+export const RUN_START_UNKNOWN =
+  "We couldn't confirm whether the run started — the request didn't come back. Check Recent " +
+  'runs on this page before trying again: if the run was created, it is listed there.';
+
+export const RUN_START_UNKNOWN_ACTION = {
+  recentRuns: 'Check recent runs',
+  openSpend: PLACES_ACTION.openSpend,
+} as const;
+
+/**
+ * C-WR-07: a refusal that retrying cannot change — the version can't be priced, a geography unit
+ * has no map outline, or the version is gone. The server's sentence renders as the title; the
+ * way out is the preset's editor, never "Try again".
+ */
+export const RUN_INVALID_ACTION = 'Edit preset';
 
 /** Amendment 1: a second active run for the org (one at a time — two sweeps must not race for
  *  one budget). Action: `RUN_OPEN_RUNNING` → `/runs/{runningRunId}`. */
@@ -1590,6 +1694,11 @@ export const PLACES_CHIP = {
   nameSimilar: 'name similar',
   /** No name points. */
   nameDifferent: 'different name',
+  /** C-WR-01: full address points (street number, street and ZIP all equal) — the address
+   *  signal. The lowest tier (ZIP only) reuses `REVIEW_CHIP.sameZip`. */
+  sameAddress: 'same address',
+  /** C-WR-01: street number and ZIP equal. */
+  sameNumberZip: 'same street number and ZIP',
 } as const;
 
 /** "within 100 m", "within 500 m", "within 2 km" — a scorer distance tier's upper bound. */
@@ -1608,7 +1717,10 @@ export function REVIEW_GOOGLE_REASON_SCORE(score: number) {
 export function REVIEW_GOOGLE_REASON_TIE(score: number, other: string, otherScore: number) {
   return (
     `Tentative — this listing scored ${score} against two businesses: this one and “${other}” ` +
-    `(${otherScore}). Siteless never picks between them on its own.`
+    `(${otherScore}). Siteless never picks between them on its own. ` +
+    // 0030 (slice A): confirming one side of a tie REJECTS the other — said BEFORE the tap,
+    // because "Same business" deliberately asks for no confirmation (Rule 23).
+    `Confirming it for this business also records it as not “${other}”, for good.`
   );
 }
 
@@ -1823,13 +1935,36 @@ export function SOURCES_TRANSIENT_OLDEST(days: number) {
 export const SOURCES_TRANSIENT_NONE_HELD = 'None held';
 export const SOURCES_TRANSIENT_NEVER_RUN = 'Never run';
 
-/** `date` pre-formatted; `hours` and `count` are numbers. */
+/** C-WR-10: the "{n} past 30 days" clause, only when there are any — never "0 coordinates are
+ *  past 30 days. The database already refuses to read them". */
+function expiredClause(count: number, onDisk: string): string {
+  if (count <= 0) return '';
+  return (
+    `${counted(count, 'coordinate is', 'coordinates are')} past 30 days. The database already ` +
+    `refuses to read them, so nothing shows them, but ${onDisk} `
+  );
+}
+
+/** The purge itself is LATE (last ran more than 36 hours ago). `date` pre-formatted. */
 export function SOURCES_TRANSIENT_PURGE_OVERDUE(date: string, hours: number, count: number) {
   return (
     `The daily purge last ran ${date} — ${counted(hours, 'hour', 'hours')} ago. ` +
-    `${counted(count, 'coordinate is', 'coordinates are')} past 30 days. The database already ` +
-    `refuses to read them, so nothing shows them, but they're still on disk until the purge ` +
-    `runs. Check the Vercel cron log for the purge job, or run it by hand at the desk.`
+    expiredClause(count, "they're still on disk until the purge runs.") +
+    `Check the Vercel cron log for the purge job, or run it by hand at the desk.`
+  );
+}
+
+/**
+ * C-WR-10: the purge ran ON TIME, and coordinates have expired since — coordinates expire
+ * continuously while the purge runs once a day, so this is normal for up to a day. Said as what
+ * it is, not as "last ran 3 hours ago" under a warning that means "late". `date` pre-formatted.
+ */
+export function SOURCES_TRANSIENT_PURGE_AWAITING(date: string, hours: number, count: number) {
+  return (
+    `${counted(count, 'coordinate has', 'coordinates have')} passed 30 days since the daily ` +
+    `purge last ran (${date}, ${counted(hours, 'hour', 'hours')} ago). The database already ` +
+    `refuses to read them, and the next daily purge removes them from disk. If this is still ` +
+    `here tomorrow, check the Vercel cron log for the purge job, or run it by hand at the desk.`
   );
 }
 
@@ -1840,8 +1975,7 @@ export function SOURCES_TRANSIENT_PURGE_NEVER_RAN(hours: number, count: number) 
   return (
     `The daily purge has never run, and the oldest coordinates Siteless holds are ` +
     `${counted(hours, 'hour', 'hours')} old. ` +
-    `${counted(count, 'coordinate is', 'coordinates are')} past 30 days. The database already ` +
-    `refuses to read them, so nothing shows them, but they stay on disk until the purge runs. ` +
+    expiredClause(count, 'they stay on disk until the purge runs.') +
     `Check the Vercel cron log for the purge job, or run it by hand at the desk.`
   );
 }
@@ -1878,44 +2012,87 @@ export const SECOND_WALL_BODY =
   'quota in Google Cloud is the independent second wall, and it can only be set once the ' +
   "Google Cloud project and the Places API (New) key exist — they don't yet.";
 
+/**
+ * 🔴 C-WR-09: THE QUOTA AND THE PRICE ARE INPUTS, NEVER LITERALS. The card passes
+ * `GOOGLE_QUOTA_REQUESTS_PER_DAY` (the one constant the run-stop alert also reads) and the Text
+ * Search Enterprise price and free allowance from the price book, so changing the quota moves
+ * this card and the stopped run's sentence together. The $50.00 anchor is the PROJECT budget
+ * the recommendation was derived against (the card's header says why it is not the live cap).
+ */
+export type SecondWallInputs = {
+  quotaPerDay: number;
+  /** µUSD per paid Text Search Enterprise request (35,000 = $35.00/1,000). */
+  microUsdPerRequest: number;
+  /** Free Enterprise requests per month (1,000). */
+  freePerMonth: number;
+  /** The project budget the recommendation is derived against (µUSD; $50.00). */
+  budgetMicroUsd: number;
+};
+
+/** Paid requests a quota-limited DAY can spend, in µUSD (100 × $0.035 = $3.50). */
+function perDayMicroUsd(i: SecondWallInputs): number {
+  return i.quotaPerDay * i.microUsdPerRequest;
+}
+
 /** The recommendation and its arithmetic (docs/runbooks/google-quota.md § The derivation). */
-export const SECOND_WALL_DERIVATION: readonly EmphasisRun[] = [
-  { text: 'Set ' },
-  { text: 'Places API (New) → 100 requests/day', strong: true },
-  {
-    text:
-      '. Derivation: a $50.00 cap buys 1,428 paid Text Search Enterprise requests at ' +
-      '$35.00/1,000, plus 1,000 free = 2,428/month ≈ 80/day. Rounded to 100/day so a weekly ' +
-      'partition can burst. The quota does not replace the meter — it bounds a runaway loop to ' +
-      'about $3.50/day instead of $50.00 in an hour.',
-  },
-];
+export function SECOND_WALL_DERIVATION(i: SecondWallInputs): readonly EmphasisRun[] {
+  const paid = Math.floor(i.budgetMicroUsd / i.microUsdPerRequest);
+  const monthly = paid + i.freePerMonth;
+  const daily = Math.floor(monthly / 30);
+  return [
+    { text: 'Set ' },
+    { text: `Places API (New) → ${formatCount(i.quotaPerDay)} requests/day`, strong: true },
+    {
+      text:
+        `. Derivation: a ${formatUsd(i.budgetMicroUsd)} cap buys ${formatCount(paid)} paid Text ` +
+        `Search Enterprise requests at ${formatUsd(i.microUsdPerRequest * 1000)}/1,000, plus ` +
+        `${formatCount(i.freePerMonth)} free = ${formatCount(monthly)}/month ≈ ` +
+        `${formatCount(daily)}/day. Rounded to ${formatCount(i.quotaPerDay)}/day so a weekly ` +
+        `partition can burst. The quota does not replace the meter — it bounds a runaway loop to ` +
+        `about ${formatUsd(perDayMicroUsd(i))}/day instead of ${formatUsd(i.budgetMicroUsd)} in ` +
+        `an hour.`,
+    },
+  ];
+}
 
 /** 🔴 The honesty line — the point of the card, in BOTH states: the quota bounds a day, only
  *  the meter bounds the month. */
-export const SECOND_WALL_LIMIT: readonly EmphasisRun[] = [
-  { text: 'What it does ' },
-  { text: 'not', strong: true },
-  {
-    text:
-      ' do: 100/day × 30 days is 3,000 requests, which is $70/month — more than the $50.00 ' +
-      'cap. The quota bounds a runaway ',
-  },
-  { text: 'day', strong: true },
-  { text: "; only Siteless's own meter bounds the " },
-  { text: 'month', strong: true },
-  { text: '. That is what “second wall, not the primary meter” means.' },
-];
+export function SECOND_WALL_LIMIT(i: SecondWallInputs): readonly EmphasisRun[] {
+  const requests = i.quotaPerDay * 30;
+  const monthMicroUsd = Math.max(0, requests - i.freePerMonth) * i.microUsdPerRequest;
+  // The comparison is computed, so a smaller quota can never be described as "more than".
+  const versus =
+    monthMicroUsd > i.budgetMicroUsd
+      ? 'more than'
+      : monthMicroUsd === i.budgetMicroUsd
+        ? 'exactly'
+        : 'less than';
+  return [
+    { text: 'What it does ' },
+    { text: 'not', strong: true },
+    {
+      text:
+        ` do: ${formatCount(i.quotaPerDay)}/day × 30 days is ${formatCount(requests)} ` +
+        `requests, which is ${formatUsd(monthMicroUsd)}/month — ${versus} the ` +
+        `${formatUsd(i.budgetMicroUsd)} cap. The quota bounds a runaway `,
+    },
+    { text: 'day', strong: true },
+    { text: "; only Siteless's own meter bounds the " },
+    { text: 'month', strong: true },
+    { text: '. That is what “second wall, not the primary meter” means.' },
+  ];
+}
 
 export const SECOND_WALL_SET_TITLE = 'Google Cloud daily quota — set';
 export const SECOND_WALL_SET_BADGE = 'Set';
 
 /** `date` is the day danlo set it, pre-formatted. */
-export function SECOND_WALL_SET_BODY(date: string) {
+export function SECOND_WALL_SET_BODY(date: string, i: SecondWallInputs) {
   return (
-    `Places API (New) → Requests per day = 100, set on ${date}. This is the second wall: even ` +
-    `if Siteless's own meter failed, Google stops Places requests after 100 a day — about $3.50 ` +
-    `of paid requests. The meter above is still the wall that matters.`
+    `Places API (New) → Requests per day = ${formatCount(i.quotaPerDay)}, set on ${date}. This ` +
+    `is the second wall: even if Siteless's own meter failed, Google stops Places requests ` +
+    `after ${formatCount(i.quotaPerDay)} a day — about ${formatUsd(perDayMicroUsd(i))} of paid ` +
+    `requests. The meter above is still the wall that matters.`
   );
 }
 
@@ -1923,6 +2100,12 @@ export function SECOND_WALL_SET_BODY(date: string) {
 
 export function TOAST_ATTACHED(name: string) {
   return `Attached to “${name}”`;
+}
+
+/** A confirmed TIE side (0030): the other side was rejected by the same write, and it leaves
+ *  the queue too — the toast says so, so two items vanishing is never a surprise. */
+export function TOAST_ATTACHED_TIE(name: string, other: string) {
+  return `Attached to “${name}” — recorded as not “${other}”`;
 }
 
 export function TOAST_REJECTED(name: string) {
@@ -1934,4 +2117,16 @@ export function TOAST_DETACHED(name: string) {
 }
 
 export const TOAST_TILE_LIST_COPIED = 'Tile list copied';
+
+/**
+ * C-WR-08: a refused clipboard write (insecure context, denied permission, an in-app browser)
+ * is said out loud, with the text itself when it is one short command.
+ */
+export function COPY_FAILED(command: string) {
+  return `Couldn't copy — run: ${command}`;
+}
+
+/** C-WR-08: the tile list is several lines and collapsed by default, so say where it is. */
+export const RUN_TRUNCATION_COPY_FAILED =
+  "Couldn't copy the tile list — open “Show the truncated tiles” to read it.";
 export const TOAST_PURGE_COMMAND_COPIED = 'Purge command copied';

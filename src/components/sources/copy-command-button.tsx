@@ -3,7 +3,7 @@
 import { Copy } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { ERROR_ACTION } from '@/lib/ui/copy';
+import { COPY_FAILED, ERROR_ACTION } from '@/lib/ui/copy';
 
 /**
  * "Copy the command" — the only action on `/sources` (03-UI-SPEC § Copywriting Contract:
@@ -36,19 +36,25 @@ export function CopyCommandButton({
   testId,
   label = ERROR_ACTION.copyCommand,
   copiedMessage,
+  failedMessage,
 }: {
   command: string;
   testId: string;
   label?: string;
   copiedMessage?: string;
+  /** C-WR-08: what a refused copy says. Default: "Couldn't copy — run: {command}". */
+  failedMessage?: string;
 }) {
   async function copy() {
     try {
       await navigator.clipboard.writeText(command);
       toast.success(copiedMessage ?? copiedLine(command));
     } catch {
-      // A refused clipboard (insecure context, denied permission) is not an error worth an
-      // alert: the command is printed verbatim in the sentence right above this button.
+      // 🔴 C-WR-08: NEVER SILENT. A refused clipboard (insecure context, denied permission, some
+      // in-app browsers) used to be swallowed on the grounds that the command was printed
+      // beside the button — true of the ledger's ingest command, false of the purge command
+      // and of the collapsed tile list. The reader taps and must learn it didn't work.
+      toast.error(failedMessage ?? COPY_FAILED(command));
     }
   }
 

@@ -32,8 +32,15 @@ import {
   RUN_DRAWER_TITLE_CHECK,
   RUN_DRAWER_TITLE_FULL,
   RUN_DRAWER_TITLE_PARTITION,
+  RUN_INVALID_ACTION,
   RUN_MODE_REFUSED,
+  RUN_NO_GEOMETRY,
   RUN_OPEN_RUNNING,
+  RUN_REFUSED,
+  RUN_REFUSED_CHECK_NOTE,
+  RUN_START_FAILED,
+  RUN_START_UNKNOWN,
+  RUN_START_UNKNOWN_ACTION,
 } from '@/lib/ui/copy';
 import { queueRun } from '@/server/actions/queue-run';
 
@@ -79,7 +86,10 @@ beforeEach(() => {
 
 afterEach(cleanup);
 
+const EDIT_HREF = '/presets/55555555-5555-4555-8555-555555555555/edit';
+
 const COMMON = {
+  editHref: EDIT_HREF,
   presetName: NAME,
   versions: VERSIONS,
   initialVersionId: VERSION_ID,
@@ -179,6 +189,97 @@ describe('run drawer', () => {
 
     fireEvent.click(within(alert).getByTestId('run-mode-refused-reload'));
     expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('a run request that never reaches the server keeps the drawer open', async () => {
+    const d = openDrawer('full');
+    action.mockRejectedValueOnce(new Error('Failed to fetch'));
+    await act(async () => {
+      fireEvent.click(d.getByTestId('run-confirm'));
+    });
+
+    // The drawer is still here — no error boundary took the page.
+    expect(screen.getByTestId('run-drawer')).toBeInTheDocument();
+    const alert = d.getByTestId('run-start-unknown');
+    expect(alert).toHaveTextContent(RUN_START_UNKNOWN);
+    // The run MAY exist: nothing on screen may say nothing was reserved or charged.
+    expect(screen.getByTestId('run-drawer')).not.toHaveTextContent(/nothing was (reserved|charged)/i);
+    // A blind retry is not offered; the way out is where runs are listed.
+    expect(d.queryByTestId('run-confirm')).toBeNull();
+    expect(d.queryByTestId('run-error-retry')).toBeNull();
+    const recent = within(alert).getByTestId('run-start-unknown-recent');
+    expect(recent).toHaveTextContent(RUN_START_UNKNOWN_ACTION.recentRuns);
+    expect(recent).toHaveAttribute('href', '#preset-recent-runs');
+    expect(within(alert).getByTestId('run-start-unknown-spend')).toHaveAttribute('href', '/spend');
+    expect(push).not.toHaveBeenCalled();
+
+    // Following it closes the drawer and re-reads the page, so a run that was created shows up.
+    fireEvent.click(recent);
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('the check drawer never says nothing is reserved, and a refused check says why', async () => {
+    const d = openDrawer('check');
+    const drawer = screen.getByTestId('run-drawer');
+    // C-WR-05: queueRun holds 1 µUSD on the free SKU, so "nothing is reserved" is false.
+    expect(drawer).not.toHaveTextContent(/nothing is reserved/i);
+    expect(drawer).toHaveTextContent(RUN_DRAWER_CHECK_NOTE);
+
+    await confirmWith(d, {
+      ok: false,
+      code: 'budget_refused',
+      message: RUN_REFUSED(50_000_000),
+      detail: { pctAfter: 100 },
+    });
+    const alert = d.getByTestId('run-refused');
+    expect(alert).toHaveTextContent(RUN_REFUSED(50_000_000));
+    expect(within(alert).getByTestId('run-refused-check-note')).toHaveTextContent(
+      RUN_REFUSED_CHECK_NOTE,
+    );
+    cleanup();
+
+    // A paid run's refusal needs no such note.
+    const f = openDrawer('full');
+    await confirmWith(f, {
+      ok: false,
+      code: 'budget_refused',
+      message: RUN_REFUSED(50_000_000),
+      detail: { pctAfter: 100 },
+    });
+    expect(f.getByTestId('run-refused')).toBeInTheDocument();
+    expect(f.queryByTestId('run-refused-check-note')).toBeNull();
+  });
+
+  it('a refusal retrying cannot change offers the editor, not try again', async () => {
+    const d = openDrawer('full');
+    await confirmWith(d, {
+      ok: false,
+      code: 'validation',
+      message: RUN_NO_GEOMETRY('Starr County'),
+    });
+
+    const alert = d.getByTestId('run-invalid');
+    expect(alert).toHaveTextContent(RUN_NO_GEOMETRY('Starr County'));
+    const edit = within(alert).getByTestId('run-invalid-edit');
+    expect(edit).toHaveAttribute('href', EDIT_HREF);
+    expect(edit).toHaveTextContent(RUN_INVALID_ACTION);
+    // Blocking: the same request would get the same refusal.
+    expect(d.queryByTestId('run-error-retry')).toBeNull();
+    expect(d.queryByTestId('run-confirm')).toBeNull();
+    cleanup();
+
+    const n = openDrawer('check');
+    await confirmWith(n, { ok: false, code: 'not_found', message: 'That version is gone.' });
+    expect(n.getByTestId('run-invalid')).toHaveTextContent('That version is gone.');
+    expect(n.queryByTestId('run-error-retry')).toBeNull();
+    cleanup();
+
+    // An unexpected failure is the one a retry can fix.
+    const u = openDrawer('full');
+    await confirmWith(u, { ok: false, code: 'unexpected', message: RUN_START_FAILED });
+    expect(u.getByTestId('run-error')).toHaveTextContent(RUN_START_FAILED);
+    expect(u.getByTestId('run-error-retry')).toBeInTheDocument();
+    expect(u.queryByTestId('run-invalid')).toBeNull();
   });
 
   it('a second active run links to the running run', async () => {

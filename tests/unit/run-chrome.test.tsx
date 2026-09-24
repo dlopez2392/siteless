@@ -101,6 +101,25 @@ describe('/spend By-run', () => {
     for (const b of badges) expect(b.classList.contains('text-xs')).toBe(false);
   });
 
+  it('a past partition run names its week, never "this week" (C-WR-06)', () => {
+    const second = '5b1c7d2e-3f40-4a51-9b62-7c83d94ea5f6';
+    const { container } = render(
+      <ByRun
+        runs={[
+          // Sep 2, 2026 (Chicago) is ISO week 36 — three weeks before "now" in any reading.
+          run({ kind: 'partition', startedAt: new Date(Date.UTC(2026, 8, 2, 15, 0, 0)) }),
+          // Never started: no instant to name a week from.
+          run({ runId: second, kind: 'partition', status: 'refused', startedAt: null }),
+        ]}
+      />,
+    );
+    const text = container.textContent ?? '';
+    expect(text).not.toContain("This week's partition");
+    // One per layout (desk table + phone cards).
+    expect(screen.getAllByText('Weekly partition · week 36')).toHaveLength(2);
+    expect(screen.getAllByText('Weekly partition')).toHaveLength(2);
+  });
+
   it('the spend view links each run to its report', () => {
     const second = '5b1c7d2e-3f40-4a51-9b62-7c83d94ea5f6';
     render(<ByRun runs={[run({}), run({ runId: second, status: 'running' })]} />);

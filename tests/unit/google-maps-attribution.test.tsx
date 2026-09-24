@@ -56,9 +56,11 @@ vi.mock('sonner', () => ({ toast: vi.fn() }));
 
 import { GoogleCheck } from '@/components/business-detail/google-check';
 import { GoogleListingCard } from '@/components/review/google-listing-card';
+import { ReviewScore } from '@/components/review/review-score';
 import { ChangesCard } from '@/components/runs/changes-card';
 import { OutcomesCard } from '@/components/runs/outcomes-card';
 import { RequestsCard } from '@/components/runs/requests-card';
+import { RunAlerts } from '@/components/runs/run-alerts';
 import { TilesCard } from '@/components/runs/tiles-card';
 import { TransientCard } from '@/components/sources/transient-card';
 import { GOOGLE_ACTORS, GOOGLE_BUSINESS, IDS, MIXED } from './fixtures/google-check';
@@ -115,6 +117,8 @@ const REPORT: RunReport = {
     ceilingRequests: 8,
     capMicroUsd: 50_000_000,
     capResetMs: Date.UTC(2026, 9, 1, 5, 0, 0),
+    capPeriodStart: '2026-09-01',
+    capPeriodIsCurrent: true,
   },
   requests: {
     rows: [
@@ -133,9 +137,12 @@ const REPORT: RunReport = {
     stillTruncated: 1,
     truncated: [
       {
-        tileKey: 'city:4845384|roofing_contractor|r000',
-        cellKey: 'home_services/4845384',
+        tileKey: 'city:48215/McAllen|roofing_contractor|r000',
+        cellKey: 'home_services/48215/McAllen',
         placesType: 'roofing_contractor',
+        unitName: 'McAllen',
+        typeLabel: 'roofing contractor',
+        quadPath: 'r000',
         why: 'min_size',
       },
     ],
@@ -289,6 +296,54 @@ const PLACES_SIGNAL_SURFACES: readonly Surface[] = [
     },
     containers: '[data-testid="run-changes"]',
   },
+  // C-WR-02: a tile saturation count ("{n} tiles still hit Google's 60-result limit") and the
+  // truncated-tile list are Places-derived, outside the Tiles card.
+  {
+    name: 'run report · truncation warning',
+    render: async () => {
+      render(
+        <RunAlerts run={REPORT.run} tiles={REPORT.tiles} canRaiseCap renderedAtMs={STARTED} />,
+      );
+    },
+    containers: '[data-testid="run-truncation-warning"]',
+  },
+  // C-WR-02: "{k} tiles were still subdividing when it stopped" — a saturation count too.
+  {
+    name: 'run report · exceeded-estimate stop alert',
+    render: async () => {
+      render(
+        <RunAlerts
+          run={{ ...REPORT.run, status: 'partial', stoppedReason: 'exceeded_estimate' }}
+          tiles={{
+            ...REPORT.tiles,
+            stillTruncated: 0,
+            truncated: [],
+            stillSubdividing: [
+              {
+                tileKey: 'city:48215/McAllen|roofing_contractor|r0',
+                cellKey: 'home_services/48215/McAllen',
+                placesType: 'roofing_contractor',
+                unitName: 'McAllen',
+                typeLabel: 'roofing contractor',
+                quadPath: 'r0',
+              },
+            ],
+          }}
+          canRaiseCap
+          renderedAtMs={STARTED}
+        />,
+      );
+    },
+    containers: '[data-testid="run-stop-alert"][data-reason="exceeded_estimate"]',
+  },
+  // C-WR-02: a Google item's score line sits in the review header row, outside the listing card.
+  {
+    name: 'review queue · score line (Google listing)',
+    render: async () => {
+      render(<ReviewScore kind="google" score={LISTING.score} />);
+    },
+    containers: '[data-testid="review-score"]',
+  },
 ];
 
 /** Surfaces that show NO Places content: never a container, never a tag (D-11). */
@@ -297,6 +352,26 @@ const NOT_PLACES_SURFACES: readonly { name: string; render: () => void; root: st
     name: 'run report · Requests card (our own ledger)',
     render: () => render(<RequestsCard requests={REPORT.requests} />),
     root: '[data-testid="run-requests"]',
+  },
+  {
+    // A duplicate pair's score compares two of OUR records — nothing Google in it.
+    name: 'review queue · score line (duplicate pair)',
+    render: () => render(<ReviewScore kind="duplicate" score={88} />),
+    root: '[data-testid="review-score"]',
+  },
+  {
+    // A stop that is about money, not tiles, carries no Places number.
+    name: 'run report · cap stop alert',
+    render: () =>
+      render(
+        <RunAlerts
+          run={{ ...REPORT.run, status: 'partial', stoppedReason: 'budget_cap_reached' }}
+          tiles={{ ...REPORT.tiles, stillTruncated: 0, truncated: [] }}
+          canRaiseCap
+          renderedAtMs={STARTED}
+        />,
+      ),
+    root: '[data-testid="run-stop-alert"]',
   },
   {
     name: '/sources · Google Places (transient) card (counts of what Siteless holds)',
@@ -378,7 +453,7 @@ describe('google maps attribution registry', () => {
       cleanup();
     }
 
-    expect(PLACES_SIGNAL_SURFACES.length).toBeGreaterThanOrEqual(7);
+    expect(PLACES_SIGNAL_SURFACES.length).toBeGreaterThanOrEqual(10);
     expect([...failures]).toEqual([]);
   });
 

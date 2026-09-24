@@ -40,6 +40,7 @@ import {
   ONE_ATTACHED,
   ONLY_TENTATIVE,
   PLACE,
+  TWO_WEEKS_AGO_MS,
 } from './fixtures/google-check';
 
 beforeAll(() => {
@@ -252,6 +253,36 @@ describe('google maps check', () => {
     for (const sentence of SIX_SENTENCES)
       expect(screen.getByTestId('business-google')).not.toHaveTextContent(sentence);
     expect(screen.queryByTestId('business-google-empty')).toBeNull();
+  });
+
+  it("a rejected listing's past check never shows its website sentence here (C-WR-13)", async () => {
+    // A human confirmed the rejected listing is NOT this business — its website signal is
+    // another business's, a stronger case than the tentative one D-05 already excludes.
+    const rejectedObs = '00000000-0000-4000-8000-00000000e005';
+    const withRejected: GoogleCheckView = {
+      ...MIXED,
+      history: [
+        ...MIXED.history,
+        {
+          observationId: rejectedObs,
+          placeId: PLACE.r,
+          observedMs: TWO_WEEKS_AGO_MS - 60_000,
+          hadWebsiteUri: true,
+          hostClass: 'other',
+          runId: IDS.runTwoWeeks,
+        },
+      ],
+    };
+    renderCheck(withRejected);
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('business-google-history-toggle'));
+    });
+    const row = screen.getByTestId(`business-google-history-row-${rejectedObs}`);
+    for (const sentence of SIX_SENTENCES) expect(row).not.toHaveTextContent(sentence);
+    // The mark and the run link stay: the check happened, and it was not this business.
+    expect(row).toHaveTextContent('not this business');
+    expect(within(row).getByRole('link')).toHaveAttribute('href', `/runs/${IDS.runTwoWeeks}`);
+    expect(tagsIn(row)).toHaveLength(1);
   });
 
   it('the check history is collapsed and newest first', async () => {

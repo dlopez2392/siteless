@@ -9,11 +9,12 @@ import {
   ReviewQueueClear,
 } from '@/components/review/review-empty';
 import { ReviewFilter } from '@/components/review/review-filter';
+import { ReviewScore } from '@/components/review/review-score';
 import { ReviewSkeleton } from '@/components/review/review-skeleton';
 import { ThumbBar } from '@/components/review/thumb-bar';
 import { Skeleton } from '@/components/ui/skeleton';
 import { orgClaims } from '@/lib/auth/require-org';
-import { REVIEW_ORDERING_NOTE, REVIEW_SCORE_LINE, REVIEW_TITLE } from '@/lib/ui/copy';
+import { REVIEW_ORDERING_NOTE, REVIEW_TITLE } from '@/lib/ui/copy';
 import {
   REVIEW_EMPTY_LIVE,
   parseReviewKind,
@@ -87,14 +88,9 @@ async function ReviewRegion({ kind, skipped }: { kind: ReviewKind; skipped: read
           ) : null}
         </div>
         {/* Once, right-aligned, quiet — and never without its chips, which render with it. */}
+        {/* C-WR-02: on a Google item the score is Places-derived and carries its own tag. */}
         {top ? (
-          <p
-            data-testid="review-score"
-            data-score={top.score}
-            className="shrink-0 text-sm font-normal tabular-nums text-muted-foreground"
-          >
-            {REVIEW_SCORE_LINE(top.score)}
-          </p>
+          <ReviewScore kind={top.kind === 'google' ? 'google' : 'duplicate'} score={top.score} />
         ) : null}
       </div>
 
@@ -137,6 +133,7 @@ async function ReviewRegion({ kind, skipped }: { kind: ReviewKind; skipped: read
             attachmentId={top.attachmentId}
             businessName={top.business.displayName}
             skipHref={reviewHref(kind, withSkipped(skipped, top.attachmentId))}
+            tieOtherName={top.reason === 'tie' ? (top.tie?.displayName ?? null) : null}
           />
         </ThumbBar>
       ) : top ? (

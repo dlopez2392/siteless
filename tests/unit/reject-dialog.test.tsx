@@ -38,6 +38,7 @@ import {
   REVIEW_GOOGLE_HELPER_NOT_THIS,
   REVIEW_GOOGLE_HELPER_SKIP,
   TOAST_ATTACHED,
+  TOAST_ATTACHED_TIE,
   TOAST_REJECTED,
 } from '@/lib/ui/copy';
 import { recordListingDecision } from '@/server/actions/record-listing-decision';
@@ -115,6 +116,65 @@ function renderGoogleBar() {
 }
 
 describe('google listing actions', () => {
+  it('confirming a tie side says the other side was recorded as not it (0030)', async () => {
+    render(
+      <ReviewActions
+        kind="google"
+        attachmentId={ATTACHMENT}
+        businessName={NAME}
+        skipHref={SKIP_HREF}
+        tieOtherName="Valley Lock Co"
+      />,
+    );
+    action.mockResolvedValueOnce(RECORDED);
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('review-action-same'));
+    });
+    expect(action).toHaveBeenCalledWith({ attachmentId: ATTACHMENT, decision: 'attached' });
+    expect(toastFn).toHaveBeenCalledWith(TOAST_ATTACHED_TIE(NAME, 'Valley Lock Co'));
+    expect(refresh).toHaveBeenCalledTimes(1);
+    cleanup();
+
+    // Not a tie: the plain toast.
+    toastFn.mockReset();
+    renderGoogleBar();
+    action.mockResolvedValueOnce(RECORDED);
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('review-action-same'));
+    });
+    expect(toastFn).toHaveBeenCalledWith(TOAST_ATTACHED(NAME));
+  });
+
+  it('confirming a tie side whose other side a human already confirmed offers only a reload (0030)', async () => {
+    // 0030's `decide_place_attachment` refuses 55000; `_listing-decisions.ts` maps 55000 to
+    // `conflict` / `already_decided`. The bar must not claim success, must not advance, and must
+    // not offer a retry that can only be refused again.
+    action.mockResolvedValueOnce({
+      ok: false,
+      code: 'conflict',
+      message: REVIEW_GOOGLE_ALREADY_DECIDED,
+      detail: { reason: 'already_decided' },
+    });
+    render(
+      <ReviewActions
+        kind="google"
+        attachmentId={ATTACHMENT}
+        businessName={NAME}
+        skipHref={SKIP_HREF}
+        tieOtherName="Valley Lock Co"
+      />,
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('review-action-same'));
+    });
+    const actions = screen.getByTestId('review-actions');
+    expect(actions).toHaveTextContent(REVIEW_GOOGLE_ALREADY_DECIDED);
+    expect(within(actions).queryByRole('button', { name: /try again/i })).toBeNull();
+    expect(within(actions).getByRole('button', { name: /reload the queue/i })).toBeInTheDocument();
+    expect(toastFn).not.toHaveBeenCalled();
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
   it('the reject trigger calls no server action until confirm', async () => {
     renderGoogleBar();
     fireEvent.click(screen.getByTestId('review-action-not-this'));

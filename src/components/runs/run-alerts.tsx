@@ -1,11 +1,13 @@
 import { ChevronDown, Clock, OctagonX, TriangleAlert } from 'lucide-react';
 import Link from 'next/link';
 import type { ReactNode } from 'react';
+import { GoogleMapsTag } from '@/components/places/google-maps-tag';
 import { ceilingMicroUsdOf } from '@/components/runs/run-header';
 import { CopyCommandButton } from '@/components/sources/copy-command-button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { periodLabel } from '@/lib/budget/period';
 import { GOOGLE_QUOTA_REQUESTS_PER_DAY } from '@/lib/budget/second-wall';
 import { formatLocal } from '@/lib/time';
 import {
@@ -17,13 +19,16 @@ import {
   RUN_OPEN_PRESET,
   RUN_QUEUED_LONG,
   RUN_REFUSED,
+  RUN_REFUSED_PAST,
   RUN_STOP_ACTION,
   RUN_STOP_CAP,
+  RUN_STOP_CAP_PAST,
   RUN_STOP_DAILY_QUOTA,
   RUN_STOP_ESTIMATE,
   RUN_TILE_ROW,
   RUN_TRUNCATION_BODY,
   RUN_TRUNCATION_COPY,
+  RUN_TRUNCATION_COPY_FAILED,
   RUN_TRUNCATION_HEADING,
   RUN_TRUNCATION_HIDE,
   RUN_TRUNCATION_SHOW,
@@ -47,7 +52,10 @@ import type { RunReport } from '@/server/queries/run-report';
  * 🔴 THE TRUNCATION WARNING RENDERS IN EVERY STATUS, `complete` INCLUDED (criterion 3). A
  * complete run with truncated tiles is still complete, and it is never a silent partial. It is
  * warning (the searched tiles are correct), never destructive and never accent, and it carries
- * `role="status"` — nothing needs an interrupt.
+ * `role="note"` — NOT `status` (C-WR-12): `status` is an implicit polite, atomic live region,
+ * and during a live run its heading count changes every refresh, so the whole alert would be
+ * re-announced every 5 seconds (and again when the list opens), duplicating the one
+ * "N tiles truncated" transition `RunAutoRefresh` already announces.
  *
  * 🔴 THE STOP ALERTS ARE NOT LIVE REGIONS (§ Accessibility). They render once, on load or on
  * transition, and the transition is what `RunAutoRefresh`'s one polite region announces. The
@@ -103,6 +111,7 @@ function RunAlert({
   data,
   role,
   text,
+  placesContent,
   children,
 }: {
   tone: Tone;
@@ -110,6 +119,9 @@ function RunAlert({
   data?: Record<string, string>;
   role?: 'status';
   text: string;
+  /** C-WR-02 / Rule 28: the text carries a Places-derived number (a tile saturation count), so
+   *  the alert is a `[data-places-content]` container with one "Google Maps" tag at its foot. */
+  placesContent?: boolean;
   children?: ReactNode;
 }) {
   const { Icon, name } = TONE_ICON[tone];
@@ -119,6 +131,7 @@ function RunAlert({
       // `undefined` overrides the primitive's `role="alert"` (see the header note).
       role={role}
       data-testid={testId}
+      data-places-content={placesContent ? '' : undefined}
       {...data}
       className={TONE_CLASS[tone]}
     >
@@ -129,6 +142,11 @@ function RunAlert({
           {rest ? <span className="font-normal"> {rest}</span> : null}
         </p>
         {children}
+        {placesContent ? (
+          <p className="text-sm">
+            <GoogleMapsTag />
+          </p>
+        ) : null}
       </AlertDescription>
     </Alert>
   );
@@ -190,6 +208,12 @@ function resetDateLabel(ms: number): string {
   return formatLocal(new Date(ms), { month: 'short', day: 'numeric' });
 }
 
+/** "September 2026" for a 'YYYY-MM-01' period start. Anchored at NOON UTC on the 1st, which is
+ *  the 1st in every American zone — a midnight-UTC anchor renders the previous month. */
+function monthLabelOf(periodStartIso: string): string {
+  return periodLabel(new Date(`${periodStartIso}T12:00:00Z`));
+}
+
 /** The stop / refusal / failure alert for this run, or null when its status has none. */
 function stopAlertOf({
   run,
@@ -203,6 +227,48 @@ function stopAlertOf({
   const reason = run.stoppedReason;
   const data = { 'data-reason': reason ?? '' };
   const notSearched = Math.max(0, tiles.total - tiles.searched);
+
+  // 🔴 C-CR-04. The cap and reset below are the RUN'S budget month's (run-report.ts). Once that
+  // month is over, "your cap is spent" and "after the cap resets on …" are false about now, so
+  // both alerts switch to the past tense and the way out is the preset, not the cap.
+  const pastMonth = run.capPeriodIsCurrent ? null : monthLabelOf(run.capPeriodStart);
+
+  if (run.status === 'refused' && pastMonth !== null) {
+    return (
+      <RunAlert
+        tone="destructive"
+        testId="run-stop-alert"
+        data={{ ...data, 'data-period': 'past' }}
+        text={RUN_REFUSED_PAST(run.capMicroUsd, pastMonth)}
+      >
+        <Actions>
+          <PresetAction run={run} />
+        </Actions>
+      </RunAlert>
+    );
+  }
+
+  if (run.status === 'partial' && reason === 'budget_cap_reached' && pastMonth !== null) {
+    return (
+      <RunAlert
+        tone="warning"
+        testId="run-stop-alert"
+        data={{ ...data, 'data-period': 'past' }}
+        text={RUN_STOP_CAP_PAST(
+          run.capMicroUsd,
+          run.costMicroUsd,
+          tiles.searched,
+          notSearched,
+          pastMonth,
+        )}
+      >
+        <Actions>
+          <PresetAction run={run} />
+          <SpendAction />
+        </Actions>
+      </RunAlert>
+    );
+  }
 
   if (run.status === 'refused') {
     return (
@@ -248,6 +314,7 @@ function stopAlertOf({
           tone="warning"
           testId="run-stop-alert"
           data={data}
+          placesContent
           text={RUN_STOP_ESTIMATE(
             run.estimateMicroUsdLo ?? 0,
             hi,
@@ -322,15 +389,12 @@ function stopAlertOf({
   return null;
 }
 
-/** "{geography} · {Places type} · tile {id}" from the stored tile key
- *  (`{unitKind}:{unitId}|{placesType}|{quadPath}`, `src/lib/places/tiling.ts` `tileKeyOf`). A
- *  key of another shape still renders, whole, rather than being dropped (criterion 3). */
-export function tileRowText(tile: { tileKey: string; placesType: string }): string {
-  const parts = tile.tileKey.split('|');
-  if (parts.length >= 3) {
-    return RUN_TILE_ROW(parts[0] ?? '', tile.placesType, parts[parts.length - 1] ?? '');
-  }
-  return RUN_TILE_ROW(tile.tileKey, tile.placesType, tile.tileKey);
+/** "{place name} · {type label} · tile {quad path}" — C-WR-04: the names `readRunReport`
+ *  resolved, never the stored key (`city:48215/McAllen`, `car_repair`). The key itself only
+ *  ever reaches a `data-tile-key` attribute. A tile the query could not name still renders, as
+ *  "Unnamed area", rather than being dropped (criterion 3). */
+export function tileRowText(tile: { unitName: string; typeLabel: string; quadPath: string }) {
+  return RUN_TILE_ROW(tile.unitName, tile.typeLabel, tile.quadPath);
 }
 
 /** The criterion-3 warning. Rendered only when `stillTruncated > 0`, in any status. */
@@ -339,9 +403,12 @@ function TruncationWarning({ tiles }: { tiles: RunReport['tiles'] }) {
   const lines = tiles.truncated.map(tileRowText);
   return (
     <Alert
-      role="status"
+      // C-WR-12: a note, not a live region — see the header.
+      role="note"
       data-testid="run-truncation-warning"
       data-count={n}
+      // C-WR-02 / Rule 28: a tile saturation count and the truncated tiles are Places-derived.
+      data-places-content
       className={TONE_CLASS.warning}
     >
       <TriangleAlert data-icon="triangle-alert" aria-hidden="true" className="size-5" />
@@ -372,6 +439,7 @@ function TruncationWarning({ tiles }: { tiles: RunReport['tiles'] }) {
               testId="run-truncation-copy"
               label={RUN_TRUNCATION_COPY}
               copiedMessage={TOAST_TILE_LIST_COPIED}
+              failedMessage={RUN_TRUNCATION_COPY_FAILED}
             />
           </Actions>
           <CollapsibleContent>
@@ -381,6 +449,7 @@ function TruncationWarning({ tiles }: { tiles: RunReport['tiles'] }) {
                   key={tile.tileKey}
                   data-testid="run-truncation-tile"
                   data-why={tile.why ?? ''}
+                  data-tile-key={tile.tileKey}
                   className="text-sm font-normal tabular-nums"
                 >
                   {lines[i]}
@@ -389,6 +458,9 @@ function TruncationWarning({ tiles }: { tiles: RunReport['tiles'] }) {
             </ul>
           </CollapsibleContent>
         </Collapsible>
+        <p className="text-sm">
+          <GoogleMapsTag />
+        </p>
       </AlertDescription>
     </Alert>
   );
