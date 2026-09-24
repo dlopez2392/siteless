@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
+  PURGE_OVERDUE_HOURS,
   PURGE_PLACES_COMMAND,
   purgeOverdue,
   wholeDaysSince,
@@ -24,6 +25,7 @@ import {
   SOURCES_TRANSIENT_NEVER_RUN,
   SOURCES_TRANSIENT_NONE_HELD,
   SOURCES_TRANSIENT_OLDEST,
+  SOURCES_TRANSIENT_PURGE_AWAITING,
   SOURCES_TRANSIENT_PURGE_COPY,
   SOURCES_TRANSIENT_PURGE_NEVER_RAN,
   SOURCES_TRANSIENT_PURGE_OVERDUE,
@@ -200,6 +202,7 @@ export function TransientCard({ stats, nowMs }: { stats: TransientStats | null; 
   const nothingHeld =
     stats.placeIdsHeld === 0 && stats.coordinatesHeld === 0 && stats.expiredAwaitingPurge === 0;
   const overdue = purgeOverdue(stats, nowMs);
+  const cause = overdueCauseOf(stats, nowMs);
 
   return (
     <TransientShell testId="sources-transient">
@@ -224,11 +227,14 @@ export function TransientCard({ stats, nowMs }: { stats: TransientStats | null; 
         <Alert
           role="status"
           data-testid="sources-transient-purge-overdue"
+          data-cause={cause}
           className="border-warning/40 bg-warning-surface text-warning-surface-foreground"
         >
           <TriangleAlert aria-hidden="true" className="size-4" />
           <AlertDescription className="flex flex-col items-start gap-2 text-inherit">
-            <p className="text-sm font-normal whitespace-normal">{overdueSentence(stats, nowMs)}</p>
+            <p className="text-sm font-normal whitespace-normal">
+              {overdueSentence(stats, nowMs, cause)}
+            </p>
             {/* C-WR-08: the sentence doesn't name the command, so it is printed here — readable
                 and selectable whether or not the clipboard lets the button copy it. */}
             <code
@@ -250,13 +256,27 @@ export function TransientCard({ stats, nowMs }: { stats: TransientStats | null; 
   );
 }
 
-function overdueSentence(s: TransientStats, nowMs: number): string {
+/** Why the overdue alert shows (C-WR-10) — the sentence is chosen by cause, never one template
+ *  that contradicts itself ("last ran 3 hours ago" under a warning that means "late"). */
+type OverdueCause = 'stale' | 'awaiting' | 'never';
+
+function overdueCauseOf(s: TransientStats, nowMs: number): OverdueCause {
+  if (s.lastPurgeMs === null) return 'never';
+  // The same threshold `purgeOverdue` applies to the last purge's age.
+  return nowMs - s.lastPurgeMs > PURGE_OVERDUE_HOURS * HOUR_MS ? 'stale' : 'awaiting';
+}
+
+const HOUR_MS = 3_600_000;
+
+function overdueSentence(s: TransientStats, nowMs: number, cause: OverdueCause): string {
   if (s.lastPurgeMs !== null) {
-    return SOURCES_TRANSIENT_PURGE_OVERDUE(
-      lastPurgeLabel(s.lastPurgeMs),
-      wholeHoursSince(s.lastPurgeMs, nowMs),
-      s.expiredAwaitingPurge,
-    );
+    const date = lastPurgeLabel(s.lastPurgeMs);
+    const hours = wholeHoursSince(s.lastPurgeMs, nowMs);
+    // The purge ran on time and rows expired since: normal for up to a day.
+    if (cause === 'awaiting') {
+      return SOURCES_TRANSIENT_PURGE_AWAITING(date, hours, s.expiredAwaitingPurge);
+    }
+    return SOURCES_TRANSIENT_PURGE_OVERDUE(date, hours, s.expiredAwaitingPurge);
   }
   // Never purged: there is no "last ran {date}" to name. Overdue then means a held coordinate
   // older than 36 h, or expired rows — the age of the oldest held one is the honest figure.

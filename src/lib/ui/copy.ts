@@ -1932,13 +1932,36 @@ export function SOURCES_TRANSIENT_OLDEST(days: number) {
 export const SOURCES_TRANSIENT_NONE_HELD = 'None held';
 export const SOURCES_TRANSIENT_NEVER_RUN = 'Never run';
 
-/** `date` pre-formatted; `hours` and `count` are numbers. */
+/** C-WR-10: the "{n} past 30 days" clause, only when there are any — never "0 coordinates are
+ *  past 30 days. The database already refuses to read them". */
+function expiredClause(count: number, onDisk: string): string {
+  if (count <= 0) return '';
+  return (
+    `${counted(count, 'coordinate is', 'coordinates are')} past 30 days. The database already ` +
+    `refuses to read them, so nothing shows them, but ${onDisk} `
+  );
+}
+
+/** The purge itself is LATE (last ran more than 36 hours ago). `date` pre-formatted. */
 export function SOURCES_TRANSIENT_PURGE_OVERDUE(date: string, hours: number, count: number) {
   return (
     `The daily purge last ran ${date} — ${counted(hours, 'hour', 'hours')} ago. ` +
-    `${counted(count, 'coordinate is', 'coordinates are')} past 30 days. The database already ` +
-    `refuses to read them, so nothing shows them, but they're still on disk until the purge ` +
-    `runs. Check the Vercel cron log for the purge job, or run it by hand at the desk.`
+    expiredClause(count, "they're still on disk until the purge runs.") +
+    `Check the Vercel cron log for the purge job, or run it by hand at the desk.`
+  );
+}
+
+/**
+ * C-WR-10: the purge ran ON TIME, and coordinates have expired since — coordinates expire
+ * continuously while the purge runs once a day, so this is normal for up to a day. Said as what
+ * it is, not as "last ran 3 hours ago" under a warning that means "late". `date` pre-formatted.
+ */
+export function SOURCES_TRANSIENT_PURGE_AWAITING(date: string, hours: number, count: number) {
+  return (
+    `${counted(count, 'coordinate has', 'coordinates have')} passed 30 days since the daily ` +
+    `purge last ran (${date}, ${counted(hours, 'hour', 'hours')} ago). The database already ` +
+    `refuses to read them, and the next daily purge removes them from disk. If this is still ` +
+    `here tomorrow, check the Vercel cron log for the purge job, or run it by hand at the desk.`
   );
 }
 
@@ -1949,8 +1972,7 @@ export function SOURCES_TRANSIENT_PURGE_NEVER_RAN(hours: number, count: number) 
   return (
     `The daily purge has never run, and the oldest coordinates Siteless holds are ` +
     `${counted(hours, 'hour', 'hours')} old. ` +
-    `${counted(count, 'coordinate is', 'coordinates are')} past 30 days. The database already ` +
-    `refuses to read them, so nothing shows them, but they stay on disk until the purge runs. ` +
+    expiredClause(count, 'they stay on disk until the purge runs.') +
     `Check the Vercel cron log for the purge job, or run it by hand at the desk.`
   );
 }
