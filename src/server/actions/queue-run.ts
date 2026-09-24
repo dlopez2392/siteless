@@ -22,8 +22,14 @@ import {
 } from '@/lib/estimate/assumptions';
 import { estimatePreset as computeEstimate } from '@/lib/estimate/estimate';
 import { cellKey } from '@/lib/estimate/expand-cells';
-import { cellsForRun, missingGeometry, type RunKind } from '@/lib/places/plan-run';
-import type { GeoShapesFile } from '@/lib/places/tiling';
+import {
+  cellsForRun,
+  missingGeometry,
+  planRootSearches,
+  type RunKind,
+} from '@/lib/places/plan-run';
+import { storedLeaves } from '@/lib/places/stored-leaves';
+import { MAX_PAGES, type GeoShapesFile, type TileSpec } from '@/lib/places/tiling';
 import {
   NOT_FOUND,
   RUN_ALREADY_IN_PROGRESS,
@@ -68,7 +74,8 @@ import { fail, ok, type ActionResult } from './_result';
  *      unit with no outline here rather than inside `beginRun`, and the type-aware estimate is
  *      priced over exactly those cells.
  *   4. D-15 / T-4-12. `ceiling_requests = ceil(RUN_CEILING_MULTIPLIER × requestsHi)` is written
- *      at insert and is never updatable by a tenant (drizzle/0027 § 6).
+ *      at insert and is never updatable by a tenant (drizzle/0027 § 6). A change check's is
+ *      `ceil(RUN_CEILING_MULTIPLIER × storedLeaves × MAX_PAGES)` instead (B-WR-05).
  *   5. One active run per org. The insert is `on conflict … do nothing` against
  *      `runs_one_active_per_org`, so a concurrent second admission gets the SAME `busy` answer
  *      as a sequential one, instead of a `23505` escaping as `unexpected`.
@@ -316,7 +323,25 @@ export async function queueRun(input: unknown): Promise<
       const sku = isCheck ? 'ts_essentials' : ESTIMATE_SKU;
       const costLo = isCheck ? 0 : estimate.costMicroUsdLo;
       const costHi = isCheck ? 0 : estimate.costMicroUsdHi;
-      const ceiling = Math.ceil(RUN_CEILING_MULTIPLIER * estimate.requestsHi);
+
+      // B-WR-05. A change check executes the leaves the last sweep STORED (beginRun replaces
+      // each root with `storedLeaves(tx, roots)`), never subdivides, and lists at most MAX_PAGES
+      // pages per leaf — so its request ceiling is sized from that same list, read here in the
+      // admission transaction under the same org. The Enterprise estimate prices roots and
+      // subdivision, which is not what a check sends. Every other kind keeps D-15's rule.
+      let ceiling: number;
+      if (isCheck) {
+        let roots: TileSpec[];
+        try {
+          roots = planRootSearches({ spec: resolved.spec, seed, shapes, kind: runKind, now });
+        } catch {
+          return { kind: 'unestimable' } as const;
+        }
+        const leaves = await storedLeaves(tx, roots);
+        ceiling = Math.ceil(RUN_CEILING_MULTIPLIER * leaves.length * MAX_PAGES);
+      } else {
+        ceiling = Math.ceil(RUN_CEILING_MULTIPLIER * estimate.requestsHi);
+      }
 
       // 🔴 A ZERO ESTIMATE STILL TAKES A HOLD, OF ONE MICRO-DOLLAR. `app.reserve_budget` raises
       // `22023 non-positive estimate` on a zero — correctly, or a caller could hold the meter

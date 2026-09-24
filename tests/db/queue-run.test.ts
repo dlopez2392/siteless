@@ -23,6 +23,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import type { OrgClaims } from '@/db/with-org';
 import { RUN_CEILING_MULTIPLIER } from '@/lib/estimate/assumptions';
 import { currentPartition } from '@/lib/places/partition';
+import { MAX_PAGES } from '@/lib/places/tiling';
 import { RUN_ALREADY_IN_PROGRESS, RUN_MODE_REFUSED, RUN_START_FAILED } from '@/lib/ui/copy';
 import { rowsOf, type Tx } from '@/server/queries/budget';
 import { seedTwoOrgs } from './_fixtures';
@@ -406,6 +407,50 @@ describe('queueRun', () => {
           settled: false,
         },
       ]);
+    }));
+
+  // B-WR-05. A change check lists the leaves the last sweep stored (storedLeaves), not the
+  // roots the Enterprise estimate prices, and never subdivides: at most MAX_PAGES requests per
+  // leaf. Sizing its ceiling from `2 × estimate.requestsHi` (108 here) was unrelated to that
+  // list — too tight once a dense root has split into many leaves, too loose otherwise.
+  it("a change check's ceiling is sized from the stored leaves it will list", () =>
+    inWorld(async (tx, orgA) => {
+      const versionId = await seedVersion(tx, orgA, {});
+      const c = asPg(tx);
+
+      // McAllen × home_services: 6 roots, nothing stored yet → 6 leaves (each root is its own).
+      const bare = await queueRun({ searchVersionId: versionId, kind: 'change_check' });
+      if (!bare.ok) throw new Error(`expected ok, got ${bare.code}: ${bare.message}`);
+      expect((await runRow(tx, bare.data.runId)).ceiling_requests).toBe(
+        Math.ceil(RUN_CEILING_MULTIPLIER * 6 * MAX_PAGES),
+      );
+      await c.query(`update runs set status = 'complete', finished_at = now() where id = $1`, [
+        bare.data.runId,
+      ]);
+
+      // The last sweep split the plumber root into four stored leaves: 5 + 4 = 9 leaves.
+      const key = 'city:48215/McAllen|plumber|';
+      const rects: Record<string, [number, number, number, number]> = {
+        r: [26.15, -98.3, 26.3, -98.18],
+        r0: [26.225, -98.3, 26.3, -98.24],
+        r1: [26.225, -98.24, 26.3, -98.18],
+        r2: [26.15, -98.3, 26.225, -98.24],
+        r3: [26.15, -98.24, 26.225, -98.18],
+      };
+      for (const [path, [s, w, n, e]] of Object.entries(rects)) {
+        await c.query(
+          `insert into place_tiles (org_id, tile_key, unit_kind, unit_id, places_type, quad_path,
+                                    depth, south, west, north, east, is_leaf)
+           values ($1, $2, 'city', '48215/McAllen', 'plumber', $3, $4, $5, $6, $7, $8, $9)`,
+          [orgA, key + path, path, path.length - 1, s, w, n, e, path !== 'r'],
+        );
+      }
+
+      const split = await queueRun({ searchVersionId: versionId, kind: 'change_check' });
+      if (!split.ok) throw new Error(`expected ok, got ${split.code}: ${split.message}`);
+      const row = await runRow(tx, split.data.runId);
+      expect(row.ceiling_requests).toBe(Math.ceil(RUN_CEILING_MULTIPLIER * 9 * MAX_PAGES));
+      expect(row.ceiling_requests).toBe(54);
     }));
 
   it('queueRun refuses a second active run', () =>
