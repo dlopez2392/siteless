@@ -259,8 +259,12 @@ function HistoryRows({ google }: { google: GoogleCheckView }) {
           >
             <p className="min-w-0 text-base font-normal break-words">
               <span className="tabular-nums">{longDate(h.observedMs)}</span>
-              {/* A pending listing's check is never a sentence (D-05). */}
-              {kind === 'tentative' ? null : <> · {signalSentence(h.hostClass)}</>}
+              {/* A pending listing's check is never a sentence (D-05) — and nor is a REJECTED
+                  one's (C-WR-13): a human confirmed it is NOT this business, so its website
+                  signal is another business's and must never read as a fact about this one. */}
+              {kind === 'tentative' || kind === 'rejected' ? null : (
+                <> · {signalSentence(h.hostClass)}</>
+              )}
               {mark === null ? null : <span className="text-muted-foreground"> · {mark}</span>}
               {' · '}
               <Link href={`/runs/${h.runId}`} className={`${INLINE_LINK} tabular-nums`}>
