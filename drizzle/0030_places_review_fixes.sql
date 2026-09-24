@@ -557,3 +557,47 @@ grant execute on function app.record_change_check(uuid, jsonb, jsonb, text, inte
 comment on function app.record_change_check(uuid, jsonb, jsonb, text, integer) is
   'D-16 / A-WR-02. The ids-only change check''s membership diff: added ids inserted (revived when returning), gone ids marked gone_at (never deleted), the tile''s last_checked_at moved and changed_at set for new|gone|both|saturated, and change_verdict / new_ids / gone_ids / results_count / pages_done on the search with the in-flight pair cleared. A saturated listing (the 60 cap) cannot prove a member gone: gone ids with verdict saturated are 22023. 42501 foreign-or-missing search, 22023 non-ids_only search, unknown verdict or malformed ids.';
 --> statement-breakpoint
+
+-- ===========================================================================
+-- 5. A-WR-04 — business_place_signal resolves LIVE ROOTS, so a merge strands nothing.
+-- ===========================================================================
+--
+-- No merge definer (0024 / 0025) touches place_attachments, and record_places_page refuses to
+-- attach to an already-merged business — but a listing that attached BEFORE its business was
+-- merged away stayed keyed to the loser. The survivor's signal omitted it, so a survivor whose
+-- only website-bearing listing came from the loser read "no website": a false positive in the
+-- verdict input Phase 6 reads.
+--
+-- The view now groups by coalesce(b.merged_into_id, b.id). The merge definers keep
+-- merged_into_id pointing at a LIVE root (0024 L29–30: a chain is re-pointed to the winner), so
+-- one hop is the whole resolution. Nothing is re-pointed or copied: an unmerge (merged_into_id
+-- back to null) restores the loser's own row by itself. The per-listing observation lookup is
+-- unchanged (keyed to the attachment's own business_id). The loser, hidden everywhere once
+-- merged, has no row of its own. Same columns, names and types as 0027, so `create or replace
+-- view` applies; security_invoker stays on, so the caller's RLS on place_attachments,
+-- businesses and place_observations still applies through it.
+create or replace view business_place_signal with (security_invoker = true) as
+select a.org_id, coalesce(b.merged_into_id, b.id) as business_id,
+       bool_or(o.had_website_uri) as had_website_uri,
+       (array_agg(o.host_class order by o.had_website_uri desc, o.observed_at desc, o.id desc))[1] as host_class,
+       max(o.observed_at) as observed_at,
+       count(*)::int as listings
+  from place_attachments a
+  join businesses b on b.id = a.business_id and b.org_id = a.org_id
+  join lateral (
+    select po.id, po.had_website_uri, po.host_class, po.observed_at
+      from place_observations po
+     where po.org_id = a.org_id and po.business_id = a.business_id and po.place_id = a.place_id
+     order by po.observed_at desc, po.id desc
+     limit 1
+  ) o on true
+ where a.status = 'attached'
+ group by a.org_id, coalesce(b.merged_into_id, b.id);
+--> statement-breakpoint
+
+grant select on business_place_signal to authenticated;
+--> statement-breakpoint
+
+comment on view business_place_signal is
+  'D-05/D-08/A-WR-04: tentative and rejected attachments are never a verdict input. True if ANY attached listing''s LATEST observation lists a website — leans against a false "no website" lead. Keyed by the LIVE ROOT business (coalesce(merged_into_id, id)), so a merged-away business''s attached listings count toward its survivor and an unmerge restores them with no data moved. security_invoker: the caller''s RLS applies through the view. Never selects coordinates. SELECT only for authenticated.';
+--> statement-breakpoint
