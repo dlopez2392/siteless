@@ -37,6 +37,20 @@ describes; neither adds anything.
   0/1 flags (§1.1). The review card now labels a name or distance chip by its band instead of
   printing the figure (§5).
 
+**Changes AFTER the decision (2026-09-24, code review, migration 0030).** The D-01 row in
+PROJECT.md covers this document **as of `5a74bba`**. The Phase 4 code review found two places
+where this list did not match the code. Both are corrected below, and the D-01 call needs to be
+re-acknowledged against this revision:
+
+- **A new place_id sink was missing: the `events` audit table (§1.10).** Every status change of
+  a `place_attachments` row writes one row to `events`, and `events` cannot be deleted from, so
+  those copies are kept **indefinitely**. Until 0030 each copy held the whole attachment row,
+  including `score` and `features`. Since 0030 it holds ids, the status and who decided only.
+  **`place_id` is still in every copy**, and §1.9 now lists `events` as a place_id location.
+- **The `features` CHECK now enforces the 11-key, integer-points line (§1.1).** Before 0030 it
+  still admitted `nameSim` and `distanceM`. This narrows what the database accepts; it adds
+  nothing.
+
 **Where things stand today.** No Places call of any SKU has been made. Nothing Places-derived exists
 in any database. Production has `PLACES_MODE` unset, which is `off` (`src/env.ts`, D-02): `off`
 refuses before any reservation, `ids_only` permits only the free IDs-only mask, `enterprise`
@@ -63,6 +77,9 @@ and DELETE are explicitly revoked (0027). Every write goes through a `SECURITY D
 (`app.record_places_page`, `app.record_change_check`, `app.decide_place_attachment`,
 `app.plan_run_searches`, `app.mark_run_search`). `place_coordinates` is the exception: it has **no**
 tenant privilege at all (see 1.3).
+
+Outside the eight tables, one more table holds a Google value: the `events` audit table keeps a
+copy of `place_id` for every status change of a `place_attachments` row (§1.10).
 
 ### 1.1 `place_attachments` — 16 columns (a Places listing linked to one of our businesses)
 
@@ -321,19 +338,46 @@ Retention: indefinite. **No Google content.**
 
 ### 1.9 Summary of Google values at rest
 
-| Value                                                                | Where                                                                                 | Retention                                                                                                         |
-| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `place_id` (verbatim)                                                | `place_attachments`, `place_observations`, `place_tile_members`, `run_place_outcomes` | indefinite (Terms §A.3 names it)                                                                                  |
-| `lat`, `lng` (verbatim)                                              | `place_coordinates` only                                                              | `expires_at ≤ observed_at + 30 days`, CHECK-enforced. No tenant read. Deleted daily; on disk ≤ ~1 day past expiry |
-| `had_website_uri` (derived boolean)                                  | `place_observations`                                                                  | indefinite                                                                                                        |
-| `host_class` (derived six-value class; URL discarded — D-09)         | `place_observations`                                                                  | indefinite                                                                                                        |
-| `pure_sab` (derived flag — D-13)                                     | `place_observations`                                                                  | indefinite                                                                                                        |
-| match `score` + `features` (integer points, enums, 0/1 flags — D-05) | `place_attachments`                                                                   | indefinite                                                                                                        |
-| attachment `status`, per-place `outcome` incl. `outside`             | `place_attachments`, `run_place_outcomes`                                             | indefinite                                                                                                        |
-| tile membership (`place_id` per tile; first/last seen; gone — D-06)  | `place_tile_members`                                                                  | indefinite                                                                                                        |
-| per-cluster unmatched counts (D-06)                                  | computed from `run_place_outcomes`                                                    | indefinite                                                                                                        |
-| response counts (results, pages, new/gone ids, saturation)           | `run_searches`, `place_tiles`                                                         | indefinite                                                                                                        |
-| `sku`, `observed_at`                                                 | `place_observations`                                                                  | indefinite                                                                                                        |
+| Value                                                                | Where                                                                                                                                                         | Retention                                                                                                         |
+| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `place_id` (verbatim)                                                | `place_attachments`, `place_observations`, `place_tile_members`, `run_place_outcomes`, and `events` (the `place_attachments` audit's `before`/`after`, §1.10) | indefinite (Terms §A.3 names it). The `events` copies can never be deleted by the app (immutable by grant)        |
+| attachment `status` / `reason` history                               | `events` (§1.10)                                                                                                                                              | indefinite                                                                                                        |
+| `lat`, `lng` (verbatim)                                              | `place_coordinates` only                                                                                                                                      | `expires_at ≤ observed_at + 30 days`, CHECK-enforced. No tenant read. Deleted daily; on disk ≤ ~1 day past expiry |
+| `had_website_uri` (derived boolean)                                  | `place_observations`                                                                                                                                          | indefinite                                                                                                        |
+| `host_class` (derived six-value class; URL discarded — D-09)         | `place_observations`                                                                                                                                          | indefinite                                                                                                        |
+| `pure_sab` (derived flag — D-13)                                     | `place_observations`                                                                                                                                          | indefinite                                                                                                        |
+| match `score` + `features` (integer points, enums, 0/1 flags — D-05) | `place_attachments`                                                                                                                                           | indefinite                                                                                                        |
+| attachment `status`, per-place `outcome` incl. `outside`             | `place_attachments`, `run_place_outcomes`                                                                                                                     | indefinite                                                                                                        |
+| tile membership (`place_id` per tile; first/last seen; gone — D-06)  | `place_tile_members`                                                                                                                                          | indefinite                                                                                                        |
+| per-cluster unmatched counts (D-06)                                  | computed from `run_place_outcomes`                                                                                                                            | indefinite                                                                                                        |
+| response counts (results, pages, new/gone ids, saturation)           | `run_searches`, `place_tiles`                                                                                                                                 | indefinite                                                                                                        |
+| `sku`, `observed_at`                                                 | `place_observations`                                                                                                                                          | indefinite                                                                                                        |
+
+### 1.10 `events` — the audit copy of a `place_attachments` status change (added 2026-09-24)
+
+`events` is the product's audit table (drizzle/0007). It is **append-only**: tenant sessions
+cannot INSERT, UPDATE or DELETE it (0007, 0011), and no purge exists. Every row is kept
+**indefinitely**.
+
+The trigger `place_attachments_event_upd` writes **one** `events` row each time a
+`place_attachments` row changes status: a reviewer's confirm / reject / detach, the other side
+of a tie being rejected by a confirm, or a later run moving a tentative listing to attached. A
+run that re-sees a listing without changing its status writes nothing here.
+
+| Field                      | What it holds                                                                                                                                                                                           |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `entity_type`, `entity_id` | `place_attachments` and the attachment's row id (ours)                                                                                                                                                  |
+| `actor_id`, `action`       | who (Clerk user, `workflow:<run>` or `system`) and `update` (ours)                                                                                                                                      |
+| `before`, `after`          | an **allow-list** of the attachment's columns: `id`, `org_id`, `business_id`, **`place_id` (Google — verbatim)**, `status`, `reason`, `tie_business_id`, `decided_by`, `decided_at`, `last_seen_run_id` |
+
+- **Not copied since 0030:** `score` and `features` (the Google-derived match values). The audit
+  function is `app.log_place_attachment_event`; the test "a listing event carries ids and status
+  only, never score or features" (`tests/db/places-writer.test.ts`) pins the exact key set.
+- **Before 0030** the trigger used the generic `app.log_event`, which copied the whole row,
+  including `score` and `features`. No such row exists: no Places call had been made, and
+  production held no `place_attachments` rows when 0030 was written.
+- `place_id` is kept here, verbatim and indefinitely, alongside `status`: the audit cannot name
+  the listing without it.
 
 ---
 
@@ -404,6 +448,9 @@ How this is enforced, not merely intended:
   - The purge route returns fixed-enum bodies.
 - **The run-level audit event.** `finishRun` emits one run-level event (counts). There is no
   per-observation audit event (0027 comment: "No app.log_event: per-run volume").
+- **The per-listing status audit is NOT transient.** It is listed with the persisted tables, in
+  §1.10: `events` is append-only, and each status change of an attachment leaves a permanent
+  copy of its `place_id` there.
 - **Committed fixtures (D-20).**
   - **Today:** every Places fixture under `tests/unit/msw/fixtures/` is hand-written synthetic
     data (sidecar `places-recordings.json`: `synthetic: true`, `anonymized: false`).
@@ -525,6 +572,9 @@ document takes no position on any of them.
      the only fixture question left.
    - The database owner and `service_role` can read coordinates until the daily purge deletes
      them, and a local database purges only by hand (§1.3).
+   - **Added 2026-09-24 (after the decision):** the `events` audit table keeps a `place_id`
+     and the attachment's status history for every status change, indefinitely and
+     undeletably (§1.10). It no longer copies `score` or `features`.
 
    Does the decision cover these as they stand?
 

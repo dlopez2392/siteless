@@ -735,8 +735,7 @@ describe('pa_features_numeric (T-3-11 / T-4-05, M36)', () => {
       const s = await setup(c);
       await actAs(c, CLAIMS_A);
       const record = page(1, [listing('ChIJ-ortiz', [cand(s.spine.ortiz, 97)])]);
-      (record.places[0]!.matches[0]!.features as unknown as Record<string, unknown>).distanceM =
-        12;
+      (record.places[0]!.matches[0]!.features as unknown as Record<string, unknown>).distanceM = 12;
       const attempt = writePage(c, s.searchId, record);
       await expect(attempt).rejects.toMatchObject({
         code: '23514',
@@ -1200,6 +1199,46 @@ describe('app.decide_place_attachment (D-05)', () => {
       expect(ev.rows).toEqual([
         { action: 'update', actor_id: 'user_reviewer_A', before: 'tentative', after: 'attached' },
       ]);
+    }));
+
+  // A-WR-05. events is immutable by grant, so whatever the audit copies is kept forever. The
+  // place_attachments audit carries ids, the status and who decided — never the Google-derived
+  // score or features (docs/legal/places-persistence.md §1.10). place_id stays: it is the
+  // Terms-exempt id (Service Specific Terms §A.3), and the audit is useless without it.
+  it('a listing event carries ids and status only, never score or features', () =>
+    withRollback(async (c) => {
+      const s = await setup(c);
+      const id = await seedAttachment(
+        c,
+        s.a,
+        s.spine.ortiz,
+        'ChIJ-ortiz',
+        'tentative',
+        'score',
+        85,
+      );
+      await actAs(c, CLAIMS_A);
+      await decideAs(c, id, 'confirm');
+      await actAsOwner(c);
+      const ev = await c.query<{ before_keys: string[]; after_keys: string[] }>(
+        `select array(select jsonb_object_keys(before) order by 1) as before_keys,
+                array(select jsonb_object_keys(after) order by 1) as after_keys
+           from events where entity_type = 'place_attachments' and entity_id = $1`,
+        [id],
+      );
+      const ALLOWED = [
+        'business_id',
+        'decided_at',
+        'decided_by',
+        'id',
+        'last_seen_run_id',
+        'org_id',
+        'place_id',
+        'reason',
+        'status',
+        'tie_business_id',
+      ];
+      expect(ev.rows).toEqual([{ before_keys: ALLOWED, after_keys: ALLOWED }]);
     }));
 });
 

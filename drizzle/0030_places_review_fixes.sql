@@ -601,3 +601,70 @@ grant select on business_place_signal to authenticated;
 comment on view business_place_signal is
   'D-05/D-08/A-WR-04: tentative and rejected attachments are never a verdict input. True if ANY attached listing''s LATEST observation lists a website — leans against a false "no website" lead. Keyed by the LIVE ROOT business (coalesce(merged_into_id, id)), so a merged-away business''s attached listings count toward its survivor and an unmerge restores them with no data moved. security_invoker: the caller''s RLS applies through the view. Never selects coordinates. SELECT only for authenticated.';
 --> statement-breakpoint
+
+-- ===========================================================================
+-- 6. A-WR-05 — the place_attachments audit copies ids and status, never score or features.
+-- ===========================================================================
+--
+-- 0027 attached the generic app.log_event to place_attachments (UPDATE arm, status changes
+-- only). app.log_event writes to_jsonb(old) and to_jsonb(new) — the WHOLE row, including the
+-- Google-derived score and features — into `events`, which is immutable by grant (0007/0011):
+-- those copies could never be purged, and the D-01 enumeration (docs/legal/
+-- places-persistence.md) did not list them.
+--
+-- A dedicated trigger function now writes an ALLOW-LISTED payload: the row's ids, its status,
+-- reason and tie pointer, and who decided when. No score, no features. place_id IS kept — it
+-- is the one Google value the Maps Service Specific Terms (§A.3) permit caching, and an audit
+-- row that cannot name the listing is useless — and the legal doc now lists `events` as a
+-- place_id sink with indefinite retention. Append-only semantics are unchanged: it only ever
+-- INSERTs into events, through the same actor resolution as app.log_event (Clerk sub, then the
+-- app.actor_id GUC, then 'system'). The trigger keeps 0027's shape exactly: AFTER UPDATE, FOR
+-- EACH ROW, WHEN the status changed.
+--
+-- SECURITY DEFINER for the same reason as app.log_event (authenticated holds no INSERT on
+-- events, 0011). A trigger function cannot be called directly, and EXECUTE is revoked from
+-- every role by name anyway; firing a trigger does not check EXECUTE.
+--
+-- Rows already in `events` are not rewritten (events is immutable; the fix report's
+-- pre-flight read confirms production holds none for place_attachments).
+create or replace function app.log_place_attachment_event() returns trigger
+language plpgsql security definer set search_path = public, pg_temp as $$
+begin
+  if tg_op <> 'UPDATE' then
+    raise exception 'log_place_attachment_event: update trigger only' using errcode = '55000';
+  end if;
+  insert into events (org_id, actor_id, entity_type, entity_id, action, before, after)
+  values (
+    new.org_id,
+    coalesce(app.jwt()->>'sub', current_setting('app.actor_id', true), 'system'),
+    tg_table_name,
+    new.id,
+    'update',
+    jsonb_build_object('id', old.id, 'org_id', old.org_id, 'business_id', old.business_id,
+                       'place_id', old.place_id, 'status', old.status, 'reason', old.reason,
+                       'tie_business_id', old.tie_business_id, 'decided_by', old.decided_by,
+                       'decided_at', old.decided_at, 'last_seen_run_id', old.last_seen_run_id),
+    jsonb_build_object('id', new.id, 'org_id', new.org_id, 'business_id', new.business_id,
+                       'place_id', new.place_id, 'status', new.status, 'reason', new.reason,
+                       'tie_business_id', new.tie_business_id, 'decided_by', new.decided_by,
+                       'decided_at', new.decided_at, 'last_seen_run_id', new.last_seen_run_id)
+  );
+  return new;
+end $$;
+--> statement-breakpoint
+
+revoke execute on function app.log_place_attachment_event()
+  from public, anon, authenticated, service_role;
+--> statement-breakpoint
+
+drop trigger if exists place_attachments_event_upd on place_attachments;
+--> statement-breakpoint
+
+create trigger place_attachments_event_upd after update on place_attachments
+  for each row when (old.status is distinct from new.status)
+  execute function app.log_place_attachment_event();
+--> statement-breakpoint
+
+comment on function app.log_place_attachment_event() is
+  'A-WR-05. The place_attachments audit trigger (AFTER UPDATE, status changes only): inserts ONE events row whose before/after carry an allow-list — id, org_id, business_id, place_id, status, reason, tie_business_id, decided_by, decided_at, last_seen_run_id — and never the Google-derived score or features. place_id is the Terms-exempt id and is retained indefinitely in events (docs/legal/places-persistence.md).';
+--> statement-breakpoint

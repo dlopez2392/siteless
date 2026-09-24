@@ -25,10 +25,12 @@ import { orgPolicies, orgScoped, tstz } from './_helpers';
  * `authenticated` holds SELECT only (drizzle/0027). Every write is a SECURITY DEFINER that
  * resolves the org and the actor from the claims, so `decided_by` cannot be forged.
  *
- * `app.log_event` fires on a STATUS CHANGE only (drizzle/0027 `place_attachments_event_upd`):
+ * The audit trigger fires on a STATUS CHANGE only (`place_attachments_event_upd`, drizzle/0027):
  * confirm / reject / detach / re-score are the state-bearing events; the matcher's per-run
  * inserts are audited at run level by 04-22 via `app.emit_event` — the `budget_periods`
- * precedent.
+ * precedent. Since drizzle/0030 (A-WR-05) it runs `app.log_place_attachment_event`, whose
+ * before/after carry ids, status, reason, tie and decider only — never `score` or `features`,
+ * because `events` is immutable and keeps every copy forever.
  */
 export const placeAttachments = pgTable(
   'place_attachments',
