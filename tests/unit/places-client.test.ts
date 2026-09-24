@@ -146,6 +146,37 @@ describe('the Places client (criterion 1, D-03)', () => {
     expect(honoured.retryAfterMs).toBe(7_000);
   });
 
+  it('a Retry-After longer than five minutes is clamped', async () => {
+    // B-WR-06: an unbounded delta would put the step to sleep for a day, while admission reclaims
+    // the run as `abandoned` after 30 minutes.
+    const req = enterprisePage();
+    serveOnce(() =>
+      HttpResponse.json(minuteEnvelope.body, { status: 429, headers: { 'Retry-After': '86400' } }),
+    );
+    const clamped = await searchText(reservedFor(req), req);
+    if (clamped.ok) throw new Error('expected a 429');
+    expect(clamped).toMatchObject({ reason: 'rate_limited', retryAfterMs: 300_000 });
+  });
+
+  it('searchText classifies 401, 403 and 404 as rejected, never retried', async () => {
+    // B-WR-06: a bad or restricted key, Places API (New) not enabled, or billing disabled is a
+    // 403 PERMISSION_DENIED — retrying it three times per run only hides the real cause.
+    const req = enterprisePage();
+    for (const status of [401, 403, 404]) {
+      serveOnce(() =>
+        HttpResponse.json(
+          { error: { code: status, message: 'Synthetic: denied.', status: 'PERMISSION_DENIED' } },
+          { status },
+        ),
+      );
+      expect(await searchText(reservedFor(req), req), String(status)).toEqual({
+        ok: false,
+        reason: 'rejected',
+        status,
+      });
+    }
+  });
+
   it('searchText treats an ambiguous 429 as daily', async () => {
     // A 429 with no quota metadata at all: stopping is the safe direction.
     serveOnce(() =>
