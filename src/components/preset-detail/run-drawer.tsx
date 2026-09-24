@@ -44,6 +44,8 @@ import {
   RUN_DRAWER_TITLE_FULL,
   RUN_DRAWER_TITLE_PARTITION,
   RUN_OPEN_RUNNING,
+  RUN_START_UNKNOWN,
+  RUN_START_UNKNOWN_ACTION,
 } from '@/lib/ui/copy';
 import { queueRun } from '@/server/actions/queue-run';
 
@@ -135,7 +137,13 @@ type Outcome =
   | { kind: 'mode_refused'; message: string }
   | { kind: 'busy'; message: string; runningRunId: string | null }
   | { kind: 'error'; message: string }
+  /** C-CR-01: the request never answered — the run may or may not exist. */
+  | { kind: 'unknown' }
   | null;
+
+/** The preset page's Recent runs card (`recent-runs.tsx` carries this id). The drawer only ever
+ *  lives on that page, so a hash is the whole address. */
+const RECENT_RUNS_ANCHOR = 'preset-recent-runs';
 
 /** The kind-specific half of the props: a partition drawer needs this week's partition. */
 type KindProps = { kind: 'partition'; partition: RunPartition } | { kind: 'full' | 'check' };
@@ -191,7 +199,17 @@ export function RunDrawer(props: RunDrawerProps) {
   const confirm = useCallback(() => {
     setOutcome(null);
     startTransition(async () => {
-      const result = await queueRun({ searchVersionId: selectedId, kind: ACTION_KIND[kind] });
+      let result: Awaited<ReturnType<typeof queueRun>>;
+      try {
+        result = await queueRun({ searchVersionId: selectedId, kind: ACTION_KIND[kind] });
+      } catch {
+        // 🔴 C-CR-01. A rejected action inside a transition goes to the nearest error boundary
+        // and takes the whole preset page with it. And the request can die AFTER the server
+        // committed the run and started its workflow, so this outcome claims nothing about what
+        // was reserved — it sends the reader to where runs are listed.
+        setOutcome({ kind: 'unknown' });
+        return;
+      }
 
       if (result.ok) {
         // The report is the feedback. The push stays inside the transition, so the confirm
@@ -251,8 +269,12 @@ export function RunDrawer(props: RunDrawerProps) {
   // 🔴 A refusal the reader cannot fix by clicking again REPLACES the confirm button rather
   // than disabling it beside the Alert: a greyed control under a red sentence invites a
   // second click at a cap, a mode or a running run that has not moved.
+  // An unknown outcome blocks too: a second click could be a second run.
   const blocking =
-    outcome?.kind === 'refused' || outcome?.kind === 'mode_refused' || outcome?.kind === 'busy';
+    outcome?.kind === 'refused' ||
+    outcome?.kind === 'mode_refused' ||
+    outcome?.kind === 'busy' ||
+    outcome?.kind === 'unknown';
 
   const body = (
     <div className="flex flex-col gap-4 px-4 sm:px-0">
@@ -387,6 +409,38 @@ export function RunDrawer(props: RunDrawerProps) {
               </Button>
             </AlertDescription>
           ) : null}
+        </Alert>
+      ) : null}
+
+      {outcome?.kind === 'unknown' ? (
+        <Alert role="alert" data-testid="run-start-unknown" className={WARNING_ALERT}>
+          <TriangleAlert data-icon="triangle-alert" aria-hidden="true" className="size-5" />
+          <AlertTitle className="text-base font-semibold text-balance">
+            {RUN_START_UNKNOWN}
+          </AlertTitle>
+          <AlertDescription className="text-inherit">
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Closing the drawer and re-reading the page is what makes a run that WAS
+                  created appear in Recent runs; the hash then scrolls to it. */}
+              <Button asChild variant="outline" className="h-11">
+                <a
+                  href={`#${RECENT_RUNS_ANCHOR}`}
+                  onClick={() => {
+                    setOpen(false);
+                    router.refresh();
+                  }}
+                  data-testid="run-start-unknown-recent"
+                >
+                  {RUN_START_UNKNOWN_ACTION.recentRuns}
+                </a>
+              </Button>
+              <Button asChild variant="ghost" className="h-11">
+                <Link href="/spend" data-testid="run-start-unknown-spend">
+                  {RUN_START_UNKNOWN_ACTION.openSpend}
+                </Link>
+              </Button>
+            </div>
+          </AlertDescription>
         </Alert>
       ) : null}
 

@@ -97,7 +97,10 @@ export function RecentRuns({ runs, mode }: { runs: RecentRun[]; mode: PlacesMode
     .slice(0, RECENT_RUNS_LIMIT);
 
   return (
-    <Card data-testid="preset-recent-runs">
+    // `id` is the run drawer's C-CR-01 way out ("Check recent runs" → `#preset-recent-runs`).
+    // Written as a literal, not imported: `run-drawer.tsx` is a client module, and its plain
+    // exports are client references inside this server component.
+    <Card id="preset-recent-runs" data-testid="preset-recent-runs">
       <CardHeader>
         <CardTitle className="text-xl font-semibold">{PRESET_CARD.recentRuns}</CardTitle>
       </CardHeader>

@@ -34,6 +34,8 @@ import {
   RUN_DRAWER_TITLE_PARTITION,
   RUN_MODE_REFUSED,
   RUN_OPEN_RUNNING,
+  RUN_START_UNKNOWN,
+  RUN_START_UNKNOWN_ACTION,
 } from '@/lib/ui/copy';
 import { queueRun } from '@/server/actions/queue-run';
 
@@ -178,6 +180,33 @@ describe('run drawer', () => {
     expect(push).not.toHaveBeenCalled();
 
     fireEvent.click(within(alert).getByTestId('run-mode-refused-reload'));
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('a run request that never reaches the server keeps the drawer open', async () => {
+    const d = openDrawer('full');
+    action.mockRejectedValueOnce(new Error('Failed to fetch'));
+    await act(async () => {
+      fireEvent.click(d.getByTestId('run-confirm'));
+    });
+
+    // The drawer is still here — no error boundary took the page.
+    expect(screen.getByTestId('run-drawer')).toBeInTheDocument();
+    const alert = d.getByTestId('run-start-unknown');
+    expect(alert).toHaveTextContent(RUN_START_UNKNOWN);
+    // The run MAY exist: nothing on screen may say nothing was reserved or charged.
+    expect(screen.getByTestId('run-drawer')).not.toHaveTextContent(/nothing was (reserved|charged)/i);
+    // A blind retry is not offered; the way out is where runs are listed.
+    expect(d.queryByTestId('run-confirm')).toBeNull();
+    expect(d.queryByTestId('run-error-retry')).toBeNull();
+    const recent = within(alert).getByTestId('run-start-unknown-recent');
+    expect(recent).toHaveTextContent(RUN_START_UNKNOWN_ACTION.recentRuns);
+    expect(recent).toHaveAttribute('href', '#preset-recent-runs');
+    expect(within(alert).getByTestId('run-start-unknown-spend')).toHaveAttribute('href', '/spend');
+    expect(push).not.toHaveBeenCalled();
+
+    // Following it closes the drawer and re-reads the page, so a run that was created shows up.
+    fireEvent.click(recent);
     expect(refresh).toHaveBeenCalledTimes(1);
   });
 

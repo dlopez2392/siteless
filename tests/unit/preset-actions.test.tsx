@@ -380,6 +380,9 @@ describe('preset recent runs (04-UI-SPEC § Screen 2)', () => {
       STOPPED_REASON.budget_cap_reached,
     );
 
+    // The run drawer's "Check recent runs" (C-CR-01) is a `#preset-recent-runs` hash.
+    expect(card).toHaveAttribute('id', 'preset-recent-runs');
+
     const footer = within(card).getByTestId('preset-recent-runs-spend');
     expect(footer).toHaveAttribute('href', '/spend');
     expect(footer).toHaveTextContent(PRESET_RECENT_RUNS_FOOTER);

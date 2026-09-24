@@ -1515,6 +1515,28 @@ export const RUN_START_FAILED =
   "The run didn't start. Nothing was reserved and nothing was charged. Try again — if it keeps " +
   'failing, the spend view shows whether a run was created.';
 
+/**
+ * C-CR-01: the request to start a run never answered (lost signal, a 5xx, a retired action id).
+ * The server may have committed the run and started it BEFORE the answer was lost, so this
+ * sentence claims nothing about what was reserved or charged — it sends the reader to where
+ * runs are listed. Actions: `RUN_START_UNKNOWN_ACTION`.
+ */
+export const RUN_START_UNKNOWN =
+  "We couldn't confirm whether the run started — the request didn't come back. Check Recent " +
+  'runs on this page before trying again: if the run was created, it is listed there.';
+
+export const RUN_START_UNKNOWN_ACTION = {
+  recentRuns: 'Check recent runs',
+  openSpend: PLACES_ACTION.openSpend,
+} as const;
+
+/**
+ * C-WR-07: a refusal that retrying cannot change — the version can't be priced, a geography unit
+ * has no map outline, or the version is gone. The server's sentence renders as the title; the
+ * way out is the preset's editor, never "Try again".
+ */
+export const RUN_INVALID_ACTION = 'Edit preset';
+
 /** Amendment 1: a second active run for the org (one at a time — two sweeps must not race for
  *  one budget). Action: `RUN_OPEN_RUNNING` → `/runs/{runningRunId}`. */
 export const RUN_ALREADY_IN_PROGRESS =
