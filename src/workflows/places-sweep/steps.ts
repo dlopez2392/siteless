@@ -21,6 +21,7 @@ import {
   specInputOfVersion,
 } from '@/server/queries/preset-spec';
 import type { FailReason, PlannedSearch, SearchResult, StopReason } from './reducer';
+import { isDeterministicFault, stepError } from './step-errors';
 import { fromWire, toWire } from './wire';
 import type { SweepOutcome } from './workflow';
 
@@ -80,21 +81,13 @@ async function loadShapes(): Promise<GeoShapesFile> {
   return (await import('@/seed/data/geo-shapes.json')).default as GeoShapesFile;
 }
 
-/** An error the step did not write, reduced to what is safe to persist: a SQLSTATE or a name. */
-function stepError(e: unknown): Error {
-  const code =
-    typeof e === 'object' && e !== null && typeof (e as { code?: unknown }).code === 'string'
-      ? (e as { code: string }).code
-      : e instanceof Error
-        ? e.name
-        : 'unknown';
-  return new Error(`step_error:${code.replace(/[^A-Za-z0-9_]/g, '').slice(0, 40)}`);
-}
-
 /**
  * Runs a step body and translates what it throws. The workflow's own error classes pass through;
  * the meter's M46 refusal (the run is not visible to this org) is fatal — retrying it into the
- * same org cannot help; everything else is sanitised and left retryable (the default 3).
+ * same org cannot help. A DETERMINISTIC fault (a SQLSTATE of class 22/23/42 read through
+ * drizzle's `.cause`, or a `toPageRecord` refusal — ./step-errors.ts) is fatal too: it would
+ * refuse the same way on every retry, and each retry would re-buy the page it follows (B-CR-02).
+ * Everything else is sanitised to its SQLSTATE or name and left retryable (the default 3).
  */
 async function guarded<T>(body: () => Promise<T>): Promise<T> {
   try {
@@ -104,7 +97,9 @@ async function guarded<T>(body: () => Promise<T>): Promise<T> {
     if (e instanceof Error && e.name === 'WorkerOrgMismatch') {
       throw new FatalError('places_request_rejected');
     }
-    throw stepError(e);
+    const safe = stepError(e);
+    if (isDeterministicFault(e)) throw new FatalError(safe.message);
+    throw safe;
   }
 }
 

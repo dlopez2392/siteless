@@ -97,8 +97,20 @@ const RULES = new Set<string>([
 ]);
 const ALLOWED = new Set<string>(FEATURE_KEYS);
 
+/**
+ * Every refusal below. A named class so the step wrapper (src/workflows/places-sweep/
+ * step-errors.ts) can tell it apart: a record this module refuses is refused the same way on a
+ * retry — after the page was already bought — so it is FATAL, never retried (B-CR-02).
+ */
+export class PageRecordRefusal extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PageRecordRefusal';
+  }
+}
+
 function refuse(key: string): never {
-  throw new Error(`toPageRecord: feature ${key} is not a permitted value`);
+  throw new PageRecordRefusal(`toPageRecord: feature ${key} is not a permitted value`);
 }
 
 function isFiniteNumber(v: unknown): v is number {
@@ -109,14 +121,14 @@ function isFiniteNumber(v: unknown): v is number {
  *  offending VALUE never is — it may be exactly the Places text being refused. */
 function checkFeatures(raw: unknown): PersistedPlaceFeatures {
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
-    throw new Error('toPageRecord: features must be an object');
+    throw new PageRecordRefusal('toPageRecord: features must be an object');
   }
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
     // Scored with in memory; never written (see the header).
     if (MEMORY_ONLY.has(key)) continue;
     if (!ALLOWED.has(key)) {
-      throw new Error(`toPageRecord: feature ${key} is not allow-listed`);
+      throw new PageRecordRefusal(`toPageRecord: feature ${key} is not allow-listed`);
     }
     const k = key as FeatureKey;
     if (SCORE_KEYS.has(k)) {
@@ -137,13 +149,13 @@ function checkFeatures(raw: unknown): PersistedPlaceFeatures {
 
 function checkMatch(m: Match): PersistedMatch {
   if (!Number.isInteger(m.score) || m.score < 0 || m.score > 100) {
-    throw new Error('toPageRecord: match score must be an integer 0..100');
+    throw new PageRecordRefusal('toPageRecord: match score must be an integer 0..100');
   }
   if (m.status !== 'attached' && m.status !== 'tentative') {
-    throw new Error('toPageRecord: match status must be attached or tentative');
+    throw new PageRecordRefusal('toPageRecord: match status must be attached or tentative');
   }
   if (m.reason !== 'score' && m.reason !== 'tie') {
-    throw new Error('toPageRecord: match reason must be score or tie');
+    throw new PageRecordRefusal('toPageRecord: match reason must be score or tie');
   }
   return {
     businessId: m.businessId,
@@ -162,23 +174,23 @@ export function toPageRecord(i: {
   items: PageRecordItem[];
 }): PageRecord {
   if (i.page !== 1 && i.page !== 2 && i.page !== 3) {
-    throw new Error('toPageRecord: page must be 1, 2 or 3');
+    throw new PageRecordRefusal('toPageRecord: page must be 1, 2 or 3');
   }
   if (i.sku !== 'ts_enterprise' && i.sku !== 'ts_essentials') {
-    throw new Error('toPageRecord: sku must be ts_enterprise or ts_essentials');
+    throw new PageRecordRefusal('toPageRecord: sku must be ts_enterprise or ts_essentials');
   }
   if (!Number.isInteger(i.resultsSoFar) || i.resultsSoFar < 0) {
-    throw new Error('toPageRecord: resultsSoFar must be a non-negative integer');
+    throw new PageRecordRefusal('toPageRecord: resultsSoFar must be a non-negative integer');
   }
 
   const places = i.items.map((it): PageRecordPlace => {
     const outOfArea = it.decision.outcome === 'outside';
     if (!(HOST_CLASSES as readonly string[]).includes(it.hostClass)) {
-      throw new Error('toPageRecord: hostClass is not a known class');
+      throw new PageRecordRefusal('toPageRecord: hostClass is not a known class');
     }
     // po_host_class_agrees (drizzle/0026): refused here too, before a page half-writes.
     if ((it.hadWebsiteUri === true) !== (it.hostClass !== 'none')) {
-      throw new Error('toPageRecord: hadWebsiteUri disagrees with hostClass');
+      throw new PageRecordRefusal('toPageRecord: hadWebsiteUri disagrees with hostClass');
     }
     const located = isFiniteNumber(it.lat) && isFiniteNumber(it.lng);
     return {

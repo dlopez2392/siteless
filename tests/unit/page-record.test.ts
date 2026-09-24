@@ -25,7 +25,12 @@ import {
   type MatchDecision,
   type PlacesResultLike,
 } from '@/lib/places/match';
-import { FEATURE_KEYS, toPageRecord, type PageRecordPlace } from '@/lib/places/page-record';
+import {
+  FEATURE_KEYS,
+  PageRecordRefusal,
+  toPageRecord,
+  type PageRecordPlace,
+} from '@/lib/places/page-record';
 
 import matchPage from './msw/fixtures/places-match-page.json';
 import { PLACES_SENTINELS } from './msw/places';
@@ -172,8 +177,9 @@ describe('page record', () => {
   });
 
   it('page record drops feature keys outside the allow-list', () => {
+    // A PageRecordRefusal (B-CR-02: the step treats it as fatal, never retried).
     expect(() => withFeatures({ ...GOOD_FEATURES, displayName: 'x' })).toThrow(
-      new Error('toPageRecord: feature displayName is not allow-listed'),
+      new PageRecordRefusal('toPageRecord: feature displayName is not allow-listed'),
     );
     // Positive control: the same record without the extra key is accepted — minus the two
     // memory-only keys, which are the one deliberate drop.
