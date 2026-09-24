@@ -18,6 +18,8 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
  * proved against the component that would open.
  */
 vi.mock('@/server/actions/queue-run', () => ({ queueRun: vi.fn() }));
+// The version rows carry a DuplicateDialog, whose action pulls in `src/db/` too.
+vi.mock('@/server/actions/duplicate-preset', () => ({ duplicatePreset: vi.fn() }));
 vi.mock('next/navigation', () => ({
   useRouter: () => ({
     refresh: vi.fn(),
@@ -32,6 +34,10 @@ import { PlacesModeNotice } from '@/components/preset-detail/places-mode-notice'
 import { RecentRuns, type RecentRun } from '@/components/preset-detail/recent-runs';
 import { RunActions, type RunActionsProps } from '@/components/preset-detail/run-actions';
 import { SummaryCard } from '@/components/preset-detail/summary-card';
+import {
+  VersionHistory,
+  type HistoryVersion,
+} from '@/components/preset-detail/version-history';
 import {
   PLACES_MODE_NOTICE_IDS_ONLY_TITLE,
   PLACES_MODE_NOTICE_OFF_TITLE,
@@ -276,6 +282,84 @@ describe('preset run actions (04-UI-SPEC § Screen 2)', () => {
 
     render(<PlacesModeNotice mode="enterprise" id={NOTICE_ID} />);
     expect(screen.queryByTestId('places-mode-notice')).toBeNull();
+  });
+});
+
+/* --- Version history's "Run version N" (C-CR-02) ---------------------------------------------- */
+
+const V1 = '22222222-2222-4222-8222-222222222222';
+
+function historyVersion(id: string, version: number, isCurrent: boolean): HistoryVersion {
+  return {
+    id,
+    version,
+    isCurrent,
+    clauses: ['Home services'],
+    clusterNames: ['Home services'],
+    geo: { kind: 'cities', names: ['McAllen'] },
+    usedByRuns: 0,
+    createdAt: new Date('2026-09-20T15:00:00Z'),
+    costRange: '$0.00',
+    requests: '~54',
+  };
+}
+
+function renderHistory(mode: PlacesModeName) {
+  return render(
+    <>
+      <PlacesModeNotice mode={mode} id={NOTICE_ID} />
+      <VersionHistory
+        versions={[historyVersion(VERSION_ID, 2, true), historyVersion(V1, 1, false)]}
+        editHref="/presets/x/edit"
+        context={{
+          presetName: 'McAllen trades',
+          isAdmin: true,
+          remainingLabel: '$50.00 of $50.00',
+          placesMode: mode,
+          noticeId: NOTICE_ID,
+        }}
+      />
+    </>,
+  );
+}
+
+/** Both presentations (desk row and phone card) of both versions. */
+const VERSION_RUN_IDS = [
+  'version-row-2-run',
+  'version-row-1-run',
+  'version-card-2-run',
+  'version-card-1-run',
+];
+
+describe('version history run buttons follow the places mode', () => {
+  it('in off and ids_only every run version button is inert and points at the notice', () => {
+    for (const mode of ['off', 'ids_only'] as const) {
+      const { unmount } = renderHistory(mode);
+      for (const id of VERSION_RUN_IDS) {
+        const button = screen.getByTestId(id);
+        expect(button, `${mode}: ${id}`).toHaveAttribute('aria-disabled', 'true');
+        expect(button, `${mode}: ${id}`).toHaveAttribute('data-enabled', 'false');
+        expect(button, `${mode}: ${id}`).not.toHaveAttribute('disabled');
+        expect(button.getAttribute('aria-describedby'), `${mode}: ${id}`).toBe(NOTICE_ID);
+        expect(document.getElementById(NOTICE_ID), `${mode}: notice`).not.toBeNull();
+
+        button.focus();
+        expect(button, `${mode}: ${id} focusable`).toHaveFocus();
+        fireEvent.click(button);
+        expect(screen.queryByTestId('run-drawer'), `${mode}: ${id} opens nothing`).toBeNull();
+      }
+      unmount();
+    }
+    expect(action).not.toHaveBeenCalled();
+  });
+
+  it('in enterprise a run version button opens the drawer', () => {
+    renderHistory('enterprise');
+    const button = screen.getByTestId('version-row-1-run');
+    expect(button).not.toHaveAttribute('aria-disabled');
+    expect(button).toHaveAttribute('data-enabled', 'true');
+    fireEvent.click(button);
+    expect(screen.getByTestId('run-drawer')).toHaveAttribute('data-run-kind', 'full');
   });
 });
 
