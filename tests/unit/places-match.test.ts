@@ -337,6 +337,44 @@ describe('places match: area and chains', () => {
     );
   });
 
+  // B-CR-01. request.ts sends `regionCode: 'US'`, and Google then OMITS the country from a
+  // US `formattedAddress` ("If the country name … matches the regionCode, the country code is
+  // omitted"). The realistic shape of every result a sweep sees is therefore "…, TX 78501".
+  it('a US listing without the country suffix is in the area and attaches', () => {
+    const p = toPlaceForMatch(
+      { ...LOCATED, formattedAddress: '1200 N 10th St, McAllen, TX 78501' },
+      CITY_CTX,
+    );
+    expect(p.outOfArea).toBe(false);
+    expect(p.address.postal).toBe('78501');
+    const s = scoreLocated(p, business({ streetNorm: p.address.streetNorm }), 0.9);
+    expect(decide(p, [s]).outcome).toBe('attached');
+  });
+
+  it('a service-area partial address without the country is in the area', () => {
+    for (const formattedAddress of ['McAllen, TX', 'McAllen, TX 78501', 'TX 78501']) {
+      const p = toPlaceForMatch({ ...SAB, formattedAddress }, CITY_CTX);
+      expect(p.outOfArea, formattedAddress).toBe(false);
+    }
+    // The long form Google uses when the region does NOT match stays domestic too.
+    for (const tail of ['USA', 'United States']) {
+      const formattedAddress = `1200 N 10th St, McAllen, TX 78501, ${tail}`;
+      expect(toPlaceForMatch({ ...LOCATED, formattedAddress }, CITY_CTX).outOfArea, tail).toBe(
+        false,
+      );
+    }
+  });
+
+  it('a Mexican listing is outside the area in either spelling', () => {
+    for (const country of ['Mexico', 'México', 'MEXICO']) {
+      const p = toPlaceForMatch(
+        { ...LOCATED, formattedAddress: `Calle Hidalgo 1200, 88500 Reynosa, Tamps., ${country}` },
+        CITY_CTX,
+      );
+      expect(p.outOfArea, country).toBe(true);
+    }
+  });
+
   it('chain keys are ignored for Places pairs', () => {
     const p = located();
     expect(placeSide(p).chainKey).toBeNull();

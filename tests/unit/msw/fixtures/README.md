@@ -400,6 +400,13 @@ either key (`NEVER_KEPT` in `scripts/lib/anonymize-places.ts`). A committed fixt
 hold Google's own enum values, and a synthetic one must not serve a field the real API is never
 asked for.
 
+**No `, USA` on a domestic address (B-CR-01, 2026-09-24).** Every request carries
+`regionCode: 'US'`, and Google then omits the country from a US `formattedAddress`. The domestic
+fixtures therefore end at the state and ZIP (`…, McAllen, TX 78501`) — the shape a real sweep
+sees. Only a foreign listing carries a country (`…, Tamps., Mexico`), and that tail is what the
+out-of-area rule (`src/lib/places/area.ts`) reads. A fixture that put `, USA` back would hide a
+matcher that keys on the suffix again.
+
 ### The spine contract (with `tests/db/_places-fixtures.ts` `PLACES_SPINE`, plan 04-09)
 
 `places-match-page.json` uses exactly the spine's names, street addresses and phones, so the
@@ -407,8 +414,8 @@ matcher has something real to find. Change one side and the other must change wi
 
 | Place id                    | Serves as                                                                                                           | Expected against the spine                                 |
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| `synthetic-match-ortiz`     | `Ortiz Plumbing`, `1200 N 10th St, McAllen, TX 78501, USA`, 26.2159/−98.2336, `(956) 631-0001`, no site             | ortiz — exact; host class `none`                           |
-| `synthetic-match-garza`     | `Garza Electric LLC`, `4100 N 23rd St, McAllen, TX 78504, USA`, 26.2490/−98.2389, `(956) 631-0002`, `business.site` | garza — `dead` site                                        |
+| `synthetic-match-ortiz`     | `Ortiz Plumbing`, `1200 N 10th St, McAllen, TX 78501`, 26.2159/−98.2336, `(956) 631-0001`, no site                  | ortiz — exact; host class `none`                           |
+| `synthetic-match-garza`     | `Garza Electric LLC`, `4100 N 23rd St, McAllen, TX 78504`, 26.2490/−98.2389, `(956) 631-0002`, `business.site`      | garza — `dead` site                                        |
 | `synthetic-match-rio`       | `Rio Roofing`, **pure SAB** (no address, no location), `(956) 631-0003`, facebook                                   | ties rio and rioCo (same phone) — `social`                 |
 | `synthetic-match-valley`    | `Valley Locksmith`, **pure SAB**, `(956) 631-0004`, `.example`                                                      | valley — the SAB phone+city path; `other`                  |
 | `synthetic-match-tentative` | `Ortiz Plumbing TX`, `… Ste 5`, 26.2161/−98.2335, `(956) 555-0199`                                                  | a near-miss of ortiz: **82** (pinned by 04-18 — see below) |

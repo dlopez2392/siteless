@@ -195,6 +195,23 @@ describe('the anonymizer (D-20)', () => {
     expect(domestic).toBe('001 Synthetic St, McAllen, TX 78500, USA');
   });
 
+  // B-CR-01. A recording made with `regionCode: 'US'` carries NO country on a US address: it
+  // must stay domestic (and keep that shape), never become a synthetic Mexican listing.
+  it('the anonymizer keeps a US listing without the country suffix domestic', () => {
+    const input = realLookingPage();
+    input.places[0] = { ...input.places[0], formattedAddress: '4321 N Real Rd, McAllen, TX 78504' };
+    input.places[2] = {
+      ...input.places[2],
+      formattedAddress: 'Calle Real 12, Reynosa, Tamps., México',
+    };
+    const out = anonymizePage(input, CTX) as Out;
+    expect(out.places[0]?.formattedAddress).toBe('001 Synthetic St, McAllen, TX 78500');
+    expect(out.places[2]?.formattedAddress).toBe('003 Calle Sintetica, Synthetic, Mexico');
+    expect(() => assertAnonymizedPage(out)).not.toThrow();
+    // Still a fixpoint in the suffix-less shape.
+    expect(anonymizePage(out, CTX)).toEqual(out);
+  });
+
   it('the anonymizer is a fixpoint, so the recorder can anonymize again as it writes', () => {
     const input = realLookingPage();
     for (const page of [1, 2] as const) {

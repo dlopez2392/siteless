@@ -259,7 +259,8 @@ describe('the Places replay harness (plan 04-10)', () => {
 
   it('the places sentinels cover every google string in the fixtures', () => {
     expect(PLACES_SENTINELS).toContain('Ortiz Plumbing');
-    expect(PLACES_SENTINELS).toContain('1200 N 10th St, McAllen, TX 78501, USA');
+    // B-CR-01: the realistic regionCode=US shape, no country suffix.
+    expect(PLACES_SENTINELS).toContain('1200 N 10th St, McAllen, TX 78501');
     expect(PLACES_SENTINELS).toContain('(956) 631-0001');
     expect(PLACES_SENTINELS).toContain('https://garza-electric-synthetic.business.site');
     // Every page's strings, not just the match page's.

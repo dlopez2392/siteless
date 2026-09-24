@@ -572,6 +572,14 @@ describe('places-sweep workflow', () => {
       [matched.orgId],
     );
     expect(attached[0]!.n).toBeGreaterThan(0);
+    // B-CR-01: an ADDRESSED US listing attached — the fixtures carry no `, USA` (regionCode=US
+    // omits it), so a matcher keyed on that suffix would leave only the address-less SABs.
+    const addressed = await q<{ status: string }>(
+      `select status from place_attachments
+        where org_id = $1 and place_id = 'synthetic-match-ortiz'`,
+      [matched.orgId],
+    );
+    expect(addressed).toEqual([{ status: 'attached' }]);
 
     const scan = scanWorldFiles(FILE_START_MS);
     // Positive controls on the scan: it read this file's step payloads (the plumber root tile
