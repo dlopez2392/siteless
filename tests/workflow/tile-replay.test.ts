@@ -108,6 +108,24 @@ describe('a finished tile step re-executed (B-CR-02)', () => {
     expect(again).toEqual(first);
   });
 
+  it('a page hold outlives the abandoned-run reclaim', async () => {
+    // A-WR-08 (TS half): a crashed attempt's hold is settled AS CHARGED by settleInFlight when
+    // the step replays — after the workflow's backoff, possibly after admission's 30-minute
+    // abandoned reclaim. At the 10-minute default TTL the expiry self-heal would already have
+    // released it, racing the late settle; a page hold lives an hour.
+    const { w, search } = await plannedRoot('full_sweep');
+    setPlacesRoutes([{ name: 'match', when: () => true, pages: PLACES_PAGES.matchPage }]);
+    await runSearchTile(w.input, search, { mode: 'enterprise', shapes: SHAPES });
+    const holds = await owner.query<{ minutes: number }>(
+      `select extract(epoch from (expires_at - created_at)) / 60 as minutes
+         from cost_reservations
+        where run_id = $1 and id <> $2`,
+      [w.runId, w.admissionReservationId],
+    );
+    expect(holds.rows).toHaveLength(1);
+    expect(Number(holds.rows[0]!.minutes)).toBeGreaterThanOrEqual(59);
+  });
+
   it('a finished change check re-executed lists nothing and keeps its verdict', async () => {
     const { w, search } = await plannedRoot('change_check');
     setPlacesRoutes([{ name: 'ids', when: () => true, pages: PLACES_PAGES.idsOnly }]);

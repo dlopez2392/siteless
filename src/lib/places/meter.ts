@@ -92,6 +92,16 @@ class CeilingReached extends Error {
 /** The run a workflow step acts for: the Clerk org from its start input, and the run id. */
 export type RunCtx = { clerkOrgId: string; runId: string };
 
+/**
+ * How long a PAGE hold lives (A-WR-08, TS half). A crashed attempt's hold is settled AS CHARGED
+ * by `settleInFlight` when the step replays — after the workflow's retry backoff, and possibly
+ * after admission's 30-minute `abandoned` reclaim. At `reserve_budget`'s 10-minute default the
+ * expiry self-heal could release the hold first and race the late settle (0019 accepts a late
+ * settle, but the release/settle pair is the window A-WR-08 describes). An hour outlives both;
+ * the cost is one page price held a little longer after a crash.
+ */
+export const PAGE_HOLD_TTL = '60 minutes';
+
 export type ReserveOutcome =
   | { kind: 'reserved'; call: ReservedCall }
   | { kind: 'stop'; reason: 'budget_cap_reached' | 'exceeded_estimate' }
@@ -150,7 +160,7 @@ export async function reservePage(
         await tx.execute(sql`
           select reservation_id
             from app.reserve_budget('places', ${period}::date, ${hold.toString()}::bigint,
-                                    ${ctx.runId}::uuid, ${a.sku})`),
+                                    ${ctx.runId}::uuid, ${a.sku}, ${PAGE_HOLD_TTL}::interval)`),
       )[0];
       if (!meter) throw new Error('reservePage: app.reserve_budget returned no row');
       if (meter.reservation_id === null) {
@@ -272,40 +282,55 @@ function isTextSearchSku(v: string): v is TextSearchSku {
 export async function settleInFlight(ctx: RunCtx, searchId: string): Promise<boolean> {
   return withWorkerOrg(ctx.clerkOrgId, actorOf(ctx), async (tx) => {
     await readRunStatus(tx, ctx.runId);
-    const cursor = rowsOf<{
-      inflight_reservation_id: string | null;
-      inflight_request_id: string | null;
-    }>(
-      await tx.execute(sql`
-        select inflight_reservation_id, inflight_request_id
-          from run_searches
-         where id = ${searchId}::uuid and run_id = ${ctx.runId}::uuid`),
-    )[0];
-    if (!cursor) throw new WorkerOrgMismatch();
-    if (cursor.inflight_reservation_id === null && cursor.inflight_request_id === null) {
-      return false;
-    }
-
-    let wrote = false;
-    if (cursor.inflight_reservation_id !== null && cursor.inflight_request_id !== null) {
-      const res = rowsOf<{ sku: string; open: boolean }>(
-        await tx.execute(sql`
-          select sku, (settled_at is null) as open
-            from cost_reservations where id = ${cursor.inflight_reservation_id}::uuid`),
-      )[0];
-      if (res?.open) {
-        if (!isTextSearchSku(res.sku)) {
-          throw new Error('settleInFlight: the in-flight reservation is not a Text Search sku');
-        }
-        const call = mintReservedCall(
-          cursor.inflight_reservation_id,
-          cursor.inflight_request_id,
-          res.sku,
-        );
-        wrote = await settleAttempt(tx, call, true);
-      }
-    }
-    await tx.execute(sql`select app.mark_run_search(${searchId}::uuid, ${CLEAR_INFLIGHT}::jsonb)`);
-    return wrote;
+    return settleInFlightInTx(tx, ctx.runId, searchId);
   });
+}
+
+/**
+ * `settleInFlight`'s body, inside the CALLER's transaction — for a caller that already holds one
+ * under the right org (e.g. admission's stale-run reclaim, A-WR-09), so the pricing rule
+ * (settleAttempt: charged at the actual price, free allowance counted in the reservation's own
+ * period) is never restated. The caller is responsible for the org context and for having
+ * re-read the run under it.
+ */
+export async function settleInFlightInTx(
+  tx: Tx,
+  runId: string,
+  searchId: string,
+): Promise<boolean> {
+  const cursor = rowsOf<{
+    inflight_reservation_id: string | null;
+    inflight_request_id: string | null;
+  }>(
+    await tx.execute(sql`
+      select inflight_reservation_id, inflight_request_id
+        from run_searches
+       where id = ${searchId}::uuid and run_id = ${runId}::uuid`),
+  )[0];
+  if (!cursor) throw new WorkerOrgMismatch();
+  if (cursor.inflight_reservation_id === null && cursor.inflight_request_id === null) {
+    return false;
+  }
+
+  let wrote = false;
+  if (cursor.inflight_reservation_id !== null && cursor.inflight_request_id !== null) {
+    const res = rowsOf<{ sku: string; open: boolean }>(
+      await tx.execute(sql`
+        select sku, (settled_at is null) as open
+          from cost_reservations where id = ${cursor.inflight_reservation_id}::uuid`),
+    )[0];
+    if (res?.open) {
+      if (!isTextSearchSku(res.sku)) {
+        throw new Error('settleInFlight: the in-flight reservation is not a Text Search sku');
+      }
+      const call = mintReservedCall(
+        cursor.inflight_reservation_id,
+        cursor.inflight_request_id,
+        res.sku,
+      );
+      wrote = await settleAttempt(tx, call, true);
+    }
+  }
+  await tx.execute(sql`select app.mark_run_search(${searchId}::uuid, ${CLEAR_INFLIGHT}::jsonb)`);
+  return wrote;
 }
