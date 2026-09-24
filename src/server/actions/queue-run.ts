@@ -9,12 +9,6 @@ import { env } from '@/env';
 import { requireOrg } from '@/lib/auth/require-org';
 import { periodStart } from '@/lib/budget/period';
 import {
-  TEXT_SEARCH_TIERS,
-  freeRemaining,
-  priceRequests,
-  type TextSearchSku,
-} from '@/lib/budget/price-book';
-import {
   ESTIMATE_SKU,
   RUN_ABANDONED_AFTER_MINUTES,
   RUN_CEILING_MULTIPLIER,
@@ -22,6 +16,7 @@ import {
 } from '@/lib/estimate/assumptions';
 import { estimatePreset as computeEstimate } from '@/lib/estimate/estimate';
 import { cellKey } from '@/lib/estimate/expand-cells';
+import { settleInFlightInTx } from '@/lib/places/meter';
 import {
   cellsForRun,
   missingGeometry,
@@ -119,12 +114,6 @@ function unitNamesForPeople(names: string[], index: ReferenceIndex): string[] {
   return [...readable.slice(0, NO_GEOMETRY_LISTED), `${readable.length - NO_GEOMETRY_LISTED} more`];
 }
 
-const CLEAR_INFLIGHT = JSON.stringify({ inflight_reservation_id: null, inflight_request_id: null });
-
-function isTextSearchSku(v: string): v is TextSearchSku {
-  return (TEXT_SEARCH_TIERS as readonly string[]).includes(v);
-}
-
 /**
  * A-WR-09. What the abandoned reclaim owes the ledger, inside the admission transaction.
  *
@@ -135,54 +124,31 @@ function isTextSearchSku(v: string): v is TextSearchSku {
  * if nothing settles it the hold expires and is released with NO ledger row.
  *
  * So, per abandoned run:
- *   1. every search still carrying a cursor whose reservation is not yet settled is settled AS
- *      CHARGED — settleInFlight's pessimistic rule (src/lib/places/meter.ts), under the
- *      attempt's own request id, priced in the reservation's own period against the free
- *      allowance — and its cursor is cleared. A replay writes nothing (the request id is
- *      unique). Each settle runs in a savepoint: a refusal there must not wedge every future
- *      admission of this org behind the same dead run, so a failed settle leaves that cursor in
- *      place (the durable record) and the reclaim goes on;
+ *   1. every search still carrying a cursor goes through the meter's `settleInFlightInTx`
+ *      (src/lib/places/meter.ts, F3): a reservation not yet settled is settled AS CHARGED under
+ *      the attempt's own request id, priced by the meter's one rule (actual price, free
+ *      allowance counted in the reservation's own period), and the cursor is cleared. This
+ *      module restates none of that. A replay writes nothing (the request id is unique). Each
+ *      settle runs in a savepoint: a refusal there must not wedge every future admission of
+ *      this org behind the same dead run, so a failed settle leaves that cursor in place (the
+ *      durable record) and the reclaim goes on;
  *   2. the run's cost is stamped from the ledger, as closeRun would have.
+ *
+ * The caller has just re-read the run under this org (its `update … returning id` runs
+ * under RLS), which is settleInFlightInTx's precondition.
  */
 async function closeAbandonedRun(tx: Tx, runId: string): Promise<void> {
-  const cursors = rowsOf<{
-    search_id: string;
-    reservation_id: string | null;
-    request_id: string | null;
-    sku: string | null;
-    period_id: string | null;
-    open: boolean | null;
-  }>(
+  const cursors = rowsOf<{ search_id: string }>(
     await tx.execute(sql`
-      select s.id as search_id, s.inflight_reservation_id as reservation_id,
-             s.inflight_request_id as request_id, r.sku, r.budget_period_id as period_id,
-             (r.settled_at is null) as open
+      select s.id as search_id
         from run_searches s
-        left join cost_reservations r on r.id = s.inflight_reservation_id
        where s.run_id = ${runId}::uuid
          and (s.inflight_reservation_id is not null or s.inflight_request_id is not null)`),
   );
   for (const c of cursors) {
     try {
       await tx.transaction(async (sp) => {
-        const stx = sp as unknown as Tx;
-        if (
-          c.reservation_id !== null &&
-          c.request_id !== null &&
-          c.open === true &&
-          c.period_id !== null &&
-          c.sku !== null &&
-          isTextSearchSku(c.sku)
-        ) {
-          const units = await readUnitsUsedThisPeriod(stx, c.sku, c.period_id);
-          const actual = priceRequests(c.sku, 1, freeRemaining(c.sku, units)).microUsd;
-          await stx.execute(sql`
-            select app.settle_reservation(${c.reservation_id}::uuid, ${c.request_id},
-                                          ${actual}::bigint, 1, ${c.sku}, 'places')`);
-        }
-        await stx.execute(
-          sql`select app.mark_run_search(${c.search_id}::uuid, ${CLEAR_INFLIGHT}::jsonb)`,
-        );
+        await settleInFlightInTx(sp as unknown as Tx, runId, c.search_id);
       });
     } catch {
       // Deliberately swallowed — see (1) above. The cursor stays as the record.

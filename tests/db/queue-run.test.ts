@@ -21,6 +21,7 @@
 import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { OrgClaims } from '@/db/with-org';
+import { PRICE_BOOK } from '@/lib/budget/price-book';
 import { RUN_CEILING_MULTIPLIER } from '@/lib/estimate/assumptions';
 import { currentPartition } from '@/lib/places/partition';
 import { MAX_PAGES } from '@/lib/places/tiling';
@@ -274,6 +275,90 @@ async function reservationsOf(tx: Tx, runId: string) {
   );
 }
 
+/**
+ * A-WR-09's world: a full sweep admitted, then (as the owner) started, one billed page settled,
+ * and one search left mid-page with its in-flight cursor, silent for 40 minutes. `unitsUsed`
+ * pre-spends that many ts_enterprise units of the period's free allowance.
+ */
+async function seedAbandonedInflight(
+  tx: Tx,
+  orgA: string,
+  opts: { unitsUsed: number },
+): Promise<{ versionId: string; runId: string; holdId: string; searchId: string }> {
+  const versionId = await seedVersion(tx, orgA, {});
+  const c = asPg(tx);
+  const first = await queueRun({ searchVersionId: versionId, kind: 'full_sweep' });
+  if (!first.ok) throw new Error(`expected ok, got ${first.code}: ${first.message}`);
+  const runId = first.data.runId;
+  const period = rowsOf<{ id: string }>(
+    await tx.execute(sql`
+      select budget_period_id as id from cost_reservations where id = ${first.data.reservationId}::uuid`),
+  )[0]!.id;
+
+  // As the owner: the run started, settled one billed page, then died mid-page and stopped
+  // reporting 40 minutes ago — one search still carries its in-flight cursor.
+  await c.query(
+    `update runs set status = 'running', started_at = now() - interval '45 minutes',
+                     heartbeat_at = now() - interval '40 minutes' where id = $1`,
+    [runId],
+  );
+  const paid = await c.query<{ id: string }>(
+    `insert into cost_reservations (org_id, budget_period_id, run_id, sku, est_micro_usd,
+                                    expires_at, settled_at)
+     values ($1, $2, $3, 'ts_enterprise', 35000, now() + interval '5 minutes', now())
+     returning id`,
+    [orgA, period, runId],
+  );
+  await c.query(
+    `insert into cost_ledger (org_id, budget_period_id, reservation_id, run_id, provider, sku,
+                              units, micro_usd, request_id)
+     values ($1, $2, $3, $4, 'places', 'ts_enterprise', 1, 35000, 'a-wr-09-settled-page')`,
+    [orgA, period, paid.rows[0]!.id, runId],
+  );
+  if (opts.unitsUsed > 0) {
+    // The period's free allowance, already used by earlier pages of the org.
+    await c.query(
+      `insert into cost_ledger (org_id, budget_period_id, reservation_id, run_id, provider, sku,
+                                units, micro_usd, request_id)
+       values ($1, $2, $3, $4, 'places', 'ts_enterprise', $5, 0, 'a-wr-09-allowance')`,
+      [orgA, period, paid.rows[0]!.id, runId, opts.unitsUsed],
+    );
+  }
+  const tile = await c.query<{ id: string }>(
+    `insert into place_tiles (org_id, tile_key, unit_kind, unit_id, places_type, quad_path, depth,
+                              south, west, north, east)
+     values ($1, 'city:48215/McAllen|plumber|r', 'city', '48215/McAllen', 'plumber', 'r', 0,
+             26.15, -98.3, 26.3, -98.18)
+     on conflict (org_id, tile_key) do update set updated_at = now() returning id`,
+    [orgA],
+  );
+  const hold = await c.query<{ id: string }>(
+    `insert into cost_reservations (org_id, budget_period_id, run_id, sku, est_micro_usd, expires_at)
+     values ($1, $2, $3, 'ts_enterprise', 35000, now() + interval '5 minutes') returning id`,
+    [orgA, period, runId],
+  );
+  await c.query(
+    `update budget_periods set reserved_micro_usd = reserved_micro_usd + 35000 where id = $1`,
+    [period],
+  );
+  const search = await c.query<{ id: string }>(
+    `insert into run_searches (org_id, run_id, tile_id, tile_key, cell_key, cluster_key,
+                               places_type, kind, depth, status,
+                               inflight_reservation_id, inflight_request_id)
+     values ($1, $2, $3, 'city:48215/McAllen|plumber|r', 'home_services/48215/McAllen',
+             'home_services', 'plumber', 'enterprise', 0, 'searching', $4, 'a-wr-09-crashed-page')
+     returning id`,
+    [orgA, runId, tile.rows[0]!.id, hold.rows[0]!.id],
+  );
+
+  return {
+    versionId,
+    runId,
+    holdId: hold.rows[0]!.id,
+    searchId: search.rows[0]!.id,
+  };
+}
+
 describe('queueRun', () => {
   it('queueRun refuses in off mode before any reservation', () =>
     inWorld(async (tx, orgA) => {
@@ -518,63 +603,9 @@ describe('queueRun', () => {
   // run's cost from the ledger.
   it('an abandoned run is costed from the ledger and its in-flight attempt is charged', () =>
     inWorld(async (tx, orgA) => {
-      const versionId = await seedVersion(tx, orgA, {});
-      const c = asPg(tx);
-      const first = await queueRun({ searchVersionId: versionId, kind: 'full_sweep' });
-      if (!first.ok) throw new Error(`expected ok, got ${first.code}: ${first.message}`);
-      const runId = first.data.runId;
-      const period = rowsOf<{ id: string }>(
-        await tx.execute(sql`
-          select budget_period_id as id from cost_reservations where id = ${first.data.reservationId}::uuid`),
-      )[0]!.id;
-
-      // As the owner: the run started, settled one billed page, then died mid-page and stopped
-      // reporting 40 minutes ago — one search still carries its in-flight cursor.
-      await c.query(
-        `update runs set status = 'running', started_at = now() - interval '45 minutes',
-                         heartbeat_at = now() - interval '40 minutes' where id = $1`,
-        [runId],
-      );
-      const paid = await c.query<{ id: string }>(
-        `insert into cost_reservations (org_id, budget_period_id, run_id, sku, est_micro_usd,
-                                        expires_at, settled_at)
-         values ($1, $2, $3, 'ts_enterprise', 35000, now() + interval '5 minutes', now())
-         returning id`,
-        [orgA, period, runId],
-      );
-      await c.query(
-        `insert into cost_ledger (org_id, budget_period_id, reservation_id, run_id, provider, sku,
-                                  units, micro_usd, request_id)
-         values ($1, $2, $3, $4, 'places', 'ts_enterprise', 1, 35000, 'a-wr-09-settled-page')`,
-        [orgA, period, paid.rows[0]!.id, runId],
-      );
-      const tile = await c.query<{ id: string }>(
-        `insert into place_tiles (org_id, tile_key, unit_kind, unit_id, places_type, quad_path, depth,
-                                  south, west, north, east)
-         values ($1, 'city:48215/McAllen|plumber|r', 'city', '48215/McAllen', 'plumber', 'r', 0,
-                 26.15, -98.3, 26.3, -98.18)
-         on conflict (org_id, tile_key) do update set updated_at = now() returning id`,
-        [orgA],
-      );
-      const hold = await c.query<{ id: string }>(
-        `insert into cost_reservations (org_id, budget_period_id, run_id, sku, est_micro_usd, expires_at)
-         values ($1, $2, $3, 'ts_enterprise', 35000, now() + interval '5 minutes') returning id`,
-        [orgA, period, runId],
-      );
-      await c.query(
-        `update budget_periods set reserved_micro_usd = reserved_micro_usd + 35000 where id = $1`,
-        [period],
-      );
-      const search = await c.query<{ id: string }>(
-        `insert into run_searches (org_id, run_id, tile_id, tile_key, cell_key, cluster_key,
-                                   places_type, kind, depth, status,
-                                   inflight_reservation_id, inflight_request_id)
-         values ($1, $2, $3, 'city:48215/McAllen|plumber|r', 'home_services/48215/McAllen',
-                 'home_services', 'plumber', 'enterprise', 0, 'searching', $4, 'a-wr-09-crashed-page')
-         returning id`,
-        [orgA, runId, tile.rows[0]!.id, hold.rows[0]!.id],
-      );
-
+      const { versionId, runId, holdId, searchId } = await seedAbandonedInflight(tx, orgA, {
+        unitsUsed: 0,
+      });
       const second = await queueRun({ searchVersionId: versionId, kind: 'change_check' });
       if (!second.ok) throw new Error(`expected ok, got ${second.code}: ${second.message}`);
 
@@ -598,15 +629,44 @@ describe('queueRun', () => {
       const res = rowsOf<{ settled: boolean }>(
         await tx.execute(sql`
           select settled_at is not null as settled from cost_reservations
-           where id = ${hold.rows[0]!.id}::uuid`),
+           where id = ${holdId}::uuid`),
       );
       expect(res).toEqual([{ settled: true }]);
       const cursor = rowsOf<{ res: string | null; req: string | null }>(
         await tx.execute(sql`
           select inflight_reservation_id::text as res, inflight_request_id as req
-            from run_searches where id = ${search.rows[0]!.id}::uuid`),
+            from run_searches where id = ${searchId}::uuid`),
       );
       expect(cursor).toEqual([{ res: null, req: null }]);
+    }));
+
+  // F3. The reclaim prices through the meter's settleInFlightInTx, so the allowance rule is the
+  // meter's: past the free 1,000 the crashed attempt is charged the Enterprise page price.
+  it('an abandoned in-flight attempt past the free allowance is charged the page price', () =>
+    inWorld(async (tx, orgA) => {
+      const free = PRICE_BOOK.ts_enterprise.freePerMonth ?? 0;
+      expect(free).toBeGreaterThan(0);
+      const { versionId, runId, holdId } = await seedAbandonedInflight(tx, orgA, {
+        unitsUsed: free,
+      });
+
+      const second = await queueRun({ searchVersionId: versionId, kind: 'change_check' });
+      if (!second.ok) throw new Error(`expected ok, got ${second.code}: ${second.message}`);
+
+      const crashed = rowsOf<{ micro: string; reservation: string }>(
+        await tx.execute(sql`
+          select micro_usd::text as micro, reservation_id::text as reservation from cost_ledger
+           where run_id = ${runId}::uuid and request_id = 'a-wr-09-crashed-page'`),
+      );
+      expect(crashed).toEqual([
+        { micro: String(PRICE_BOOK.ts_enterprise.microUsdPerRequest), reservation: holdId },
+      ]);
+      const run = rowsOf<{ cost: string }>(
+        await tx.execute(
+          sql`select cost_micro_usd::text as cost from runs where id = ${runId}::uuid`,
+        ),
+      )[0];
+      expect(run?.cost).toBe(String(35000 + PRICE_BOOK.ts_enterprise.microUsdPerRequest));
     }));
 
   it('queueRun refuses a version without geometry', () =>

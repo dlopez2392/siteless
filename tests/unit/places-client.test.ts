@@ -350,4 +350,25 @@ describe('the Places client (criterion 1, D-03)', () => {
     // would mean no Places call could ever be made; a second one is a path around the meter.
     expect(minters).toEqual(['src/lib/places/meter.ts']);
   });
+
+  // A-WR-09 / F3. The pricing of a settled Places attempt (actual price, free allowance counted
+  // in the reservation's own period) lives in the meter. The stale-run reclaim in
+  // queue-run.ts restated it and called app.settle_reservation itself — a second copy a fix to
+  // the rule would miss. It now calls the meter's settleInFlightInTx.
+  it('no module but the meter settles a Places charge', () => {
+    const scanned = walk('src', { exts: new Set(['.ts', '.tsx']) }).map((f) =>
+      f.split(nodePath.sep).join('/'),
+    );
+    expect(scanned).toContain('src/server/actions/queue-run.ts');
+    const settlers = scanned.filter((f) =>
+      // The CALL shape: a doc comment naming the function (src/db/schema/budget.ts) is not one.
+      /select\s+app\.settle_reservation\s*\(/.test(nodeFs.readFileSync(f, 'utf8')),
+    );
+    // An EQUALITY, as above: zero would mean no charge is ever ledgered.
+    expect(settlers).toEqual(['src/lib/places/meter.ts']);
+    // And the reclaim really delegates, rather than dropping the settle.
+    expect(nodeFs.readFileSync('src/server/actions/queue-run.ts', 'utf8')).toMatch(
+      /settleInFlightInTx\(/,
+    );
+  });
 });
