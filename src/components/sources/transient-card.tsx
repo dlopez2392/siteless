@@ -229,6 +229,14 @@ export function TransientCard({ stats, nowMs }: { stats: TransientStats | null; 
           <TriangleAlert aria-hidden="true" className="size-4" />
           <AlertDescription className="flex flex-col items-start gap-2 text-inherit">
             <p className="text-sm font-normal whitespace-normal">{overdueSentence(stats, nowMs)}</p>
+            {/* C-WR-08: the sentence doesn't name the command, so it is printed here — readable
+                and selectable whether or not the clipboard lets the button copy it. */}
+            <code
+              data-testid="sources-transient-purge-command"
+              className="rounded-sm bg-background/60 px-1.5 py-0.5 font-mono text-sm break-all"
+            >
+              {PURGE_PLACES_COMMAND}
+            </code>
             <CopyCommandButton
               command={PURGE_PLACES_COMMAND}
               testId="sources-transient-purge-copy"

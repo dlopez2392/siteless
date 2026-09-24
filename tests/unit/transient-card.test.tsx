@@ -1,5 +1,9 @@
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+
+const { toastError } = vi.hoisted(() => ({ toastError: vi.fn() }));
+vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: toastError } }));
+
 import { TransientCard, TransientCardSkeleton } from '@/components/sources/transient-card';
 import {
   PURGE_OVERDUE_HOURS,
@@ -8,6 +12,7 @@ import {
   type TransientStats,
 } from '@/lib/places/purge-status';
 import {
+  COPY_FAILED,
   PLACES_ACTION,
   SOURCES_TRANSIENT_EMPTY_HEADING,
   SOURCES_TRANSIENT_LABEL,
@@ -207,6 +212,33 @@ describe('the transient card', () => {
     });
     expect(PURGE_PLACES_COMMAND).toBe('pnpm purge:places --target=prod');
     expect(writeText).toHaveBeenCalledWith('pnpm purge:places --target=prod');
+  });
+
+  it('a refused clipboard still leaves the purge command readable (C-WR-08)', async () => {
+    const writeText = vi.fn(async () => {
+      throw new DOMException('denied', 'NotAllowedError');
+    });
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    toastError.mockClear();
+
+    const now = PURGED_AT + 40 * HOUR;
+    render(
+      <TransientCard
+        stats={stats({ placeIdsHeld: 5, coordinatesHeld: 2, lastPurgeMs: PURGED_AT })}
+        nowMs={now}
+      />,
+    );
+    const alert = screen.getByTestId('sources-transient-purge-overdue');
+    // The command is on screen whether or not the clipboard works — the sentence doesn't name it.
+    expect(within(alert).getByTestId('sources-transient-purge-command')).toHaveTextContent(
+      PURGE_PLACES_COMMAND,
+    );
+    await act(async () => {
+      fireEvent.click(within(alert).getByTestId('sources-transient-purge-copy'));
+    });
+    expect(writeText).toHaveBeenCalled();
+    // A refused copy says so, with the command itself — never silence.
+    expect(toastError).toHaveBeenCalledWith(COPY_FAILED(PURGE_PLACES_COMMAND));
   });
 
   it('the overdue alert names a purge that never ran', () => {

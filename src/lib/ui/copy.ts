@@ -2043,4 +2043,16 @@ export function TOAST_DETACHED(name: string) {
 }
 
 export const TOAST_TILE_LIST_COPIED = 'Tile list copied';
+
+/**
+ * C-WR-08: a refused clipboard write (insecure context, denied permission, an in-app browser)
+ * is said out loud, with the text itself when it is one short command.
+ */
+export function COPY_FAILED(command: string) {
+  return `Couldn't copy — run: ${command}`;
+}
+
+/** C-WR-08: the tile list is several lines and collapsed by default, so say where it is. */
+export const RUN_TRUNCATION_COPY_FAILED =
+  "Couldn't copy the tile list — open “Show the truncated tiles” to read it.";
 export const TOAST_PURGE_COMMAND_COPIED = 'Purge command copied';

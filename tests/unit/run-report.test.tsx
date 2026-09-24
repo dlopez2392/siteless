@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { RunReport } from '@/server/queries/run-report';
 
@@ -21,6 +21,9 @@ vi.mock('next/navigation', () => ({
   useRouter: () => ({ refresh: vi.fn(), push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
 }));
 
+const { toastError } = vi.hoisted(() => ({ toastError: vi.fn() }));
+vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: toastError } }));
+
 vi.mock('next/link', () => ({
   default: ({ children, href, ...rest }: { children: React.ReactNode; href: string }) => (
     <a href={href} {...rest}>
@@ -36,6 +39,7 @@ import {
   RUN_REFUSED_PAST,
   RUN_STOP_CAP_PAST,
   RUN_TILE_UNIT_UNKNOWN,
+  RUN_TRUNCATION_COPY_FAILED,
 } from '@/lib/ui/copy';
 import { describeTileKey, placesTypeLabel } from '@/lib/ui/places-format';
 import { STOPPED_REASONS, type RunStatus, type StoppedReason } from '@/lib/ui/run-tone';
@@ -518,6 +522,19 @@ describe('run report — header and alerts (04-23 Task 2)', () => {
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
     fireEvent.click(screen.getByTestId('run-truncation-copy'));
     expect(writeText).toHaveBeenCalledWith(expected.join('\n'));
+  });
+
+  it('a refused clipboard says the tile list could not be copied (C-WR-08)', async () => {
+    renderReport(reportOf({ tiles: { stillTruncated: 3, truncated: THREE_TRUNCATED } }));
+    const writeText = vi.fn().mockRejectedValue(new DOMException('denied', 'NotAllowedError'));
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    toastError.mockClear();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('run-truncation-copy'));
+    });
+    expect(writeText).toHaveBeenCalled();
+    // The list is collapsed, so there is nothing on screen to copy by hand: say where it is.
+    expect(toastError).toHaveBeenCalledWith(RUN_TRUNCATION_COPY_FAILED);
   });
 
   it('a stored tile key resolves to a place name, never itself (C-WR-04)', () => {

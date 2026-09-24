@@ -28,6 +28,7 @@ import {
   RUN_TILE_ROW,
   RUN_TRUNCATION_BODY,
   RUN_TRUNCATION_COPY,
+  RUN_TRUNCATION_COPY_FAILED,
   RUN_TRUNCATION_HEADING,
   RUN_TRUNCATION_HIDE,
   RUN_TRUNCATION_SHOW,
@@ -434,6 +435,7 @@ function TruncationWarning({ tiles }: { tiles: RunReport['tiles'] }) {
               testId="run-truncation-copy"
               label={RUN_TRUNCATION_COPY}
               copiedMessage={TOAST_TILE_LIST_COPIED}
+              failedMessage={RUN_TRUNCATION_COPY_FAILED}
             />
           </Actions>
           <CollapsibleContent>
