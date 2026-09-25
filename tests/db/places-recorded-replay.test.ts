@@ -36,6 +36,8 @@ import type { Tx } from '@/server/queries/budget';
 import type { GeoShapesFile, Rect } from '@/lib/places/tiling';
 import type { PlannedSearch } from '@/workflows/places-sweep/reducer';
 import { rootSpec } from '@/lib/places/tiling';
+import { addressKey } from '@/lib/normalize/address';
+import { nameNorm } from '@/lib/normalize/name';
 import geoShapes from '@/seed/data/geo-shapes.json';
 import { seedTwoOrgs } from './_fixtures';
 import { seedOvertureSide } from './_merge-fixtures';
@@ -158,17 +160,77 @@ const IDS = PLACES.map((p) => p.id);
 const SAB = PLACES.filter((p) => p.pureServiceAreaBusiness === true);
 const LOCATED = PLACES.filter((p) => p.pureServiceAreaBusiness !== true);
 
-/** Every string the recorded files serve as Places TEXT (the PLACES_SENTINELS fields). */
-const RECORDED_SENTINELS: readonly string[] = [
-  ...new Set(
-    PLACES.flatMap((p) => [
-      p.displayName?.text,
-      p.formattedAddress,
-      p.nationalPhoneNumber,
-      p.websiteUri,
-    ]).filter((v): v is string => typeof v === 'string' && v.length > 0),
-  ),
-].sort();
+const TX_ZIP = /\bTX (\d{5})\b/;
+
+/**
+ * Every string the recorded files serve as Places TEXT, in the form it is SERVED and in every
+ * form a writer would actually STORE it (04-REVIEW-DELTA WR-02): the name folded by `nameNorm`,
+ * the street split out of the formatted address and folded by `addressKey`, the phone as E.164
+ * (`+19565550101`) and as bare digits, and a URL kept as its host. A scan over the served forms
+ * alone can only ever see a name. The phone's E.164 form is built from its digits, NOT through
+ * `phoneE164`: the 555 exchange is rejected there (D-12), so the shipped normalizer returns null
+ * for every recorded phone — a writer that stored one anyway would store exactly this form.
+ * Matched case-insensitively, so an upper- or lower-cased copy is a hit too. Keyed by kind, so
+ * non-vacuity is proven per kind.
+ */
+const SENTINEL_KINDS = [
+  'name',
+  'name_norm',
+  'formatted_address',
+  'street',
+  'street_norm',
+  'phone_national',
+  'phone_digits',
+  'phone_e164',
+  'url',
+  'url_host',
+] as const;
+type SentinelKind = (typeof SENTINEL_KINDS)[number];
+
+function sentinelsOf(p: RecordedPlace): Array<[SentinelKind, string | null | undefined]> {
+  const formatted = p.formattedAddress;
+  const street = formatted?.split(',')[0]?.trim();
+  const zip = formatted ? TX_ZIP.exec(formatted)?.[1] : undefined;
+  const digits = p.nationalPhoneNumber?.replace(/\D/g, '');
+  let host: string | undefined;
+  try {
+    host = p.websiteUri ? new URL(p.websiteUri).host : undefined;
+  } catch {
+    host = undefined;
+  }
+  return [
+    ['name', p.displayName?.text],
+    ['name_norm', nameNorm(p.displayName?.text)],
+    ['formatted_address', formatted],
+    ['street', street],
+    ['street_norm', street ? addressKey(street, zip).streetNorm : null],
+    ['phone_national', p.nationalPhoneNumber],
+    ['phone_digits', digits && digits.length === 10 ? digits : null],
+    ['phone_e164', e164(p.nationalPhoneNumber)],
+    ['url', p.websiteUri],
+    ['url_host', host],
+  ];
+}
+
+const RECORDED_SENTINELS: ReadonlyArray<{ kind: SentinelKind; s: string }> = [
+  ...new Map(
+    PLACES.flatMap((p) => sentinelsOf(p))
+      .filter((e): e is [SentinelKind, string] => typeof e[1] === 'string' && e[1].length > 0)
+      .map(([kind, s]) => [`${kind}\u0000${s.toLowerCase()}`, { kind, s: s.toLowerCase() }]),
+  ).values(),
+].sort((x, y) => (x.kind + x.s < y.kind + y.s ? -1 : 1));
+
+/** `kind:sentinel` for every sentinel found in any of `texts` (case-insensitive). */
+function sentinelHits(texts: readonly string[]): string[] {
+  return texts.flatMap((j) => {
+    const lower = j.toLowerCase();
+    return RECORDED_SENTINELS.filter((x) => lower.includes(x.s)).map((x) => `${x.kind}:${x.s}`);
+  });
+}
+
+function kindsHit(texts: readonly string[]): Set<string> {
+  return new Set(sentinelHits(texts).map((h) => h.slice(0, h.indexOf(':'))));
+}
 
 // ─── The world ──────────────────────────────────────────────────────────────────────────
 
@@ -192,8 +254,6 @@ const ROOT = rootSpec({
 /** A service-area twin has no address or pin of its own: somewhere in McAllen, off every
  *  recorded pin by more than the ±150 m proximity box (asserted below). */
 const SAB_TWIN_PIN = { lat: 26.2034, lng: -98.23 };
-
-const TX_ZIP = /\bTX (\d{5})\b/;
 
 function e164(national: string | undefined): string | null {
   if (!national) return null;
@@ -299,6 +359,7 @@ const RECORDED_ROUTE: PlacesRoute = {
 const TABLES = [
   'place_attachments',
   'place_observations',
+  'place_coordinates',
   'place_tiles',
   'place_tile_members',
   'run_searches',
@@ -308,6 +369,12 @@ const TABLES = [
   'cost_reservations',
   'runs',
   'events',
+  // The spine's satellites: a Places writer that registered a source record, an alias or a
+  // merge candidate from Google's text would land here (`businesses` itself: see the test).
+  'source_records',
+  'business_aliases',
+  'merge_candidates',
+  'business_merges',
 ] as const;
 
 // ─── The test ───────────────────────────────────────────────────────────────────────────
@@ -346,12 +413,47 @@ describe('the anonymized McAllen plumber recording (04-32)', () => {
             sql`select row_to_json(t)::text as j from ${sql.raw(table)} t where t.org_id = ${w.orgA}`,
           ),
         ).map((r) => r.j);
-      const hits = (texts: string[]) =>
-        texts.flatMap((j) => RECORDED_SENTINELS.filter((s) => j.includes(s)));
+      // The scan is not vacuous, PER KIND (WR-02). The twins on the spine carry the recorded
+      // text in its STORED forms — `businesses`: name, name_norm, street, street_norm; the
+      // Overture payload in `source_records`: the E.164 phone and so its bare digits (the 555
+      // exchange never reaches `businesses.phone_e164`, D-12) — and the served pages carry the
+      // SERVED forms — the formatted address, the national phone, the URL and its host. Every
+      // kind of sentinel is seen by one or the other: none is dead.
+      const spine = [...(await snapshot('businesses')), ...(await snapshot('source_records'))];
+      const spineKinds = kindsHit(spine);
+      const STORED_KINDS: SentinelKind[] = [
+        'name',
+        'name_norm',
+        'phone_e164',
+        'phone_digits',
+        'street',
+        'street_norm',
+      ];
+      for (const k of STORED_KINDS) expect([...spineKinds], `spine: ${k}`).toContain(k);
+      const servedKinds = kindsHit(PAGES.map((p) => JSON.stringify(p)));
+      const SERVED_KINDS: SentinelKind[] = ['formatted_address', 'phone_national', 'url', 'url_host'];
+      for (const k of SERVED_KINDS) expect([...servedKinds], `served: ${k}`).toContain(k);
+      expect(new Set([...STORED_KINDS, ...SERVED_KINDS])).toEqual(new Set(SENTINEL_KINDS));
+      // And every recorded place's twin is seen: its name and its E.164 phone.
+      const spineHits = sentinelHits(spine);
+      for (const p of PLACES) {
+        expect(spineHits).toContain(`name:${p.displayName!.text!.toLowerCase()}`);
+        const phone = e164(p.nationalPhoneNumber);
+        if (phone !== null) expect(spineHits).toContain(`phone_e164:${phone}`);
+      }
 
-      // The scan is not vacuous: the twins in `businesses` DO carry the recorded names.
-      const spineHits = hits(await snapshot('businesses'));
-      for (const p of PLACES) expect(spineHits).toContain(p.displayName!.text);
+      // `businesses` cannot be scanned for sentinels — its twins legitimately carry them — so
+      // the Places write path is held to "added no business and changed none": every column of
+      // every org-A business, before and after (a name, phone, street or pin copied from the
+      // served page onto a twin changes its row).
+      const businessRows = async (): Promise<string[]> =>
+        rows<{ j: string }>(
+          await w.tx.execute(
+            sql`select to_jsonb(b)::text as j from businesses b where b.org_id = ${w.orgA} order by b.id`,
+          ),
+        ).map((r) => r.j);
+      const businessesBefore = await businessRows();
+      expect(businessesBefore.length).toBeGreaterThanOrEqual(PLACES.length);
 
       const before = new Map<string, Set<string>>();
       for (const t of TABLES) before.set(t, new Set(await snapshot(t)));
@@ -458,13 +560,17 @@ describe('the anonymized McAllen plumber recording (04-32)', () => {
       );
       expect(coords[0]?.n).toBe(LOCATED.length);
 
-      // ── The sentinel scan: no recorded string reached any Places table. ──
+      // ── The spine: no business added, none changed. ── Asserted first, so a write onto a
+      // twin is reported here rather than as the audit row it also leaves in `events`.
+      expect(await businessRows()).toEqual(businessesBefore);
+
+      // ── The sentinel scan: no recorded string, served or stored form, reached any table. ──
       expect(RECORDED_SENTINELS.length).toBeGreaterThan(PLACES.length);
       let written = 0;
       for (const t of TABLES) {
         const fresh = (await snapshot(t)).filter((j) => !before.get(t)!.has(j));
         written += fresh.length;
-        expect({ table: t, hits: hits(fresh) }).toEqual({ table: t, hits: [] });
+        expect({ table: t, hits: sentinelHits(fresh) }).toEqual({ table: t, hits: [] });
       }
       // The page really wrote: 33 members, 24 attachments + observations, 33 outcomes, ledger.
       expect(written).toBeGreaterThan(IDS.length * 2);
