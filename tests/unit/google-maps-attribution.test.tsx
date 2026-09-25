@@ -374,6 +374,21 @@ const NOT_PLACES_SURFACES: readonly { name: string; render: () => void; root: st
     root: '[data-testid="run-stop-alert"]',
   },
   {
+    // IN-01: an exceeded-estimate stop with NO tile still subdividing prints no Places count —
+    // only our own estimate and ceiling — so it is no container and carries no tag.
+    name: 'run report · exceeded-estimate stop alert, 0 tiles subdividing',
+    render: () =>
+      render(
+        <RunAlerts
+          run={{ ...REPORT.run, status: 'partial', stoppedReason: 'exceeded_estimate' }}
+          tiles={{ ...REPORT.tiles, stillTruncated: 0, truncated: [], stillSubdividing: [] }}
+          canRaiseCap
+          renderedAtMs={STARTED}
+        />,
+      ),
+    root: '[data-testid="run-stop-alert"]',
+  },
+  {
     name: '/sources · Google Places (transient) card (counts of what Siteless holds)',
     render: () =>
       render(

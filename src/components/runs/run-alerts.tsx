@@ -314,7 +314,9 @@ function stopAlertOf({
           tone="warning"
           testId="run-stop-alert"
           data={data}
-          placesContent
+          // Places-derived only while it prints the "{k} tiles were still subdividing" count;
+          // at k = 0 the sentence is gone and the alert holds our own estimate and ceiling.
+          placesContent={tiles.stillSubdividing.length > 0}
           text={RUN_STOP_ESTIMATE(
             run.estimateMicroUsdLo ?? 0,
             hi,

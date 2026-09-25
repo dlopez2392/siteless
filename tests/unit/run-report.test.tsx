@@ -696,6 +696,22 @@ describe('run report — cards (04-23 Task 3)', () => {
     expect(stop.textContent).not.toMatch(/subdividing|listed below/);
     expect(screen.queryByTestId('run-stop-show-subdividing')).toBeNull();
     expect(screen.queryByTestId('run-tiles-subdividing')).toBeNull();
+    // No Places-derived count left in it, so no Google Maps tag either (IN-01).
+    expect(stop).not.toHaveAttribute('data-places-content');
+    expect(within(stop).queryByTestId('google-maps-attribution')).toBeNull();
+  });
+
+  it('an exceeded-estimate stop with a tile still subdividing carries the Google Maps tag', () => {
+    renderReport(
+      reportOf({
+        run: { status: 'partial', stoppedReason: 'exceeded_estimate' },
+        tiles: { stillSubdividing: SUBDIVIDING_ONE },
+      }),
+    );
+    const stop = screen.getByTestId('run-stop-alert');
+    expect(stop.textContent).toContain('1 tile was still subdividing when it stopped');
+    expect(stop).toHaveAttribute('data-places-content', '');
+    expect(within(stop).getAllByTestId('google-maps-attribution')).toHaveLength(1);
   });
 
   it('the outcomes card links tentative listings to the Google review filter', () => {
