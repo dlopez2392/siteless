@@ -21,7 +21,15 @@ findings:
   warning: 2
   info: 4
   total: 6
-status: issues_found
+status: resolved
+resolved: 2026-09-25
+resolution:
+  WR-01: fixed d8324ca
+  WR-02: fixed 10762e2 (+ 1259a18 format)
+  IN-01: fixed aa6c9e2
+  IN-02: fixed 0dfc57d
+  IN-03: fixed c96f090
+  IN-04: accepted (the card test replaces the module by design)
 ---
 
 # Phase 4: Delta Code Review Report (after the 7eba6e2 gate)
@@ -29,7 +37,20 @@ status: issues_found
 **Reviewed:** 2026-09-25
 **Depth:** deep (cross-file: msw harness, anonymizer, recorder, every consumer of the changed copy, anchors and constants)
 **Files Reviewed:** 11 (plus the consumers they affect: `tests/unit/anonymize-places.test.ts`, `tests/unit/msw/places.ts`, `scripts/record-places-fixtures.ts`, `scripts/lib/anonymize-places.ts`, `src/components/budget/second-wall-card.tsx`, `tests/unit/google-maps-attribution.test.tsx`, docs)
-**Status:** issues_found (no blockers)
+**Status:** resolved 2026-09-25 (was: issues_found, no blockers) — see Resolution
+
+## Resolution (2026-09-25)
+
+| Finding | Status | Commit | Proof |
+|---|---|---|---|
+| WR-01 | fixed | `d8324ca` | Scratch sidecar seeded `anonymized: false`, `recordedFrom: null`, precondition pinned; `recordedFrom` asserted after the write. Mutation: deleted `sidecar.anonymized = true` in `scripts/record-places-fixtures.ts` → RED "the recorder writes only anonymized pages and marks them in the sidecar" (`expected false to be true`); reverted, `git diff --stat` clean. |
+| WR-02 | fixed | `10762e2`, `1259a18` | Sentinels in served AND stored forms (name_norm, street, street_norm, E.164, bare digits, URL host), case-insensitive; non-vacuity per kind (stored kinds hit `businesses` + `source_records`, served kinds hit the pages); `businesses` held to "no row added or changed" (every column, before vs after); fresh-row scan extended to `place_coordinates`, `source_records`, `business_aliases`, `merge_candidates`, `business_merges`. Note: the 555 exchange is rejected by `phoneE164` (D-12), so the twins carry no `phone_e164` in `businesses`; the E.164 sentinel is built from the digits, and its non-vacuity is proven against the Overture payload in `source_records`. Three mutations, each injected inside the rolled-back tx and each RED on "recorded fixtures replay through the tile search": (1) an `events` row carrying `+19565550101` → `phone_e164` + `phone_digits` hits; (2) a twin's `internal_notes` set to the served address → the `businesses` row-equality assertion; (3) an `events` row carrying `synthetic-001.example` → `url_host` hit. All reverted, diff clean. |
+| IN-01 | fixed | `aa6c9e2` | `placesContent={tiles.stillSubdividing.length > 0}`. Zero case asserts no container and no tag (run-report + attribution registry as a non-Places surface); new test pins the tag on the one-tile case. Mutation: unconditional `placesContent` → RED "an exceeded-estimate stop with no tile still subdividing points at no empty list" and "google maps attribution renders wherever a places signal renders". |
+| IN-02 | fixed | `0dfc57d` | Sidecar `note` rewritten (per-file entries untouched); harness header names both kinds; the never-firing OR check is replaced by a consistency check of the top-level flags against the entries. Mutation: top-level `"synthetic": false` → the harness refuses to load ("places-recordings.json says synthetic: false, but its files say true"). |
+| IN-03 | fixed | `c96f090` | Unset-state derivation and `places.md` §3 name `SearchTextRequest per day = 100, every other Places method per day = 0`; the pins in `second-wall-card.test.tsx` and the card's header comment updated; screens README item 1 marked fixed in `0456186` (screens not re-shot). |
+| IN-04 | accepted | — | Accepted: the card test replaces the module by design. |
+
+Gate at `c96f090`: `tsc --noEmit` 0; `eslint . --ignore-pattern ".claude/**"` 0; unit 673/673 (84 files; baseline 672 + 1 new IN-01 test); db 405/405 (43 files).
 
 ## Summary
 
@@ -49,6 +70,8 @@ Branch `gsd/phase-04-places-transient-verifier`, HEAD `15823b8`.
 
 ### WR-01: The recorder's "marks the sidecar anonymized" assertion is now vacuous
 
+**Status:** fixed in `d8324ca`.
+
 **File:** `tests/unit/anonymize-places.test.ts:381-385, 416` (made vacuous by `tests/unit/msw/fixtures/places-recordings.json:3-4`, changed in `db12ffe`)
 **Issue:** The test copies the **committed** sidecar into a scratch directory, calls `writeRecording`, and then asserts `sidecar.anonymized === true` and a non-null `recordedFrom`. Since `db12ffe`, the committed sidecar already has `"anonymized": true` and a `recordedFrom` string. The scratch copy satisfies the assertion before the recorder writes anything. Deleting `sidecar.anonymized = true` (`scripts/record-places-fixtures.ts:114`) would now leave the suite green: the "one named test per mutation" guard for that line is dead.
 **Fix:** Seed the scratch sidecar from a neutral state instead of the live one, and pin the precondition:
@@ -65,6 +88,8 @@ expect(sidecar.recordedFrom).toMatch(/record-places-fixtures\.ts/);
 Then run the mutation (delete line 114) and read the name of the test that fails.
 
 ### WR-02: The replay's "no recorded string reached any Places table" scan can only detect names
+
+**Status:** fixed in `10762e2` (+ `1259a18` format).
 
 **File:** `tests/db/places-recorded-replay.test.ts:161-171, 352-354, 461-468`
 **Issue:** `RECORDED_SENTINELS` holds the fixture strings exactly as served:
@@ -86,17 +111,23 @@ This is the D-06/D-20 legal boundary, so a partly vacuous guard matters more tha
 
 ### IN-01: The zero-subdividing stop alert still carries a Google Maps tag
 
+**Status:** fixed in `aa6c9e2`.
+
 **File:** `src/components/runs/run-alerts.tsx:317`
 **Issue:** `placesContent` is unconditional on the `exceeded_estimate` alert. It was added (C-WR-02) because the "{k} tiles were still subdividing" count is Places-derived. After `0456186`, the zero case prints no such count, and the alert holds only our own estimate and ceiling figures, yet it still paints the tag. This is the same over-attribution class as `docs/measurements/04-screens/README.md` item 2: harmless under the policy, but no longer true to the header's rule.
 **Fix:** `placesContent={tiles.stillSubdividing.length > 0}`. Add a zero-tile case to `google-maps-attribution.test.tsx` that asserts no tag inside `[data-testid="run-stop-alert"]`.
 
 ### IN-02: The sidecar's top-level flags and the harness header now contradict the files
 
+**Status:** fixed in `0dfc57d`.
+
 **File:** `tests/unit/msw/fixtures/places-recordings.json:2-5`; `tests/unit/msw/places.ts:4-8`
 **Issue:** The top level now reads `"synthetic": true` **and** `"anonymized": true`. The `note` still says the recorder "adds anonymized real recordings after D-01" (it has). The harness header still says "every `places-*.json` beside this file is hand-authored". The real gate is per file (`places.ts:161-174`) and it is correct. The top-level flags now carry no information, and the load-time check at `places.ts:105` is an OR, so it can never fire.
 **Fix:** Update the `note` and the `places.ts` header to say two files are anonymized recordings. Optionally, drop the top-level check or reword it to "per-file flags decide".
 
 ### IN-03: Stale quota naming and a stale open item in the docs and the unset-state copy
+
+**Status:** fixed in `c96f090`.
 
 **File:** `docs/runbooks/places.md:64`; `src/lib/ui/copy.ts:2075`; `docs/measurements/04-screens/README.md:106-111`
 **Issue:**
@@ -109,6 +140,8 @@ This is the D-06/D-20 legal boundary, so a partly vacuous guard matters more tha
 - Screens README: mark item 1 fixed in `0456186`.
 
 ### IN-04: The shipped `GOOGLE_QUOTA_SET_ON` value is never rendered by a test
+
+**Status:** accepted: the card test replaces the module by design.
 
 **File:** `src/lib/budget/second-wall.ts:23`; `tests/unit/second-wall-card.test.tsx:19-29, 128, 164`
 **Issue:** The card test mocks the module with a getter and uses `'2026-09-25'`, so nothing pins that the real `'2026-09-24'` renders "Sep 24, 2026". If the value were malformed, `calendarDayLabel` (`second-wall-card.tsx:66`) would silently print it raw instead of failing. It is low risk because the string is a literal, but the value that actually shipped is untested.
