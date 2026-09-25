@@ -431,7 +431,12 @@ describe('the anonymized McAllen plumber recording (04-32)', () => {
       ];
       for (const k of STORED_KINDS) expect([...spineKinds], `spine: ${k}`).toContain(k);
       const servedKinds = kindsHit(PAGES.map((p) => JSON.stringify(p)));
-      const SERVED_KINDS: SentinelKind[] = ['formatted_address', 'phone_national', 'url', 'url_host'];
+      const SERVED_KINDS: SentinelKind[] = [
+        'formatted_address',
+        'phone_national',
+        'url',
+        'url_host',
+      ];
       for (const k of SERVED_KINDS) expect([...servedKinds], `served: ${k}`).toContain(k);
       expect(new Set([...STORED_KINDS, ...SERVED_KINDS])).toEqual(new Set(SENTINEL_KINDS));
       // And every recorded place's twin is seen: its name and its E.164 phone.

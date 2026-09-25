@@ -1,11 +1,15 @@
 /**
- * Google Places (API New) Text Search, replayed from SYNTHETIC fixtures (plan 04-10).
+ * Google Places (API New) Text Search, replayed from fixtures (plan 04-10; recordings 04-32).
  *
  * D-01: the whole phase is built and tested on replayed payloads; CI never spends. D-20: no
- * Google-authored text is ever committed — every `places-*.json` beside this file is
- * hand-authored (the sidecar `places-recordings.json` says `synthetic: true`, checked below),
- * and real recordings, when 04-19's recorder makes them after the legal gate, are anonymized
- * in memory before they are written.
+ * Google-authored text is ever committed. Two kinds of `places-*.json` coexist beside this
+ * file, and each file's own entry in the sidecar `places-recordings.json` says which it is:
+ *  - SYNTHETIC, hand-authored (no `anonymized` flag): every id starts `synthetic-`;
+ *  - ANONYMIZED RECORDINGS (`places-recorded-*`, `synthetic: false, anonymized: true`): real
+ *    Text Search pages recorded after the D-01 gate by scripts/record-places-fixtures.ts and
+ *    anonymized in memory before they were written — every string is a synthetic form.
+ * Both rules are checked per file below; the sidecar's top-level `synthetic` / `anonymized`
+ * flags only summarise which kinds are present, and are checked against the entries.
  *
  * msw intercepts `fetch` in every lane — unit, DB and the workflow lane, where `vi.mock` of
  * `@/` does NOT reach step code but this handler does (04-RESEARCH spike). So this one
@@ -102,10 +106,6 @@ function fail(message: string): never {
   throw new Error(`tests/unit/msw/places.ts: ${message} See tests/unit/msw/fixtures/README.md.`);
 }
 
-if (sidecar.synthetic !== true && (sidecar.anonymized as boolean) !== true) {
-  fail(`${SIDECAR_FILE} marks the fixtures neither synthetic nor anonymized (D-20).`);
-}
-
 for (const [name, envelope] of Object.entries(ENVELOPES) as Array<[string, Envelope]>) {
   if (
     typeof envelope.status !== 'number' ||
@@ -120,6 +120,21 @@ const SIDECAR_FILES = sidecar.files as Record<
   string,
   { places: number; nextPageToken: boolean; synthetic?: boolean; anonymized?: boolean }
 >;
+
+// The top-level flags SUMMARISE the per-file entries, which are what decide (below, per file):
+// `synthetic: true` says hand-authored files are present, `anonymized: true` says recorder-written
+// anonymized recordings are. A flag that disagrees with the entries is a stale sidecar (IN-02).
+{
+  const entries = Object.values(SIDECAR_FILES);
+  const hasHandAuthored = entries.some((e) => e.anonymized !== true);
+  const hasRecorded = entries.some((e) => e.anonymized === true);
+  if (sidecar.synthetic !== hasHandAuthored) {
+    fail(`${SIDECAR_FILE} says synthetic: ${String(sidecar.synthetic)}, but its files say ${String(hasHandAuthored)} (D-20).`);
+  }
+  if ((sidecar.anonymized as boolean) !== hasRecorded) {
+    fail(`${SIDECAR_FILE} says anonymized: ${String(sidecar.anonymized)}, but its files say ${String(hasRecorded)} (D-20).`);
+  }
+}
 
 /** Every `places-*.json` on disk, parsed — the sidecar excepted. Read from disk rather than
  *  from the imports above so a NEW fixture file is covered without anyone registering it. */

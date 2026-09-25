@@ -2,7 +2,7 @@
   "synthetic": true,
   "anonymized": true,
   "recordedFrom": "Places API (New) Text Search, via scripts/record-places-fixtures.ts, anonymized in memory (D-20)",
-  "note": "Hand-authored before the D-01 legal gate. No Google-authored text. 04-19's recorder adds anonymized real recordings after D-01 (anonymized: true).",
+  "note": "Two kinds of file coexist; each file's own entry decides which it is. Synthetic: hand-authored before the D-01 legal gate, no Google-authored text, every id synthetic- (no anonymized flag). Anonymized recordings (places-recorded-*, synthetic: false, anonymized: true): real Text Search pages recorded after D-01 by scripts/record-places-fixtures.ts and anonymized in memory (D-20). The top-level synthetic/anonymized flags only say which kinds are present; tests/unit/msw/places.ts checks them against the entries.",
   "files": {
     "places-saturated-p1.json": {
       "purpose": "Saturated plumber search, page 1 of 3 (the 60-result cap)",
