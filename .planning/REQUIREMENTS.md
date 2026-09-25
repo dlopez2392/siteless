@@ -73,7 +73,7 @@ Requirements for initial release. Each maps to roadmap phases. Success metric: 5
 
 - [x] **BUDG-01**: Every outbound paid API call writes a cost-ledger row `{provider, sku, units, cost_cents, run_id, lead_id?}` — instrumented before the first billable call
 - [x] **BUDG-02**: A monthly cap (default < $50) is enforced by an atomic reserve → spend → true-up operation that refuses at 100% and warns at 80%, gating both enumeration and verification
-- [ ] **BUDG-03**: A Google Cloud per-API daily quota is configured as an independent second wall
+- [x] **BUDG-03**: A Google Cloud per-API daily quota is configured as an independent second wall
 - [x] **BUDG-04**: The dashboard shows month-to-date spend versus the cap, broken down by provider
 
 ### Triage
@@ -198,7 +198,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SRCH-04 | Phase 2 | Complete |
 | BUDG-01 | Phase 2 | Complete |
 | BUDG-02 | Phase 2 | Complete |
-| BUDG-03 | Phase 2 | Pending |
+| BUDG-03 | Phase 4 | Complete |
 | BUDG-04 | Phase 2 | Complete |
 | DATA-01 | Phase 3 | Complete |
 | DATA-02 | Phase 3 | Complete |

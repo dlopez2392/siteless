@@ -4,13 +4,13 @@ milestone: v1.0
 milestone_name: milestone
 status: executing
 stopped_at: Phase 4 UI-SPEC approved
-last_updated: "2026-09-24T11:25:00.000Z"
-last_activity: 2026-09-24 -- 04-30 prod migrated 0026-0029 (journal 30) and deployed 8218042 with PLACES_MODE off
+last_updated: "2026-09-25T03:06:50.393Z"
+last_activity: 2026-09-24 -- 04-31 BUDG-03 closed (GCP siteless-509611, SearchText 100/day, key verified by one $0 IDs-only call locally); deploy deferred
 progress:
   total_phases: 9
   completed_phases: 3
   total_plans: 82
-  completed_plans: 49
+  completed_plans: 50
   percent: 60
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-20)
 Phase: 04 (places-transient-verifier) — EXECUTING
 Plan: 1 of 33
 Status: Executing Phase 04
-Last activity: 2026-09-24 -- 04-30 complete: prod migrated 0026-0029 (journal 30), deployed 8218042 from the phase branch, CRON_SECRET set, PLACES_MODE unset (off)
+Last activity: 2026-09-24 -- 04-31 complete except its deploy: GCP project siteless-509611, SearchTextRequest 100/day (other methods 0), key in .env.local + Vercel Production, one metered IDs-only call ok (local, ts_essentials, $0), BUDG-03 closed. Deploy deferred until prod has 0030+0031
 
 Progress: [███░░░░░░░] 33% (3 of 9 phases)
 
@@ -73,7 +73,7 @@ Recent decisions affecting current work:
 - [Phase 02]: BUDG-03 Google daily quota recorded as BLOCKED, not deferred silently - the requirement says configured and no GCP project exists — docs/runbooks/google-quota.md carries the value, derivation and console path so the artifact survives the blocked answer; nothing in Phase 2 depends on the key (tests/unit/no-google-credential.test.ts)
 - [Phase 02]: Vercel team confirmed on Pro (02-14), resolving research assumption A7 — Unblocks the Phase 9 scheduler (Hobby cron once-a-day jitter would not do); Pro ~20 USD/mo stays infrastructure and is never merged into the 50 USD data cap
 - [Phase 02]: preset-detail.spec.ts self-skips unless E2E_BASE_URL is local (danlo, option 3) — The fixture writes to local siteless_test while the app under test is the deployed one; seeding the deployed database would need the production OWNER credential in CI, which docs/deploy.md section 3 forbids. SRCH-03 is carried in CI by tests/db/versioned-presets.test.ts 'run keeps its version after the preset moves on'.
-- [Phase 02]: BUDG-03 stays OPEN - the Google Cloud daily quota is blocked on a GCP project that does not exist — Carried to Phase 4 where the key is first needed. Blocks nothing in Phase 2, and that is enforced rather than asserted: 'no google credential is read anywhere in src' is green.
+- [Phase 04]: BUDG-03 closed 2026-09-24 (04-31): 100/day quota set by danlo (SearchTextRequest per day = 100, every other Places method per day = 0, project siteless-509611); key API-restricted to Places API (New); verified by one metered IDs-only call (local DB: ts_essentials, units 1, $0; outcome ok, 20 ids)
 - [Phase 04]: 04-30 production gate answered `apply` by danlo 2026-09-24 (verbatim "Go with your recommendations", to a recommendation of `apply`). **Prod migrated 0026–0029 (journal 26 → 30) — NEVER RE-APPLY**; second migrate a proven no-op; catalog post-flight + member-for-member public parity with local all clean. **Deployed `8218042` from the phase branch** as `dpl_GsSdZJYNe6oS7UcjSDHr29baJCzH`; **CRON_SECRET set** (Production, Sensitive); **PLACES_MODE unset (= off)**, no GOOGLE_PLACES_API_KEY; purge cron `17 9 * * *` registered; deployed e2e 22 passed / 10 skipped / 0 failed. Details: docs/deploy.md § 4 "Phase 4 (plan 04-30)" and § 10.
 - [Phase 02]: Gate mutation M12b survived the 90-test suite and produced a real defect — A column-level UPDATE grant on search_versions.geo_payload let a tenant rewrite a stored version's geography with every test green. Closed with a has_any_column_privilege assertion in 98d99ff.
 
@@ -85,13 +85,13 @@ None yet.
 
 - 🔴 **Production runs the unmerged Phase 4 branch (`8218042`, 04-30) — nothing may land on `main` before the phase PR merges.** `vercel git connect` redeploys production on the next push to `main` (`3dd2060`), which would restore the Phase 3 app and DROP the purge cron (`main`'s `vercel.json` has no `crons`). The database stays at journal 30 either way.
 
+- 🔴 **04-31's deploy step is DEFERRED — do not deploy the phase branch before prod migrates 0030 + 0031.** The branch's review fixes need both migrations (applied LOCAL only, journal 32; prod is at 30); deploying first breaks /sources and the writers. The orchestrator bundles "prod migrate 0030+0031 → deploy → smoke" behind danlo's explicit approval. Until then production still shows the "not set yet" second-wall card.
 - ~~Legal read owed before Phase 4's first production Places call~~ — RESOLVED for the Phase 4 vertical slice only (04-29, 2026-09-23): see PROJECT.md Key Decisions row "D-01 Places legal gate — danlo-risk-call" (covers docs/legal/places-persistence.md as of 5a74bba).
 - **Counsel's written answer on Maps Terms §3.2.3(c)/(d)(iii) required before Phase 9 (scheduler) or any external customer — D-01 scope.** D-01 is danlo's own risk call, scoped to Phase 4's hand-run slice (one city × one cluster, internal, free tier). PLACES_MODE stays the kill switch.
 - **Dependencies not yet created** — Google Cloud project + Places API (New) key with billing and a daily quota, Firecrawl app key, Supabase project (never BIS's `tlbkbmlrfafquucsmsmm`), Vercel Pro project, Clerk app. Phase 1 needs Supabase + Clerk + Vercel; Phase 4 needs the Google key and quota; Phase 5 needs Firecrawl.
 - **Cost model is unresolved between research files ($21–37/mo)** — the query fan-out / tile-overlap multiplier is unmeasured. Phase 2 builds the committed cost-model test; Phase 6's gate produces the first real invoice numbers.
 - **Firecrawl's per-search credit cost is disputed in its own docs (2 vs 10)** — pin against the first invoice before trusting any budget model that includes it.
 - **Vercel Pro (~$20/mo) is infrastructure, separate from the $50 data cap** — never merge the two numbers in reporting.
-- BUDG-03 Google Cloud daily quota (Places API New, Requests per day = 100) is UNSET - the GCP project and Places key do not exist. Carried forward as the FIRST item of Phase 4 setup; console path in docs/runbooks/google-quota.md. Blocks nothing in Phase 2 (tests/unit/no-google-credential.test.ts green on both names).
 
 ## Deferred Items
 
@@ -104,5 +104,5 @@ Items acknowledged and carried forward from previous milestone close:
 ## Session Continuity
 
 Last session: 2026-09-24T11:25:00.000Z
-Stopped at: Completed 04-30-PLAN.md (prod migrated + deployed, Places off)
+Stopped at: Completed 04-31-PLAN.md (BUDG-03 closed; deploy deferred until prod migrate 0030+0031)
 Resume file: None
