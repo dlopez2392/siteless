@@ -2072,7 +2072,10 @@ export function SECOND_WALL_DERIVATION(i: SecondWallInputs): readonly EmphasisRu
   const daily = Math.floor(monthly / 30);
   return [
     { text: 'Set ' },
-    { text: `Places API (New) → ${formatCount(i.quotaPerDay)} requests/day`, strong: true },
+    {
+      text: `Places API (New) → SearchTextRequest per day = ${formatCount(i.quotaPerDay)}, every other Places method per day = 0`,
+      strong: true,
+    },
     {
       text:
         `. Derivation: a ${formatUsd(i.budgetMicroUsd)} cap buys ${formatCount(paid)} paid Text ` +

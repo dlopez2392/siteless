@@ -108,7 +108,9 @@ describe('the second-wall card', () => {
 
     expect(within(card).getByText(SECOND_WALL_BODY)).toBeInTheDocument();
     const derivation = within(card).getByTestId('budget-second-wall-derivation');
-    expect(derivation.textContent).toMatch(/^Set Places API \(New\) → 100 requests\/day\. /);
+    expect(derivation.textContent).toMatch(
+      /^Set Places API \(New\) → SearchTextRequest per day = 100, every other Places method per day = 0\. /,
+    );
     // The spec's arithmetic, now DERIVED from the price book and the quota (C-WR-09) — the
     // shipped values still read exactly as the runbook's derivation.
     expect(derivation.textContent).toContain(
@@ -116,9 +118,11 @@ describe('the second-wall card', () => {
         '1,000 free = 2,428/month ≈ 80/day. Rounded to 100/day',
     );
     expect(derivation.textContent).toContain('about $3.50/day instead of $50.00 in an hour.');
-    expect(within(derivation).getByText('Places API (New) → 100 requests/day').tagName).toBe(
-      'STRONG',
-    );
+    expect(
+      within(derivation).getByText(
+        'Places API (New) → SearchTextRequest per day = 100, every other Places method per day = 0',
+      ).tagName,
+    ).toBe('STRONG');
 
     expect(within(card).queryByText(SECOND_WALL_SET_TITLE)).toBeNull();
     expectHonestyLineAndConsole(card);

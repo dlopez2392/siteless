@@ -103,7 +103,10 @@ session scratchpad, not the repo.
 
 ## For danlo's eye (reported, not pre-judged or fixed)
 
-1. **The `exceeded_estimate` stop alert does not handle zero.** On the partial run it reads
+1. **FIXED in `0456186` (screens not re-shot).** At 0 tiles subdividing the alert now drops
+   the sentence and the button, the Tiles card shows no empty list, and (04-REVIEW-DELTA
+   IN-01) the alert carries no "Google Maps" tag. As originally reported:
+   **The `exceeded_estimate` stop alert does not handle zero.** On the partial run it reads
    "…0 tiles were still subdividing when it stopped; they're listed below." It then offers
    "Show the tiles still subdividing", and the Tiles card opens an empty "Tiles still
    subdividing when the run stopped (0)".

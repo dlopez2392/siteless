@@ -61,8 +61,9 @@ switch, the key, the daily quota, the coordinate purge, and the test fixtures.
 
 ## 3. Daily quota (D-19)
 
-The Google Cloud quota **Places API (New) → Requests per day = 100** is the second wall
-(`docs/runbooks/google-quota.md` has the derivation). How a run meets it:
+The Google Cloud quota **Places API (New) → `SearchTextRequest per day` = 100, every other
+Places method per day = 0** is the second wall. There is no single "Requests per day" row: the
+quotas are per method (`docs/runbooks/google-quota.md` has the derivation). How a run meets it:
 
 - A **daily-quota** `429 RESOURCE_EXHAUSTED` ends the run **`partial`** with reason
   **`google_daily_quota`**. It is **never retried** — the quota resets at midnight Pacific;

@@ -37,8 +37,8 @@ import {
  *
  * 🔴 THE DERIVATION IS ANCHORED TO THE $50.00 PROJECT BUDGET, NOT TO THE ORG'S LIVE CAP. It is
  * the arithmetic behind a recommended quota value, not a reading of this tenant's meter. It is
- * the not-set state's: once set, the imperative "Set Places API (New) → 100 requests/day"
- * would ask for something already done, and the set body names the value and the $3.50 bound.
+ * the not-set state's: once set, the imperative "Set Places API (New) → SearchTextRequest per
+ * day = 100, every other Places method per day = 0" would ask for something already done, and the set body names the value and the $3.50 bound.
  *
  * 🔴 THREE THINGS IN THIS PRODUCT ARE CALLED "MONTHLY" and this card is where two of them meet:
  * Siteless's budget period resets at local midnight on the 1st in America/Chicago, while a
