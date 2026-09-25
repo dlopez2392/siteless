@@ -4,13 +4,13 @@ milestone: v1.0
 milestone_name: milestone
 status: executing
 stopped_at: Phase 4 UI-SPEC approved
-last_updated: "2026-09-25T03:06:50.393Z"
-last_activity: 2026-09-24 -- 04-31 BUDG-03 closed (GCP siteless-509611, SearchText 100/day, key verified by one $0 IDs-only call locally); deploy deferred
+last_updated: "2026-09-25T10:30:00.000Z"
+last_activity: 2026-09-25 -- 04-32 D-04 first real run done (local, McAllen x home services: 33 req = 33 ledger rows, $0, 4 saturated/0 truncated, 96 attached/25 tentative/149 unmatched, 9 pure_sab); prod migrated 0030+0031 (journal 32) + deployed e7a059f, PLACES_MODE off
 progress:
   total_phases: 9
   completed_phases: 3
   total_plans: 82
-  completed_plans: 50
+  completed_plans: 51
   percent: 60
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-09-20)
 Phase: 04 (places-transient-verifier) — EXECUTING
 Plan: 1 of 33
 Status: Executing Phase 04
-Last activity: 2026-09-24 -- 04-31 complete except its deploy: GCP project siteless-509611, SearchTextRequest 100/day (other methods 0), key in .env.local + Vercel Production, one metered IDs-only call ok (local, ts_essentials, $0), BUDG-03 closed. Deploy deferred until prod has 0030+0031
+Last activity: 2026-09-25 -- 04-32 D-04 first real run done (local, McAllen x home services: 33 req = 33 ledger rows, $0, 4 saturated/0 truncated, 96 attached/25 tentative/149 unmatched, 9 pure_sab); prod migrated 0030+0031 (journal 32) + deployed e7a059f, PLACES_MODE off
 
 Progress: [███░░░░░░░] 33% (3 of 9 phases)
 
@@ -36,7 +36,7 @@ Progress: [███░░░░░░░] 33% (3 of 9 phases)
 
 **Velocity:**
 
-- Total plans completed: 49
+- Total plans completed: 50
 - Average duration: —
 - Total execution time: 0 hours
 
