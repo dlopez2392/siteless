@@ -6,7 +6,7 @@
  * The input page below is hand-built to LOOK real (every string is distinctive and made up here);
  * no Google-authored text is in this file.
  */
-import { copyFileSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -379,10 +379,18 @@ describe('the recorder guards (D-01, D-04)', () => {
     // A scratch copy of the fixtures' sidecar — the real directory is never written by a test.
     const dir = mkdtempSync(join(tmpdir(), 'siteless-record-'));
     try {
-      copyFileSync(
-        new URL('places-recordings.json', FIXTURES_DIR),
-        join(dir, 'places-recordings.json'),
-      );
+      // Seeded from a NEUTRAL state, not the live sidecar: the committed one already reads
+      // `anonymized: true` (db12ffe), so a verbatim copy would satisfy the assertions below
+      // before the recorder wrote anything (04-REVIEW-DELTA WR-01).
+      const seed = JSON.parse(
+        readFileSync(new URL('places-recordings.json', FIXTURES_DIR), 'utf8'),
+      ) as Record<string, unknown>;
+      seed.anonymized = false;
+      seed.recordedFrom = null;
+      writeFileSync(join(dir, 'places-recordings.json'), JSON.stringify(seed, null, 2) + '\n');
+      const before = JSON.parse(readFileSync(join(dir, 'places-recordings.json'), 'utf8'));
+      expect(before.anonymized).toBe(false);
+      expect(before.recordedFrom).toBeNull();
       const dirUrl = pathToFileURL(dir + '/');
       const input = realLookingPage();
       const anonymize = { rect: RECT, city: 'McAllen', placesType: 'plumber' };
@@ -414,6 +422,7 @@ describe('the recorder guards (D-01, D-04)', () => {
       }
       const sidecar = JSON.parse(readFileSync(join(dir, 'places-recordings.json'), 'utf8'));
       expect(sidecar.anonymized).toBe(true);
+      expect(sidecar.recordedFrom).toMatch(/record-places-fixtures\.ts/);
       expect(sidecar.files['places-recorded-unit-test-p1.json']).toMatchObject({
         places: 20,
         nextPageToken: true,
