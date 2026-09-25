@@ -34,7 +34,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 1: Foundations & Tenancy** - Org-scoped auth, RLS proven by a refused cross-org statement, and the schema constraints that keep Places content out of the durable record (completed 2026-09-22)
 - [x] **Phase 2: Budget Governor & Search Presets** - Nothing spends outside the meter; danlo defines and costs a search before running it (completed 2026-09-22)
 - [x] **Phase 3: Free-Data Spine & Entity Resolution** - Overture + TX Comptroller become one deduped, provenance-tracked RGV business record (completed 2026-09-23)
-- [ ] **Phase 4: Places Transient Verifier** - Google answers "is there a website URI?" under an allow-listed Enterprise field mask, and almost everything is discarded
+- [x] **Phase 4: Places Transient Verifier** - Google answers "is there a website URI?" under an allow-listed Enterprise field mask, and almost everything is discarded (completed 2026-09-25)
 - [ ] **Phase 5: Verification & Receipts** - Cheapest-first probe ladder writes immutable receipts, including negative evidence, one tap from the lead
 - [ ] **Phase 6: Classifier, Scorer & Vertical-Slice Gate** - Six-way verdict and glass-box score over stored receipts, proven by hand on ~50 real verdicts
 - [ ] **Phase 7: Triage & Mobile PWA** - The morning phone loop: swipe, call, undo, receipts, compliance gating
@@ -361,7 +361,7 @@ Plan counts below are estimates until `/gsd-plan-phase` runs for each phase.
 | 1. Foundations & Tenancy | 12/12 | Complete | 2026-09-22 |
 | 2. Budget Governor & Search Presets | 15/15 | Complete | 2026-09-22 |
 | 3. Free-Data Spine & Entity Resolution | 22/22 | Complete | 2026-09-23 |
-| 4. Places Transient Verifier | 0/4 | Not started | - |
+| 4. Places Transient Verifier | 33/33 | Complete (1 UAT item pending: first invoice) | 2026-09-25 |
 | 5. Verification & Receipts | 0/4 | Not started | - |
 | 6. Classifier, Scorer & Vertical-Slice Gate | 0/4 | Not started | - |
 | 7. Triage & Mobile PWA | 0/5 | Not started | - |

@@ -70,17 +70,17 @@ their tests, but danlo should confirm the chosen behaviour:
 
 | ID | Result | Commits | Note |
 |---|---|---|---|
-| A-WR-01 | fixed (verify) | `8cb40e0` | |
+| A-WR-01 | fixed (confirmed by danlo 2026-09-25) | `8cb40e0` | |
 | A-WR-02 | fixed | `14a11e4` + B `45bd720` | SQL refuses; `diffTile` sends `gone: []` when saturated |
-| A-WR-03 | fixed (verify) | `8a50d12` | Round 2 adds the specific tie-refusal message (`d5282fc`, below) |
-| A-WR-04 | fixed (verify) | `71f71d7` + C `3603354` | |
+| A-WR-03 | fixed (confirmed by danlo 2026-09-25) | `8a50d12` | Round 2 adds the specific tie-refusal message (`d5282fc`, below) |
+| A-WR-04 | fixed (confirmed by danlo 2026-09-25) | `71f71d7` + C `3603354` | |
 | A-WR-05 | fixed | `9ca26c8` | **D-01 re-acknowledgement needed** (legal list changed). Round 2 F4 (`0348e42`) pins the trigger by function. |
 | A-WR-06 | fixed | `237f772` | |
 | A-WR-07 | fixed | `b594b0e` + B `8649197` | Round 2 `a0b05e9` repairs the test the two halves collided on |
 | A-WR-08 | fixed | `b292703` + B `b67494a` | |
-| A-WR-09 | fixed (verify) | `5fd9585` + round 2 `e7d8e6b` | Round 2 F3: the pricing rule now lives only in the meter |
-| A-WR-10 | fixed (verify) | `7c258be` + B `a191529` | |
-| A-WR-11 | fixed (verify) | `a202e2f` | |
+| A-WR-09 | fixed (confirmed by danlo 2026-09-25) | `5fd9585` + round 2 `e7d8e6b` | Round 2 F3: the pricing rule now lives only in the meter |
+| A-WR-10 | fixed (confirmed by danlo 2026-09-25) | `7c258be` + B `a191529` | |
+| A-WR-11 | fixed (confirmed by danlo 2026-09-25) | `a202e2f` | |
 | A-WR-12 | fixed | `e6729c6` | |
 | A-WR-13 | fixed | `3cebe31` | |
 | B-WR-01 | fixed | `ae6c1a2` | |

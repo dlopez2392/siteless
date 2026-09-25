@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-stopped_at: Phase 4 UI-SPEC approved
-last_updated: "2026-09-25T12:01:02.225Z"
-last_activity: 2026-09-25 -- 04-33 phase gate done: M26-M53 logged (0 survived, M50b added), 32 both-theme screenshots approved by danlo ("approved + fix 1", fix 0456186), 04-VALIDATION closed (86/86 green, nyquist_compliant true)
+status: ready
+stopped_at: Phase 4 complete (33/33, verified human_needed → 3/4 UAT passed, invoice pending); next /gsd-secure-phase 4
+last_updated: "2026-09-25T12:37:03.909Z"
+last_activity: 2026-09-25 -- Phase 4 complete (33/33); secure-phase next
 progress:
   total_phases: 9
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 82
-  completed_plans: 52
-  percent: 60
+  completed_plans: 82
+  percent: 100
 ---
 
 # Project State
@@ -25,18 +25,18 @@ See: .planning/PROJECT.md (updated 2026-09-20)
 
 ## Current Position
 
-Phase: 04 (places-transient-verifier) — EXECUTING
-Plan: 1 of 33
-Status: Executing Phase 04
-Last activity: 2026-09-25 -- 04-33 phase gate done: M26-M53 logged (0 survived, M50b added), 32 both-theme screenshots approved by danlo ("approved + fix 1", fix 0456186), 04-VALIDATION closed (86/86 green, nyquist_compliant true)
+Phase: 5
+Plan: Not started
+Status: Phase 4 complete — next /gsd-secure-phase 4, then PR #3 merge (danlo), then Phase 5
+Last activity: 2026-09-25 -- Phase 4 complete: 33/33 plans, verifier 5/5 + 7/7 reqs (human_needed; purge cron seen firing in prod 09:17Z; danlo accepted 6 review semantics + 2 copy strings; first-invoice check pending in 04-HUMAN-UAT.md); delta review fixed
 
-Progress: [███░░░░░░░] 33% (3 of 9 phases)
+Progress: [████░░░░░░] 44% (4 of 9 phases)
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 51
+- Total plans completed: 84
 - Average duration: —
 - Total execution time: 0 hours
 
@@ -47,6 +47,7 @@ Progress: [███░░░░░░░] 33% (3 of 9 phases)
 | 01 | 12 | - | - |
 | 02 | 15 | - | - |
 | 03 | 22 | - | - |
+| 04 | 33 | - | - |
 
 **Recent Trend:**
 
@@ -85,7 +86,7 @@ None yet.
 
 - 🔴 **Production runs the unmerged Phase 4 branch (`8218042`, 04-30) — nothing may land on `main` before the phase PR merges.** `vercel git connect` redeploys production on the next push to `main` (`3dd2060`), which would restore the Phase 3 app and DROP the purge cron (`main`'s `vercel.json` has no `crons`). The database stays at journal 30 either way.
 
-- 🔴 **04-31's deploy step is DEFERRED — do not deploy the phase branch before prod migrates 0030 + 0031.** The branch's review fixes need both migrations (applied LOCAL only, journal 32; prod is at 30); deploying first breaks /sources and the writers. The orchestrator bundles "prod migrate 0030+0031 → deploy → smoke" behind danlo's explicit approval. Until then production still shows the "not set yet" second-wall card.
+- ✅ ~~04-31 deploy deferred~~ RESOLVED 2026-09-25: prod migrated 0030+0031 (journal 32, never re-apply) and redeployed from the branch at e7a059f; PLACES_MODE unset. 🔴 Nothing may land on main before PR #3 merges.
 - ~~Legal read owed before Phase 4's first production Places call~~ — RESOLVED for the Phase 4 vertical slice only (04-29, 2026-09-23): see PROJECT.md Key Decisions row "D-01 Places legal gate — danlo-risk-call" (covers docs/legal/places-persistence.md as of 5a74bba).
 - **Counsel's written answer on Maps Terms §3.2.3(c)/(d)(iii) required before Phase 9 (scheduler) or any external customer — D-01 scope.** D-01 is danlo's own risk call, scoped to Phase 4's hand-run slice (one city × one cluster, internal, free tier). PLACES_MODE stays the kill switch.
 - **Dependencies not yet created** — Google Cloud project + Places API (New) key with billing and a daily quota, Firecrawl app key, Supabase project (never BIS's `tlbkbmlrfafquucsmsmm`), Vercel Pro project, Clerk app. Phase 1 needs Supabase + Clerk + Vercel; Phase 4 needs the Google key and quota; Phase 5 needs Firecrawl.
@@ -104,5 +105,5 @@ Items acknowledged and carried forward from previous milestone close:
 ## Session Continuity
 
 Last session: 2026-09-24T11:25:00.000Z
-Stopped at: Completed 04-31-PLAN.md (BUDG-03 closed; deploy deferred until prod migrate 0030+0031)
+Stopped at: Phase 4 complete; /gsd-secure-phase 4 next
 Resume file: None
