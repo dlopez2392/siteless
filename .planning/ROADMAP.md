@@ -247,7 +247,7 @@ Plans:
 - [x] 04-30-PLAN.md — Production migration 0026–0029 and deploy with Places off
 
 **Wave 11** *(checkpoint)*
-- [ ] 04-31-PLAN.md — D-03 Google Cloud setup, one metered IDs-only key check, BUDG-03 closed
+- [x] 04-31-PLAN.md — D-03 Google Cloud setup, one metered IDs-only key check, BUDG-03 closed
 
 **Wave 12** *(checkpoint)*
 - [ ] 04-32-PLAN.md — D-04 first real run (one city × one cluster) and anonymized fixture recording
