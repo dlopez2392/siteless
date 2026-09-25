@@ -1,7 +1,7 @@
 {
   "synthetic": true,
-  "anonymized": false,
-  "recordedFrom": null,
+  "anonymized": true,
+  "recordedFrom": "Places API (New) Text Search, via scripts/record-places-fixtures.ts, anonymized in memory (D-20)",
   "note": "Hand-authored before the D-01 legal gate. No Google-authored text. 04-19's recorder adds anonymized real recordings after D-01 (anonymized: true).",
   "files": {
     "places-saturated-p1.json": {
@@ -62,6 +62,24 @@
       "places": 0,
       "nextPageToken": false,
       "status": 503
+    },
+    "places-recorded-mcallen-plumber-p1.json": {
+      "purpose": "Recorded (anonymized) plumber search, city:48215/McAllen|plumber|r, page 1 of 2",
+      "places": 20,
+      "nextPageToken": true,
+      "synthetic": false,
+      "anonymized": true,
+      "recordedAt": "2026-09-25T03:20:04.072Z",
+      "requests": 2
+    },
+    "places-recorded-mcallen-plumber-p2.json": {
+      "purpose": "Recorded (anonymized) plumber search, city:48215/McAllen|plumber|r, page 2 of 2",
+      "places": 13,
+      "nextPageToken": false,
+      "synthetic": false,
+      "anonymized": true,
+      "recordedAt": "2026-09-25T03:20:04.072Z",
+      "requests": 2
     }
   }
 }
