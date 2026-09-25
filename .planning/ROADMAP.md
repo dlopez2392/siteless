@@ -250,10 +250,10 @@ Plans:
 - [x] 04-31-PLAN.md — D-03 Google Cloud setup, one metered IDs-only key check, BUDG-03 closed
 
 **Wave 12** *(checkpoint)*
-- [ ] 04-32-PLAN.md — D-04 first real run (one city × one cluster) and anonymized fixture recording
+- [x] 04-32-PLAN.md — D-04 first real run (one city × one cluster) and anonymized fixture recording
 
 **Wave 13** *(checkpoint)*
-- [ ] 04-33-PLAN.md — Gate mutations M26–M53, both-theme screenshot review, close 04-VALIDATION
+- [x] 04-33-PLAN.md — Gate mutations M26–M53, both-theme screenshot review, close 04-VALIDATION
 **UI hint**: yes
 **Security**: /gsd-secure-phase applies — external paid API, key handling, retention/TTL enforcement, spend gating.
 **Research flag**: light — ToS and pricing are settled by research; tile-saturation tuning against real RGV density is empirical. The §3.2.3(d)(iii) legal read belongs before this phase's first production call; the adapter sits behind an interface so a "no" is a config change.

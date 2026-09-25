@@ -141,3 +141,16 @@ change, not a code fix.
   SAB can score at most 50 and never matches; `places-recorded-replay.test.ts` pins 0 `pure_sab`.
   The SAB-true path stays covered by the synthetic fixture test.
 - **Daily quota (D-19):** keep 100/day through Phase 6; size a raise from Phase 9's partition plan.
+
+## From 04-33 (phase gate, screen review, 2026-09-25) — see docs/measurements/04-screens/README.md
+
+- **Item 2a — noted, NOT taken (danlo's reply was "approved + fix 1").** The "Google Maps" tag
+  also sits on our own planner data: the truncation warning's tile line ("McAllen · roofing
+  contractor · tile r0") and the Tiles card. That is over-attribution — harmless under the
+  attribution policy, not strictly required. Left as built; revisit only if danlo asks.
+- **Noted, no action:** the chrome's org label shows the local dev `orgs.display_name`
+  (`bis-…`), not "BIS" (local data, already deferred from Phase 3); the screenshot seed attached
+  a restaurant to a roofing-contractor run (seed picks the first unattached businesses by id — a
+  fixture artifact, not a matcher result).
+- **Not re-shot:** the `run-report-partial-*` screenshots predate fix 1 (`0456186`); the fix is
+  proven by its unit test, not by a new screenshot.
