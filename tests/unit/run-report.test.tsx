@@ -683,6 +683,21 @@ describe('run report — cards (04-23 Task 3)', () => {
     expect(list.textContent).not.toMatch(/city:|_/);
   });
 
+  it('an exceeded-estimate stop with no tile still subdividing points at no empty list', () => {
+    renderReport(
+      reportOf({
+        run: { status: 'partial', stoppedReason: 'exceeded_estimate' },
+        tiles: { stillSubdividing: [] },
+      }),
+    );
+    const stop = screen.getByTestId('run-stop-alert');
+    expect(stop.textContent).toContain('Stopped at twice the estimate.');
+    expect(stop.textContent).toContain('Everything collected before the stop is complete.');
+    expect(stop.textContent).not.toMatch(/subdividing|listed below/);
+    expect(screen.queryByTestId('run-stop-show-subdividing')).toBeNull();
+    expect(screen.queryByTestId('run-tiles-subdividing')).toBeNull();
+  });
+
   it('the outcomes card links tentative listings to the Google review filter', () => {
     const { unmount } = renderReport(reportOf());
     const link = screen.getByTestId('run-review-link');

@@ -1107,9 +1107,13 @@ export function RUN_STOP_ESTIMATE(
   return (
     `Stopped at twice the estimate. This run was estimated at ${formatUsd(lo)}–${formatUsd(hi)}, ` +
     `and Siteless stops any run at 2× the top of its estimate — ${formatUsd(ceiling)} — so a ` +
-    `tiling surprise can't eat the month. ${counted(subdividing, 'tile was', 'tiles were')} ` +
-    `still subdividing when it stopped; they're listed below. Everything collected before the ` +
-    `stop is complete.`
+    `tiling surprise can't eat the month. ` +
+    // With nothing mid-split there is no list to point at (04-33 screen review).
+    (subdividing > 0
+      ? `${counted(subdividing, 'tile was', 'tiles were')} still subdividing when it stopped; ` +
+        `they're listed below. `
+      : '') +
+    `Everything collected before the stop is complete.`
   );
 }
 

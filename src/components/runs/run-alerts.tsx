@@ -322,15 +322,17 @@ function stopAlertOf({
             tiles.stillSubdividing.length,
           )}
         >
-          <Actions>
-            {/* The list lives in the Tiles card below, open on an exceeded-estimate run; this
-                takes the reader to it (a plain in-page link, no shared client state). */}
-            <Button asChild variant="outline" className={ACTION}>
-              <a href="#run-tiles-subdividing" data-testid="run-stop-show-subdividing">
-                {RUN_STOP_ACTION.showSubdividing}
-              </a>
-            </Button>
-          </Actions>
+          {tiles.stillSubdividing.length > 0 ? (
+            <Actions>
+              {/* The list lives in the Tiles card below, open on an exceeded-estimate run; this
+                  takes the reader to it (a plain in-page link, no shared client state). */}
+              <Button asChild variant="outline" className={ACTION}>
+                <a href="#run-tiles-subdividing" data-testid="run-stop-show-subdividing">
+                  {RUN_STOP_ACTION.showSubdividing}
+                </a>
+              </Button>
+            </Actions>
+          ) : null}
         </RunAlert>
       );
     }

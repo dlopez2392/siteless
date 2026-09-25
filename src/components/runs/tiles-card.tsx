@@ -132,7 +132,7 @@ export function TilesCard({
           {RUN_TILES_EXPLAINER}
         </p>
 
-        {exceeded ? (
+        {exceeded && tiles.stillSubdividing.length > 0 ? (
           // Open on arrival: the stop alert's "Show the tiles still subdividing" is an in-page
           // link to this id, so the list is already showing when the reader lands on it.
           <Collapsible
