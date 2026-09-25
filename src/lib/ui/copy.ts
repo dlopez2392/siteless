@@ -2116,7 +2116,8 @@ export const SECOND_WALL_SET_BADGE = 'Set';
 /** `date` is the day danlo set it, pre-formatted. */
 export function SECOND_WALL_SET_BODY(date: string, i: SecondWallInputs) {
   return (
-    `Places API (New) → Requests per day = ${formatCount(i.quotaPerDay)}, set on ${date}. This ` +
+    `Places API (New) → SearchTextRequest per day = ${formatCount(i.quotaPerDay)}, every other ` +
+    `Places method per day = 0, set on ${date}. This ` +
     `is the second wall: even if Siteless's own meter failed, Google stops Places requests ` +
     `after ${formatCount(i.quotaPerDay)} a day — about ${formatUsd(perDayMicroUsd(i))} of paid ` +
     `requests. The meter above is still the wall that matters.`

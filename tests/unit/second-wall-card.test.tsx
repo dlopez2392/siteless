@@ -144,7 +144,9 @@ describe('the second-wall card', () => {
     // the Copy Table string, exact.
     const body = within(card).getByTestId('budget-second-wall-body');
     expect(body).toHaveTextContent(SECOND_WALL_SET_BODY('Sep 25, 2026', SHIPPED));
-    expect(body.textContent).toContain('Requests per day = 100, set on Sep 25, 2026.');
+    expect(body.textContent).toContain(
+      'SearchTextRequest per day = 100, every other Places method per day = 0, set on Sep 25, 2026.',
+    );
     expect(body.textContent).toContain('about $3.50 of paid requests');
 
     // The "they don't yet" paragraph and the imperative "Set …" recommendation are the
@@ -165,7 +167,7 @@ describe('the quota constant is the one source (C-WR-09)', () => {
     render(<SecondWallCard />);
     const card = screen.getByTestId('budget-second-wall');
     const body = within(card).getByTestId('budget-second-wall-body');
-    expect(body.textContent).toContain('Requests per day = 150');
+    expect(body.textContent).toContain('SearchTextRequest per day = 150');
     expect(body.textContent).toContain('after 150 a day — about $5.25 of paid requests');
     const limit = within(card).getByTestId('budget-second-wall-limit');
     // 150 × 30 = 4,500; minus 1,000 free = 3,500 paid × $0.035 = $122.50.

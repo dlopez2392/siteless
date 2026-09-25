@@ -5,7 +5,9 @@
 independent one that bounds a **runaway day**, set in a console Siteless does not control
 and cannot be talked out of by a bug in Siteless. Keep both. They stop different things.
 
-> **Names only.** This file never carries a key, a project id or a billing account. Exactly one
+> **Names only.** This file never carries a key or a billing account. (The Google Cloud project
+> id is recorded below: it is an identifier, not a credential, and it tells the next person which
+> project the quotas live in.) Exactly one
 > module in `src/` reads the Places key — `src/lib/places/client.ts`, server-only — and
 > `tests/unit/no-google-credential.test.ts` fails if any other file names it. No test depends
 > on the key existing: CI replays anonymized fixtures and never calls Google.
@@ -29,9 +31,12 @@ billing is attached; an API key can only be restricted to an API that is enabled
    the account → **Set account**. The Google Maps Platform may also prompt for it the moment
    you enable the API — either path is the same link. Optional, and **not** a cap: a budget
    alert under **Billing → Budgets & alerts** (see "What it does not do" below).
-4. **Set the daily quota.** Follow [The console path](#the-console-path) below:
-   **Places API (New) → `Requests per day` = `100`**. Take a screenshot of the quota page
-   showing `100`, and note the **date** you set it — the settings card prints it.
+4. **Set the daily quotas.** Follow [The console path](#the-console-path) below. 🔴 There is
+   **no single "Requests per day" row** — Places API (New) quotas are **per method**. Set
+   **`SearchTextRequest per day` = `100`** (the only method Siteless calls) and **every other
+   method's per-day quota = `0`** (`AutocompletePlaces`, `GetPhotoMedia`, `GetPlace`,
+   `SearchMedia`, `SearchNearby`, `SearchReviewPosts`). Leave the per-minute rows alone. Note
+   the **date** you set them — the settings card prints it.
 5. **Create the key, API-restricted.** **APIs & Services → Credentials** →
    **+ Create credentials → API key**. On the key's edit page:
    - **Name:** `siteless-places-server`.
@@ -45,7 +50,8 @@ billing is attached; an API key can only be restricted to an API that is enabled
 
    If enabling the API (step 2) popped up an auto-created "Maps Platform API Key", either
    restrict that one exactly as above or delete it — there must be **one** Places key, and it
-   must be restricted.
+   must be restricted. (On 2026-09-24 Google auto-created the key; it was renamed
+   `siteless-places-server` and restricted as above rather than creating a second one.)
 6. **Store the key — two places, by name only.** Copy the key from **Show key** and put it:
    - in **`.env.local`** at the repo root (`C:\Users\danlo\prospector\.env.local`, which
      `.gitignore` already excludes) as one line, no quotes, no spaces:
@@ -75,9 +81,24 @@ own meter and client** against the **local** database (reserved and ledgered at 
 never a raw `curl` that would bypass the meter — then records the date on the settings card
 (`GOOGLE_QUOTA_SET_ON` in `src/lib/budget/second-wall.ts`) and closes BUDG-03 (plan 04-31).
 
+## Recorded setup — 2026-09-24 (D-03, plan 04-31)
+
+| Item | Value |
+| ---- | ----- |
+| Project | `siteless`, project id **`siteless-509611`**, under danlo's organization |
+| Billing | attached. The billing account was at its 5-linked-project cap, so billing was **disabled on two unused projects** (danlo's instruction) to free the slot |
+| API enabled | **Places API (New)** |
+| `SearchTextRequest per day` | **`100`** (was 75,000) |
+| `SearchTextRequest per minute` | `600`, unchanged |
+| `AutocompletePlaces` / `GetPhotoMedia` / `GetPlace` / `SearchMedia` / `SearchNearby` / `SearchReviewPosts` per day | **`0`** each |
+| Key | `siteless-places-server`: Google's auto-created key, renamed; **API restriction: Places API (New) only**; application restriction: None; the only key in the project |
+| Stored as | `GOOGLE_PLACES_API_KEY` in `.env.local` and in Vercel **Production** only, **Sensitive** |
+| `PLACES_MODE` | set **nowhere** (unset = `off` in production) |
+| Verified | one IDs-only Text Search through the recorder (`--ids-only --max-requests=1`, McAllen × plumber) against the **local** database: outcome `ok`, 20 ids, one page, a next-page token offered; ledgered as `ts_essentials`, units 1, `$0` |
+
 ## The value
 
-**Places API (New) → `Requests per day` = `100`.**
+**Places API (New) → `SearchTextRequest per day` = `100`; every other method per day = `0`.**
 
 ## The derivation
 
@@ -116,9 +137,11 @@ before it is made, and only the quota refuses it if the meter is broken.
 Google Cloud console →
 **Google Maps Platform → Quotas** →
 API dropdown → **Places API (New)** →
-quota metric **"Requests per day"** →
+quota metric **`SearchTextRequest per day`** (the quotas are per method; there is no single
+"Requests per day") →
 **⋮** → **Edit quota** →
-uncheck **Unlimited** → enter **`100`** → **Submit request**.
+uncheck **Unlimited** → enter **`100`** → **Submit request**. Repeat on every other method's
+**per day** row with **`0`**.
 
 Two equivalent paths, for when the console moves things again:
 

@@ -12,11 +12,12 @@
  * `run-alerts.tsx` alike (a client module's exports are client REFERENCES in a server tree).
  */
 
-/** Places API (New) → Requests per day. The derivation is in docs/runbooks/google-quota.md;
+/** Places API (New) → SearchTextRequest per day (the quotas are per method; every other Places
+ *  method's per-day quota is 0 — set 2026-09-24). The derivation is in docs/runbooks/google-quota.md;
  *  the run-stop alert (`run-alerts.tsx`) and the second-wall card both read THIS value, so the
  *  number a stopped run names and the number the settings card names cannot drift apart. */
 export const GOOGLE_QUOTA_REQUESTS_PER_DAY = 100;
 
 /** The calendar day ('YYYY-MM-DD', no zone — it never was an instant) danlo set the quota, or
  *  `null` while BUDG-03 is open. `null` renders the "not set yet" card. */
-export const GOOGLE_QUOTA_SET_ON: string | null = null;
+export const GOOGLE_QUOTA_SET_ON: string | null = '2026-09-24';
