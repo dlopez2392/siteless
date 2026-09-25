@@ -124,3 +124,20 @@ change, not a code fix.
   EXECUTE in 0030, and `places_transient_stats` lost it in 0031.
   `app.release_reservation(uuid)` still has it. It is one `revoke … from service_role` in the
   next migration, plus a line in the catalog test.
+
+## From 04-32 (D-04 first real run, 2026-09-25) — see docs/measurements/04-first-run.md
+
+- **Banner specs (Phase 2 80 %/100 % shots): RE-DEFERRED to the first billed month** (danlo,
+  04-32 Task 1). The D-04 run settled at $0.00 inside the free 1,000, so committed spend stays 0
+  and `budget-banner.spec.ts` keeps self-skipping.
+- **Tiling constants: no change proposed** (0 truncated, depth ≤ 2 of 5). Re-measure on the first
+  dense-core or food & hospitality cell.
+- **Research A1/A2 — verify on the first invoice:** per-page billing and error-response billing.
+  Expected Google-side total for 2026-09: 35 Text Search Enterprise (2 recording + 33 run, all
+  in the LOCAL ledger) + 1 Essentials IDs-only (04-31).
+- **Research A6 — measured: yes.** 9 `pure_sab` observations; SABs are returned under
+  `locationRestriction` and match on real phone + name.
+- **Replay limitation (not a defect):** anonymized fixtures carry 555-01xx phones, so a recorded
+  SAB can score at most 50 and never matches; `places-recorded-replay.test.ts` pins 0 `pure_sab`.
+  The SAB-true path stays covered by the synthetic fixture test.
+- **Daily quota (D-19):** keep 100/day through Phase 6; size a raise from Phase 9's partition plan.
