@@ -2,7 +2,8 @@
 
 Two providers live here: the **Census Geocoder** (below) and, since plan 03-03, the **Texas
 Comptroller's Socrata datasets** (see [Socrata](#socrata--texas-comptroller-datatexasgov)
-further down).
+further down). Since plan 04-10 a third provider, **Google Places (API New)**, has
+**synthetic** fixtures here — hand-authored, not recorded; see the Places section at the end.
 
 These files are **replayed by `msw`, never re-fetched**. CI must never touch the network
 (D-04, CLAUDE.md): a test that reaches the live geocoder is a test whose verdict depends on
@@ -319,3 +320,166 @@ Only if the upstream shape changes. Re-record all five in one sitting with the s
 encoding, update the byte counts above, and re-read the assertions that pin the Harlingen
 coordinates, the `W CANO` flip and the shuffled first line — a re-recording that came back
 in input order would make the rejoin test vacuous (the test guards that at load).
+
+---
+
+## Google Places (API New) — synthetic (plan 04-10, D-01, D-20)
+
+🔴 **Nothing in the hand-authored `places-*.json` files was recorded.** They were written on
+**2026-09-23**, before the D-01 legal gate, and none of their sidecar entries carries an
+`anonymized` marker. The two `places-recorded-*.json` files are the only exception: real
+structure, anonymized in memory, recorded after the gate (see "Recorded (anonymized) — D-04"
+below). CI never spends (D-01, Phase 2 D-04).
+
+🔴 **D-20: no Google-authored text is ever committed.** Real recordings, when they come, are
+anonymized **in memory** by `scripts/record-places-fixtures.ts` (plan 04-19) before anything
+is written: it keeps structure, pagination, counts, `place_id`s, SAB flags and host classes,
+and synthesizes names, addresses, phones and URL hosts. Those files are marked
+`"anonymized": true` in the sidecar. A raw capture must never reach git, not even for one
+commit — git history is forever.
+
+`tests/unit/msw/places.ts` replays these files. Every request the code under test makes has
+this shape:
+
+```
+POST https://places.googleapis.com/v1/places:searchText
+X-Goog-Api-Key:   <key>
+X-Goog-FieldMask: places.id,places.displayName,…,nextPageToken   (comma-joined)
+
+{ "textQuery", "includedType", "strictTypeFiltering": true,
+  "locationRestriction": { "rectangle": { "low": { "latitude", "longitude" },
+                                          "high": { "latitude", "longitude" } } },
+  "includePureServiceAreaBusinesses": true, "pageSize": 20,
+  "regionCode": "US", "languageCode": "en", "pageToken"? }
+```
+
+The handler is registered on a **RegExp**, never the string path: msw parses the string
+`…/places:searchText` as `places` + a route param `:searchText`, which also matches
+`/v1/placesXYZ` (04-RESEARCH Pitfall 8, measured). It answers **501** — never a page — when
+the `X-Goog-FieldMask` header, the `X-Goog-Api-Key` header or
+`includePureServiceAreaBusinesses: true` is missing, so a request-builder regression is red
+instead of silently served (PLACE-05, M26). It serves **only the fields the mask names**
+(`places.<field>` → `<field>`; `nextPageToken` only when masked), so an IDs-only request can
+never receive a `websiteUri`.
+
+Construction rules every file follows: ids start `synthetic-`; every name contains
+`Synthetic` except on the match page (whose names must equal the spine's); every filler phone
+is `(956) 555-01NN` (a fictional exchange that can never phone-match the spine); every filler
+URL is on the reserved `.example` TLD, or on a host-table domain (`business.site`,
+`facebook.com`, `wixsite.com`) with a `synthetic-` path or subdomain.
+
+| File                       | Places | `nextPageToken` | Purpose                                                                                     |
+| -------------------------- | ------ | --------------- | ------------------------------------------------------------------------------------------- |
+| `places-saturated-p1.json` | 20     | `saturated:p2`  | Saturated plumber search, page 1 of 3; ids `synthetic-sat-001…020`, inside McAllen's bbox   |
+| `places-saturated-p2.json` | 20     | `saturated:p3`  | Page 2 (`synthetic-sat-021…040`)                                                            |
+| `places-saturated-p3.json` | 20     | —               | Page 3 (`synthetic-sat-041…060`): exactly 60 in total, the Text Search cap                  |
+| `places-child-12.json`     | 12     | —               | A child tile after a subdivide; phones `555-0161…0172` so they never collide with the above |
+| `places-empty.json`        | 0      | —               | `{}` — a zero-result search has no `places` key (research A5); served when no route claims  |
+| `places-match-page.json`   | 7      | —               | The matching contract with `PLACES_SPINE` (below)                                           |
+| `places-ids-only.json`     | 10     | —               | An IDs-only (Essentials) response: `{ id }` only                                            |
+| `places-429-daily.json`    | —      | —               | **Envelope**: 429 `RESOURCE_EXHAUSTED`, `quota_limit: SearchTextRequestsPerDayPerProject`   |
+| `places-429-minute.json`   | —      | —               | **Envelope**: 429, `quota_limit: SearchTextRequestsPerMinutePerProject`                     |
+| `places-400-invalid.json`  | —      | —               | **Envelope**: 400 `INVALID_ARGUMENT`                                                        |
+| `places-503.json`          | —      | —               | **Envelope**: 503 `UNAVAILABLE`                                                             |
+| `places-recordings.json`   | —      | —               | The sidecar: `synthetic` / `anonymized` markers and a per-file place count, checked at load |
+
+The four error files are `{ status, body }` envelopes like `census-503.json`, where `body`
+is Google's documented error shape `{ error: { code, message, status, details? } }` with a
+`Synthetic:` message. `places.ts` checks at load that every envelope's `status` equals its
+`body.error.code`, that every `places-*.json` on disk is listed in the sidecar with the right
+place count, and — per file since 04-19 — that every id in a hand-authored file starts
+`synthetic-`, while a file whose sidecar entry says `"anonymized": true` (and
+`"synthetic": false`) has exactly the anonymized shape: `assertAnonymizedPage`
+(`scripts/lib/anonymize-places.ts`) — only known keys, every name, address, phone and URL one
+of the synthetic forms, ratings the fixed 4 / 10, coordinates at 4 decimals. A raw capture
+dropped in beside them fails one rule or the other at load.
+
+**No `types`, no `businessStatus` — in any file (2026-09-23).** The production mask stopped
+requesting both before D-01 (nothing read them), the anonymizer no longer keeps them, and
+`places.ts` refuses at load any `places-*.json` — hand-authored or recorded — whose places carry
+either key (`NEVER_KEPT` in `scripts/lib/anonymize-places.ts`). A committed fixture must never
+hold Google's own enum values, and a synthetic one must not serve a field the real API is never
+asked for.
+
+**No `, USA` on a domestic address (B-CR-01, 2026-09-24).** Every request carries
+`regionCode: 'US'`, and Google then omits the country from a US `formattedAddress`. The domestic
+fixtures therefore end at the state and ZIP (`…, McAllen, TX 78501`) — the shape a real sweep
+sees. Only a foreign listing carries a country (`…, Tamps., Mexico`), and that tail is what the
+out-of-area rule (`src/lib/places/area.ts`) reads. A fixture that put `, USA` back would hide a
+matcher that keys on the suffix again.
+
+### The spine contract (with `tests/db/_places-fixtures.ts` `PLACES_SPINE`, plan 04-09)
+
+`places-match-page.json` uses exactly the spine's names, street addresses and phones, so the
+matcher has something real to find. Change one side and the other must change with it.
+
+| Place id                    | Serves as                                                                                                           | Expected against the spine                                 |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| `synthetic-match-ortiz`     | `Ortiz Plumbing`, `1200 N 10th St, McAllen, TX 78501`, 26.2159/−98.2336, `(956) 631-0001`, no site                  | ortiz — exact; host class `none`                           |
+| `synthetic-match-garza`     | `Garza Electric LLC`, `4100 N 23rd St, McAllen, TX 78504`, 26.2490/−98.2389, `(956) 631-0002`, `business.site`      | garza — `dead` site                                        |
+| `synthetic-match-rio`       | `Rio Roofing`, **pure SAB** (no address, no location), `(956) 631-0003`, facebook                                   | ties rio and rioCo (same phone) — `social`                 |
+| `synthetic-match-valley`    | `Valley Locksmith`, **pure SAB**, `(956) 631-0004`, `.example`                                                      | valley — the SAB phone+city path; `other`                  |
+| `synthetic-match-tentative` | `Ortiz Plumbing TX`, `… Ste 5`, 26.2161/−98.2335, `(956) 555-0199`                                                  | a near-miss of ortiz: **82** (pinned by 04-18 — see below) |
+| `synthetic-match-nothing`   | `Synthetic Nobody Services`, `9 Synthetic Rd`, no phone                                                             | matches nothing                                            |
+| `synthetic-match-mexico`    | `Synthetic Taller`, Reynosa, Tamps., 26.07/−98.29                                                                   | outside Texas                                              |
+
+**The one adjustment (04-18).** `synthetic-match-tentative` was first `Ortiz Plumbing and Drain`.
+`nameNorm` drops the `and`, and pg_trgm puts `ortiz plumbing drain` at 0.714 against
+`ortiz plumbing`: name 24 + address 30 (the suite is on one side only, so no unit conflict) +
+distance 15 (24 m) + cluster 5 = **74**, below the review band, so it came back `unmatched`. Renamed
+to `Ortiz Plumbing TX` (similarity 0.833 — below the 0.85 name-signal bar, so still two signals):
+name 32 + 30 + 15 + 5 = **82**. Everything else about the record is unchanged. The score is pinned
+in `tests/db/places-search-tile.test.ts`.
+
+`PLACES_SENTINELS` (exported by `places.ts`) is every `displayName.text`, `formattedAddress`,
+`nationalPhoneNumber` and `websiteUri` these files serve, read out of the files at load. The
+"no Places text reaches the database" and "no step returns Places content" scans search for
+them.
+
+### Recorded (anonymized) — D-04 (plan 04-32)
+
+| File                                      | Places | `nextPageToken` | Purpose                                                  |
+| ----------------------------------------- | ------ | --------------- | -------------------------------------------------------- |
+| `places-recorded-mcallen-plumber-p1.json` | 20     | `recorded:p2`   | `city:48215/McAllen\|plumber\|r` (the root tile), page 1 |
+| `places-recorded-mcallen-plumber-p2.json` | 13     | —               | Page 2, the last: the root was **not** saturated         |
+
+- **When:** 2026-09-24 (America/Chicago), 22:20 CDT. The sidecar's `recordedAt` reads
+  `2026-09-25T03:20:04.072Z` because it is UTC. Google's quota day (midnight Pacific) was
+  also 2026-09-24.
+- **How:** one run of `pnpm record:places` with `--type=plumber`,
+  `--unit=city:48215/McAllen`, `--max-requests=3` and `--out=mcallen-plumber`, against the
+  local McAllen × home_services version. **2 real Text Search Enterprise requests** (page 1 and
+  page 2). The third allowed request was never needed, so there is no `-p3` file and no
+  child-quad recording.
+- **The ledger.** The recorder ran against the **LOCAL** database, so its two `cost_ledger`
+  rows (`ts_enterprise`, units 1, $0.00 each) are in the local ledger, **not production's**.
+  The requests went to the same Google Cloud project production uses: they count against the
+  same free 1,000 Text Search Enterprise requests per month and the same 100/day GCP quota,
+  and production's meter cannot see them. Take 2 off production's apparent headroom for
+  September 2026 and for 2026-09-24.
+- **What it holds:** 33 unique real place ids over 2 pages; the root unsaturated; **9** places
+  with `pureServiceAreaBusiness: true` (none with an address or a location) and 24 located.
+  Kept from Google: the ids, the page split, which fields each place carried, and the SAB
+  flags. **Synthetic** (D-20): every name (`Synthetic plumber NNN`), every address
+  (`NNN Synthetic St, McAllen, TX 78500`), every phone (`(956) 555-01NN`), every URL (a
+  synthetic URL of the same host class) and every location (a hashed point inside the searched
+  rectangle, 4 decimals). Every rating and review count is the fixed 4 / 10 (D-21:
+  memory-only fields never reach git). The page token is the anonymizer's `recorded:p2`, not
+  Google's.
+- **Replayed by** `tests/db/places-recorded-replay.test.ts` ("recorded fixtures replay
+  through the tile search") through the real meter, matcher and writers. Its one finding: a
+  recorded service area can never be **observed**. `place_observations`, the only table that
+  holds `pure_sab`, is written for matched places only, and an anonymized SAB (a
+  never-blockable 555 phone, no address, no pin) scores at most name 45 + cluster 5 = 50
+  against even its exact twin. The flag's positive path stays covered by the synthetic
+  `synthetic-match-valley`.
+
+### Re-recording (Places)
+
+Not until the D-01 legal checkpoint (plan 04-29) has passed, and only through
+`scripts/record-places-fixtures.ts`, which anonymizes in memory. Never hand-edit a recorded
+file into shape and never commit a raw response. The recorder writes
+`places-recorded-<out>-p<N>.json` and sets the sidecar itself (`"anonymized": true` at the top,
+and `"synthetic": false, "anonymized": true, recordedAt, requests` on each recorded file); keep
+the match page's spine contract intact, and re-read every assertion that names a `synthetic-` id.
+Invocation, guards and the ledger it writes: the header of `scripts/record-places-fixtures.ts`.

@@ -2,12 +2,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { ClosedBadge } from '@/components/flags/closed-badge';
 import { ChainBadge } from '@/components/flags/flag-badge';
 import { cn } from '@/lib/utils';
-import {
-  FLAG_CLOSED,
-  REVIEW_MISSING_FIELD,
-  REVIEW_SIDE_LABEL,
-  SOURCE_TAG,
-} from '@/lib/ui/copy';
+import { FLAG_CLOSED, REVIEW_MISSING_FIELD, REVIEW_SIDE_LABEL, SOURCE_TAG } from '@/lib/ui/copy';
 import { displayPhone } from '@/lib/ui/review-format';
 import { formatLocal } from '@/lib/time';
 import type { CandidatePairView, CandidateSideView } from '@/server/queries/review-queue';
@@ -41,7 +36,9 @@ function Missing() {
 
 function addressOf(side: CandidateSideView): string | null {
   const locality = [side.city, side.postal].filter((v): v is string => !!v && v.trim() !== '');
-  const parts = [side.street, locality.join(' ')].filter((v): v is string => !!v && v.trim() !== '');
+  const parts = [side.street, locality.join(' ')].filter(
+    (v): v is string => !!v && v.trim() !== '',
+  );
   return parts.length > 0 ? parts.join(', ') : null;
 }
 
@@ -52,7 +49,14 @@ function categoryOf(side: CandidateSideView): string | null {
   return parts.length > 0 ? parts.join(' · ') : null;
 }
 
-function Side({
+/**
+ * One spine record as a review card, in D-13's field order. It is exported for the Google-listing
+ * item (04-UI-SPEC § Screen 3), whose spine business renders through THIS card rather than a
+ * fork, so a duplicate pair and a Google item show a record the same way.
+ *
+ * The first-side card (`which="a"`) carries the focus hook the queue advance moves focus to.
+ */
+export function SpineRecordCard({
   side,
   which,
   'data-testid': testId,
@@ -115,7 +119,7 @@ function Side({
 export function CandidatePair({ pair }: { pair: CandidatePairView }) {
   return (
     <div data-testid="review-pair" className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-6">
-      <Side side={pair.a} which="a" data-testid="review-side-a" className="sm:order-1" />
+      <SpineRecordCard side={pair.a} which="a" data-testid="review-side-a" className="sm:order-1" />
       <SignalChips
         score={pair.score}
         features={pair.features}
@@ -123,7 +127,7 @@ export function CandidatePair({ pair }: { pair: CandidatePairView }) {
         b={pair.b}
         className="sm:order-3 sm:col-span-2"
       />
-      <Side side={pair.b} which="b" data-testid="review-side-b" className="sm:order-2" />
+      <SpineRecordCard side={pair.b} which="b" data-testid="review-side-b" className="sm:order-2" />
     </div>
   );
 }

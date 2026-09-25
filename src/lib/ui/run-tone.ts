@@ -20,6 +20,8 @@
  * beside its tone. UI-SPEC § Accessibility makes that a requirement, not a preference,
  * and it is why the two maps ship together rather than the tone map shipping alone.
  */
+import { isoWeekOf } from '@/lib/places/partition';
+import { RUN_KIND_PARTITION_PAST, RUN_KIND_PARTITION_WEEK } from './copy';
 
 /**
  * The six values of the `runs_status_known` CHECK constraint, and exactly those.
@@ -70,6 +72,63 @@ export const RUN_STATUSES: readonly RunStatus[] = [
   'refused',
   'failed',
 ];
+
+/* --- Places runs: stopped reasons and run kinds (04-UI-SPEC Rule 35, Open Question 19) ---
+ *
+ * `runs.stopped_reason` is a MACHINE KEY in the database and a SENTENCE on screen. These are
+ * the keys; the sentences are `STOPPED_REASON` in `./copy.ts`, a `Record<StoppedReason, …>`,
+ * so a key with no sentence is a compile error rather than a raw `google_daily_quota` in a
+ * recent-runs row.
+ *
+ * The first six are the places-sweep reducer's `StopReason | FailReason`
+ * (`src/workflows/places-sweep/reducer.ts`); `never_started` and `abandoned` are written by
+ * the stale-run sweeper and migration 0027's backfill. `tests/unit/ui-maps.test.ts` pins the
+ * reducer's unions to this one at compile time and walks every `stopped_reason = '…'`
+ * literal in `drizzle/` and `src/`, so a new writer cannot land a key this list lacks. The
+ * reducer is not imported here: it lives in the workflow sandbox, and the UI must not reach
+ * into it for a string list. */
+
+export const STOPPED_REASONS = [
+  'budget_cap_reached',
+  'exceeded_estimate',
+  'google_daily_quota',
+  'places_request_rejected',
+  'places_unavailable',
+  'places_key_missing',
+  'never_started',
+  'abandoned',
+] as const;
+
+export type StoppedReason = (typeof STOPPED_REASONS)[number];
+
+/** What a run searched for: every cell, this ISO week's cells, or the free IDs-only diff. The
+ *  report, the preset's recent runs and `/spend` all label it, in these words. */
+export const RUN_KINDS = ['full_sweep', 'partition', 'change_check'] as const;
+
+export type RunKind = (typeof RUN_KINDS)[number];
+
+export const RUN_KIND_LABEL: Record<RunKind, string> = {
+  full_sweep: 'Full sweep',
+  partition: "This week's partition",
+  change_check: 'Change check',
+};
+
+/**
+ * 🔴 C-WR-06: THE LABEL FOR A RUN THAT HAPPENED — the report header, the preset's recent runs,
+ * `/spend` By-run. `RUN_KIND_LABEL.partition` ("This week's partition") is deictic: true on the
+ * preset page's action row, false on a partition run from three weeks ago. A past partition run
+ * is "Weekly partition · week 36", its ISO week taken in APP_TZ from when it started (or was
+ * created); with no instant at all, just "Weekly partition". The other kinds read the same as
+ * `RUN_KIND_LABEL`. An unknown kind is `null` — rendered as nothing, never as its key.
+ */
+export function runKindLabelOf(kind: string, atMs: number | null): string | null {
+  if (kind === 'partition') {
+    return atMs === null
+      ? RUN_KIND_PARTITION_PAST
+      : RUN_KIND_PARTITION_WEEK(isoWeekOf(new Date(atMs)).isoWeek);
+  }
+  return Object.hasOwn(RUN_KIND_LABEL, kind) ? RUN_KIND_LABEL[kind as RunKind] : null;
+}
 
 /* --- Ingest runs (03-UI-SPEC § 2, `/sources`) -------------------------------------------
  *

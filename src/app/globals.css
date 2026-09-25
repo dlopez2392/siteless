@@ -69,6 +69,11 @@
   --warning-surface: #FEF0C7;
   --warning-surface-foreground: #B54708;
 
+  /* Google's "Google Maps" text attribution (04-UI-SPEC § Color, D-11). Google's policy
+     permits exactly white, black #1F1F1F or gray #5E5E5E; none of the inherited tokens is
+     one of them. A legal requirement, used by `.google-maps-attribution` and nothing else. */
+  --google-attribution: #5E5E5E;
+
   /* Sidebar chrome. `--sidebar-accent` is the active nav row's background, which
      UI-SPEC § App shell specifies as the muted fill (accent shows as the label, the
      icon and the 2px edge bar, never as a filled row). */
@@ -119,6 +124,8 @@
   --warning-surface: #3B2708;
   --warning-surface-foreground: #FDB022;
 
+  --google-attribution: #FFFFFF;
+
   --sidebar-accent: #1D272A;
   --sidebar-accent-foreground: #E7EDEE;
   --sidebar-border: #263136;
@@ -159,6 +166,8 @@
   --color-warning-foreground: var(--warning-foreground);
   --color-warning-surface: var(--warning-surface);
   --color-warning-surface-foreground: var(--warning-surface-foreground);
+
+  --color-google-attribution: var(--google-attribution);
 
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
@@ -206,4 +215,18 @@
   html {
     @apply font-sans;
   }
+}
+
+/* The one attribution treatment (04-UI-SPEC Executor Rule 29), used only by GoogleMapsTag.
+   Google's policy fixes the font (Roboto, sans-serif fallback, 12–16sp, weight 400) and the
+   colour. No web font is loaded and no font package is added: a device without Roboto takes
+   Google's permitted sans-serif fallback. The e2e theme probe pins the computed values. */
+.google-maps-attribution {
+  font-family: Roboto, sans-serif;
+  font-size: 14px;
+  font-weight: 400;
+  font-style: normal;
+  letter-spacing: normal;
+  white-space: nowrap;
+  color: var(--color-google-attribution);
 }

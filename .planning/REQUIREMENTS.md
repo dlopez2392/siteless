@@ -32,12 +32,12 @@ Requirements for initial release. Each maps to roadmap phases. Success metric: 5
 
 ### Places Verifier
 
-- [ ] **PLACE-01**: System queries Google Places API (New) Text Search with a hard-coded field-mask allow-list; a `fieldMaskTier()` function maps fields to SKU tier and refuses unknown fields; Place Details is never called per candidate
-- [ ] **PLACE-02**: System persists only `place_id` (indefinite), lat/lng (30-day TTL, enforced), and a derived `had_website_uri` boolean per business; every other Places field is discarded after the call
-- [ ] **PLACE-03**: A search that hits the 60-result ceiling is detected and its tile subdivided; a run reports truncation rather than returning a silent partial
-- [ ] **PLACE-04**: Enterprise-SKU searches run on rotating weekly partitions of the (cluster × city × type) cell list; nightly change detection uses the free IDs-Only SKU
-- [ ] **PLACE-05**: Searches include pure service-area businesses (`includePureServiceAreaBusinesses: true`)
-- [ ] **PLACE-06**: Google Maps attribution requirements are met wherever a Places-derived signal is displayed
+- [x] **PLACE-01**: System queries Google Places API (New) Text Search with a hard-coded field-mask allow-list; a `fieldMaskTier()` function maps fields to SKU tier and refuses unknown fields; Place Details is never called per candidate
+- [x] **PLACE-02**: System persists only `place_id` (indefinite), lat/lng (30-day TTL, enforced), and derived signals per business — a `had_website_uri` boolean, a host class computed from `websiteUri` at call time (`none | business_site_dead | social | directory | platform_subdomain | other`; the URL itself is discarded), and the `pureServiceAreaBusiness` flag; every other Places field is discarded after the call (amended by 04-CONTEXT D-09/D-13)
+- [x] **PLACE-03**: A search that hits the 60-result ceiling is detected and its tile subdivided; a run reports truncation rather than returning a silent partial
+- [x] **PLACE-04**: Enterprise-SKU searches run on rotating weekly partitions of the (cluster × city × type) cell list; nightly change detection uses the free IDs-Only SKU
+- [x] **PLACE-05**: Searches include pure service-area businesses (`includePureServiceAreaBusinesses: true`)
+- [x] **PLACE-06**: Google Maps attribution requirements are met wherever a Places-derived signal is displayed
 
 ### Verification & Receipts
 
@@ -73,7 +73,7 @@ Requirements for initial release. Each maps to roadmap phases. Success metric: 5
 
 - [x] **BUDG-01**: Every outbound paid API call writes a cost-ledger row `{provider, sku, units, cost_cents, run_id, lead_id?}` — instrumented before the first billable call
 - [x] **BUDG-02**: A monthly cap (default < $50) is enforced by an atomic reserve → spend → true-up operation that refuses at 100% and warns at 80%, gating both enumeration and verification
-- [ ] **BUDG-03**: A Google Cloud per-API daily quota is configured as an independent second wall
+- [x] **BUDG-03**: A Google Cloud per-API daily quota is configured as an independent second wall
 - [x] **BUDG-04**: The dashboard shows month-to-date spend versus the cap, broken down by provider
 
 ### Triage
@@ -198,7 +198,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SRCH-04 | Phase 2 | Complete |
 | BUDG-01 | Phase 2 | Complete |
 | BUDG-02 | Phase 2 | Complete |
-| BUDG-03 | Phase 2 | Pending |
+| BUDG-03 | Phase 4 | Complete |
 | BUDG-04 | Phase 2 | Complete |
 | DATA-01 | Phase 3 | Complete |
 | DATA-02 | Phase 3 | Complete |
@@ -208,12 +208,12 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DEDUP-02 | Phase 3 | Complete |
 | DEDUP-03 | Phase 3 | Complete |
 | DEDUP-04 | Phase 3 | Complete |
-| PLACE-01 | Phase 4 | Pending |
-| PLACE-02 | Phase 4 | Pending |
-| PLACE-03 | Phase 4 | Pending |
-| PLACE-04 | Phase 4 | Pending |
-| PLACE-05 | Phase 4 | Pending |
-| PLACE-06 | Phase 4 | Pending |
+| PLACE-01 | Phase 4 | Complete |
+| PLACE-02 | Phase 4 | Complete |
+| PLACE-03 | Phase 4 | Complete |
+| PLACE-04 | Phase 4 | Complete |
+| PLACE-05 | Phase 4 | Complete |
+| PLACE-06 | Phase 4 | Complete |
 | VERIF-02 | Phase 5 | Pending |
 | VERIF-03 | Phase 5 | Pending |
 | VERIF-04 | Phase 5 | Pending |

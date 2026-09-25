@@ -38,7 +38,7 @@ export type LocationMatchType = 'overture' | 'census_exact' | 'census_non_exact'
 
 export type Side = {
   id: string;
-  source: 'tx_comptroller' | 'overture';
+  source: 'tx_comptroller' | 'overture' | 'google_places';
   nameNorm: string | null;
   phoneE164: string | null;
   phoneBlockable: boolean;
@@ -76,7 +76,7 @@ export type Features = {
   nameSim: number;
   distanceM: number | null;
   signals: SignalName[];
-  rule?: 'phone_locality_name' | 'phone_locality_review' | 'over_25km';
+  rule?: 'phone_locality_name' | 'phone_locality_review' | 'over_25km' | 'sab_phone_city';
 };
 export type ScoreResult = { score: number; band: Band; signals: SignalName[]; features: Features };
 

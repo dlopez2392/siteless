@@ -36,7 +36,7 @@ import {
 import { pgFailure } from '@/server/actions/_pg';
 import { decideCandidate } from '@/server/actions/_merge-decisions';
 import type { Tx } from '@/server/queries/budget';
-import { readReviewQueue } from '@/server/queries/review-queue';
+import { readReviewQueue, type ReviewQueue } from '@/server/queries/review-queue';
 import { actAs, actAsOwner, seedTwoOrgs } from './_fixtures';
 import { asPg, closeDrizzleTx, withTxRollback } from './_drizzle-tx';
 import { CLAIMS_A, seedMergePair, seedTriple } from './_merge-fixtures';
@@ -105,6 +105,16 @@ afterAll(async () => {
   request.tx = null;
   await closeDrizzleTx();
 });
+
+/**
+ * The queue's top item, which in these Phase 3 fixtures (pairs only, no Places rows) must be a
+ * duplicate PAIR — asserted, not assumed, since 04-21 made `top` a two-kind union.
+ */
+function pairOf(queue: ReviewQueue) {
+  if (queue.top === null) return null;
+  expect(queue.top.kind).toBe('pair');
+  return queue.top.kind === 'pair' ? queue.top : null;
+}
 
 /** One statement Postgres must refuse, in its own savepoint so the test can continue. */
 async function refusedCode(tx: Tx, run: (sp: Tx) => Promise<unknown>): Promise<string | null> {
@@ -275,9 +285,9 @@ describe('review decision core, as a Clerk user', () => {
         kind: 'recorded',
       });
       let queue = await readReviewQueue(tx);
-      expect(queue.top?.candidateId).toBe(bc);
+      expect(pairOf(queue)?.candidateId).toBe(bc);
       // The B side renders as its live root, A — never the merged-away B.
-      expect(new Set([queue.top?.a.id, queue.top?.b.id])).toEqual(
+      expect(new Set([pairOf(queue)?.a.id, pairOf(queue)?.b.id])).toEqual(
         new Set([t.a.businessId, t.c.businessId]),
       );
       expect(queue.remaining).toBe(2);
@@ -294,7 +304,12 @@ describe('review decision core, as a Clerk user', () => {
       const c = asPg(tx);
       const { a, b } = await seedTwoOrgs(c);
       await actAs(c, CLAIMS_A);
-      expect(await readReviewQueue(tx)).toEqual({ top: null, remaining: 0, ingested: false });
+      expect(await readReviewQueue(tx)).toEqual({
+        top: null,
+        remaining: 0,
+        counts: { pairs: 0, google: 0 },
+        ingested: false,
+      });
 
       // A run that never finished writing (running / failed) has scored nothing, and another
       // org's finished run is not this org's.
@@ -320,7 +335,12 @@ describe('review decision core, as a Clerk user', () => {
         [a],
       );
       await actAs(c, CLAIMS_A);
-      expect(await readReviewQueue(tx)).toEqual({ top: null, remaining: 0, ingested: true });
+      expect(await readReviewQueue(tx)).toEqual({
+        top: null,
+        remaining: 0,
+        counts: { pairs: 0, google: 0 },
+        ingested: true,
+      });
     }));
 
   it('skip sinks a pair below the undecided and distinct decides one', () =>
@@ -335,12 +355,12 @@ describe('review decision core, as a Clerk user', () => {
 
       let queue = await readReviewQueue(tx);
       expect(queue.remaining).toBe(2);
-      expect(queue.top?.candidateId).toBe(high.candidateId);
+      expect(pairOf(queue)?.candidateId).toBe(high.candidateId);
 
       const skipped = await decideCandidate(tx, { candidateId: high.candidateId, decision: 'skip' });
       expect(skipped).toMatchObject({ kind: 'recorded', remaining: 2, mergeId: null });
       queue = await readReviewQueue(tx);
-      expect(queue.top?.candidateId).toBe(low.candidateId); // 85 undecided beats 90 skipped
+      expect(pairOf(queue)?.candidateId).toBe(low.candidateId); // 85 undecided beats 90 skipped
 
       const distinct = await decideCandidate(tx, {
         candidateId: low.candidateId,
@@ -348,7 +368,7 @@ describe('review decision core, as a Clerk user', () => {
       });
       expect(distinct).toMatchObject({ kind: 'recorded', remaining: 1 });
       queue = await readReviewQueue(tx);
-      expect(queue.top?.candidateId).toBe(high.candidateId); // the skipped pair resurfaces
+      expect(pairOf(queue)?.candidateId).toBe(high.candidateId); // the skipped pair resurfaces
       expect(queue.remaining).toBe(1);
     }));
 });

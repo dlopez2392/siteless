@@ -14,6 +14,10 @@ import { fileURLToPath } from 'node:url';
 // authoritative.
 loadEnv({ path: '.env.local', override: false });
 
+// Assigned AFTER .env.local so a real key there can never reach a test; msw's Places
+// handler requires the header.
+process.env.GOOGLE_PLACES_API_KEY = 'test-key-not-real';
+
 export default defineConfig({
   resolve: { alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) } },
   test: {

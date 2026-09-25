@@ -3,7 +3,7 @@
 import { Copy } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { ERROR_ACTION } from '@/lib/ui/copy';
+import { COPY_FAILED, ERROR_ACTION } from '@/lib/ui/copy';
 
 /**
  * "Copy the command" — the only action on `/sources` (03-UI-SPEC § Copywriting Contract:
@@ -25,14 +25,36 @@ function copiedLine(command: string): string {
   return `Copied: ${command}`;
 }
 
-export function CopyCommandButton({ command, testId }: { command: string; testId: string }) {
+/**
+ * `label` / `copiedMessage` (04-17): the transient card's purge alert names its own action
+ * ("Copy the purge command") and toast ("Purge command copied") per 04-UI-SPEC § Screen 4.
+ * Both are plain strings from the copy module, passed by the server caller; omitted, the
+ * ledger's labels stand unchanged.
+ */
+export function CopyCommandButton({
+  command,
+  testId,
+  label = ERROR_ACTION.copyCommand,
+  copiedMessage,
+  failedMessage,
+}: {
+  command: string;
+  testId: string;
+  label?: string;
+  copiedMessage?: string;
+  /** C-WR-08: what a refused copy says. Default: "Couldn't copy — run: {command}". */
+  failedMessage?: string;
+}) {
   async function copy() {
     try {
       await navigator.clipboard.writeText(command);
-      toast.success(copiedLine(command));
+      toast.success(copiedMessage ?? copiedLine(command));
     } catch {
-      // A refused clipboard (insecure context, denied permission) is not an error worth an
-      // alert: the command is printed verbatim in the sentence right above this button.
+      // 🔴 C-WR-08: NEVER SILENT. A refused clipboard (insecure context, denied permission, some
+      // in-app browsers) used to be swallowed on the grounds that the command was printed
+      // beside the button — true of the ledger's ingest command, false of the purge command
+      // and of the collapsed tile list. The reader taps and must learn it didn't work.
+      toast.error(failedMessage ?? COPY_FAILED(command));
     }
   }
 
@@ -45,7 +67,7 @@ export function CopyCommandButton({ command, testId }: { command: string; testId
       className="h-11 gap-2 px-4 text-base font-normal"
     >
       <Copy aria-hidden="true" className="size-4" />
-      {ERROR_ACTION.copyCommand}
+      {label}
     </Button>
   );
 }

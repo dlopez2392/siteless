@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { DetailHeader } from '@/components/business-detail/detail-header';
 import { FieldsAndSources } from '@/components/business-detail/fields-and-sources';
+import { GoogleCheck } from '@/components/business-detail/google-check';
 import {
   MergeHistory,
   type MergeContext,
@@ -19,7 +20,11 @@ import {
 import { orgClaims } from '@/lib/auth/require-org';
 import { isUuid } from '@/lib/ids';
 import { BUSINESSES_TITLE, SOURCE_TAG } from '@/lib/ui/copy';
-import { getBusinessDetail, type MergeHistoryRow } from '@/server/queries/businesses';
+import {
+  getBusinessDetail,
+  type GoogleCheckView,
+  type MergeHistoryRow,
+} from '@/server/queries/businesses';
 import { actorNames } from './actor-names';
 
 export const dynamic = 'force-dynamic';
@@ -56,8 +61,12 @@ function sourceTagOf(key: string | null): string | null {
   return SOURCE_TAG[key as keyof typeof SOURCE_TAG];
 }
 
-function clerkUserIds(merges: MergeHistoryRow[]): string[] {
+function clerkUserIds(merges: MergeHistoryRow[], google: GoogleCheckView): string[] {
   const ids = new Set<string>();
+  // 04-25: who rejected or detached a Google listing — the definer stamps the claims' subject.
+  for (const l of google.listings) {
+    if (l.decidedBy !== null && l.decidedBy.startsWith('user_')) ids.add(l.decidedBy);
+  }
   for (const m of merges) {
     if (m.reason === 'review' && m.mergedBy.startsWith('user_')) ids.add(m.mergedBy);
     if (m.undoneBy !== null && m.undoneBy.startsWith('user_')) ids.add(m.undoneBy);
@@ -77,7 +86,7 @@ export default async function BusinessDetailPage({
   const detail = await getBusinessDetail(claims, id);
   if (!detail) notFound();
 
-  const names = await actorNames(clerkUserIds(detail.merges));
+  const names = await actorNames(clerkUserIds(detail.merges, detail.google));
   const nameOf = (actor: string) => names.get(actor) ?? actor;
 
   const merges: MergeRow[] = detail.merges.map((m) => ({
@@ -102,6 +111,16 @@ export default async function BusinessDetailPage({
   };
 
   const displayName = detail.fields.displayName.value ?? detail.externalKey;
+
+  // 04-25: the spine's own name, city and cluster — the Maps link's query and the empty state's
+  // sentence. Never a Places value (Rule 30) and never a coordinate (Rule 32).
+  const googleBusiness = {
+    id: detail.id,
+    displayName,
+    city: detail.fields.cityZip.value?.city ?? null,
+    cluster: detail.fields.category.value?.clusterName ?? null,
+  };
+  const googleActors: Record<string, string> = Object.fromEntries(names);
 
   return (
     <div data-testid="business-detail" className="flex flex-col gap-6">
@@ -134,6 +153,9 @@ export default async function BusinessDetailPage({
       />
 
       <FieldsAndSources fields={detail.fields} />
+
+      {/* 04-UI-SPEC § Screen 5: Fields and sources → Google Maps check → Source records. */}
+      <GoogleCheck google={detail.google} business={googleBusiness} actors={googleActors} />
 
       <SourceRecords records={detail.sourceRecords} />
 

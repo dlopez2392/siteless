@@ -16,3 +16,12 @@ export * from './merge-candidates';
 export * from './business-merges';
 export * from './business-aliases';
 export * from './overture-categories';
+// Phase 4 plan 09: Places as a transient verifier.
+export * from './place-attachments';
+export * from './place-observations';
+export * from './place-coordinates';
+export * from './place-tiles';
+export * from './place-tile-members';
+export * from './run-searches';
+export * from './run-place-outcomes';
+export * from './place-purge-runs';

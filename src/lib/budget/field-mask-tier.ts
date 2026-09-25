@@ -2,11 +2,12 @@
  * THE FIELD MASK IS THE BUDGET CONTROL (PITFALLS 1, T-2-08, T-2-05).
  *
  * Places API (New) bills at the HIGHEST SKU present in the field mask sent on the
- * X-Goog-FieldMask request header, so the price of a call is a property of the mask and
- * of nothing else. This module is the single place that mapping is expressed, and the
- * repo grep in tests/unit/field-mask-tier.test.ts holds it to that: the header name may
- * be spelled in at most one module under src/, so a second call site cannot grow its own
- * answer the way BIS's five copies of the same date helper did.
+ * field-mask request header, so the price of a call is a property of the mask and of
+ * nothing else. This module is the single place that mapping is expressed. The header
+ * itself is spelled in exactly one module under src/ — src/lib/places/client.ts, the one
+ * module that sends it — and the repo grep in tests/unit/field-mask-tier.test.ts holds it
+ * to that, so a second call site cannot grow its own answer the way BIS's five copies of
+ * the same date helper did. This module deliberately does not spell the header name.
  *
  * THIS FUNCTION REFUSES; IT NEVER DEFAULTS. An unknown field throws. Defaulting to
  * Essentials is exactly how a field that costs $40 per 1,000 gets priced at $0 — the
@@ -31,6 +32,7 @@ const PRO = [
   'places.location',
   'places.types',
   'places.businessStatus',
+  'places.pureServiceAreaBusiness',
 ] as const;
 
 /** The tier that carries `websiteUri` — the entire reason Siteless pays Google at all. */
@@ -72,14 +74,26 @@ export const PLACES_TEXT_SEARCH_FIELD_MASK: readonly PlacesField[] = [
   'places.displayName',
   'places.formattedAddress',
   'places.location',
-  'places.types',
-  'places.businessStatus',
+  // `places.types` and `places.businessStatus` are deliberately NOT requested (2026-09-23,
+  // before D-01): nothing in src/ read them, so asking for them only widened what Google hands
+  // us. They stay in PRO above so fieldMaskTier() can still price them if a later phase asks.
+  // D-13. Pro tier — free at the margin under Enterprise; persisted only as the derived
+  // pure_sab flag.
+  'places.pureServiceAreaBusiness',
   'places.websiteUri',
   'places.nationalPhoneNumber',
+  // D-21: requested, memory-only — nothing in Phase 4 uses or persists them.
   'places.rating',
   'places.userRatingCount',
   'nextPageToken',
 ];
+
+/**
+ * D-16: the change check's mask. IDs only, so the free, unlimited Essentials SKU — a change
+ * check that enumerates a tile's place ids costs nothing, and only a tile whose id set moved
+ * is re-searched with the Enterprise mask above.
+ */
+export const PLACES_IDS_ONLY_FIELD_MASK: readonly PlacesField[] = ['places.id', 'nextPageToken'];
 
 /**
  * A type guard, not a bare `includes`. `Array.prototype.includes` returns a boolean and

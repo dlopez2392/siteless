@@ -1,0 +1,186 @@
+{
+  "places": [
+    {
+      "id": "ChIJhR_-FxOnZYYREBZ8raT3C0Q",
+      "pureServiceAreaBusiness": false,
+      "displayName": {
+        "text": "Synthetic plumber 021"
+      },
+      "formattedAddress": "021 Synthetic St, McAllen, TX 78500",
+      "location": {
+        "latitude": 26.1525,
+        "longitude": -98.2032
+      },
+      "nationalPhoneNumber": "(956) 555-0121",
+      "websiteUri": "https://synthetic-021.example"
+    },
+    {
+      "id": "ChIJSWhVXxihZYYRKXVXKaLHhoU",
+      "pureServiceAreaBusiness": false,
+      "displayName": {
+        "text": "Synthetic plumber 022"
+      },
+      "formattedAddress": "022 Synthetic St, McAllen, TX 78500",
+      "location": {
+        "latitude": 26.2922,
+        "longitude": -98.2616
+      },
+      "nationalPhoneNumber": "(956) 555-0122",
+      "rating": 4,
+      "userRatingCount": 10
+    },
+    {
+      "id": "ChIJ7zXXqK0PZYYRWYcU46xadGg",
+      "pureServiceAreaBusiness": false,
+      "displayName": {
+        "text": "Synthetic plumber 023"
+      },
+      "formattedAddress": "023 Synthetic St, McAllen, TX 78500",
+      "location": {
+        "latitude": 26.2325,
+        "longitude": -98.2592
+      },
+      "nationalPhoneNumber": "(956) 555-0123"
+    },
+    {
+      "id": "ChIJRwAddMC_1oERia0CBTZ9vOI",
+      "pureServiceAreaBusiness": true,
+      "displayName": {
+        "text": "Synthetic plumber 024"
+      },
+      "nationalPhoneNumber": "(956) 555-0124"
+    },
+    {
+      "id": "ChIJPX-3DoCpZYYR94SPgdBPEpA",
+      "pureServiceAreaBusiness": false,
+      "displayName": {
+        "text": "Synthetic plumber 025"
+      },
+      "formattedAddress": "025 Synthetic St, McAllen, TX 78500",
+      "location": {
+        "latitude": 26.2936,
+        "longitude": -98.262
+      },
+      "rating": 4,
+      "userRatingCount": 10
+    },
+    {
+      "id": "ChIJqzui_lmhZYYRgZ6bWJ01RmQ",
+      "pureServiceAreaBusiness": true,
+      "displayName": {
+        "text": "Synthetic plumber 026"
+      },
+      "nationalPhoneNumber": "(956) 555-0126"
+    },
+    {
+      "id": "ChIJXyGPBq-hZYYRi4NoPDbNoZ8",
+      "pureServiceAreaBusiness": false,
+      "displayName": {
+        "text": "Synthetic plumber 027"
+      },
+      "formattedAddress": "027 Synthetic St, McAllen, TX 78500",
+      "location": {
+        "latitude": 26.4305,
+        "longitude": -98.304
+      },
+      "nationalPhoneNumber": "(956) 555-0127",
+      "websiteUri": "https://synthetic-027.example",
+      "rating": 4,
+      "userRatingCount": 10
+    },
+    {
+      "id": "ChIJ8XVUfQuoZYYR1Ct4Y8QBDuc",
+      "pureServiceAreaBusiness": false,
+      "displayName": {
+        "text": "Synthetic plumber 028"
+      },
+      "formattedAddress": "028 Synthetic St, McAllen, TX 78500",
+      "location": {
+        "latitude": 26.2892,
+        "longitude": -98.2539
+      },
+      "nationalPhoneNumber": "(956) 555-0128",
+      "websiteUri": "https://synthetic-028.example",
+      "rating": 4,
+      "userRatingCount": 10
+    },
+    {
+      "id": "ChIJmaVIpzeDawcRmmqLyswkWRA",
+      "pureServiceAreaBusiness": false,
+      "displayName": {
+        "text": "Synthetic plumber 029"
+      },
+      "formattedAddress": "029 Synthetic St, McAllen, TX 78500",
+      "location": {
+        "latitude": 26.3435,
+        "longitude": -98.2495
+      },
+      "nationalPhoneNumber": "(956) 555-0129",
+      "websiteUri": "https://synthetic-029.example",
+      "rating": 4,
+      "userRatingCount": 10
+    },
+    {
+      "id": "ChIJywz970SnZYYRTo853OZmVXY",
+      "pureServiceAreaBusiness": false,
+      "displayName": {
+        "text": "Synthetic plumber 030"
+      },
+      "formattedAddress": "030 Synthetic St, McAllen, TX 78500",
+      "location": {
+        "latitude": 26.2172,
+        "longitude": -98.2946
+      },
+      "rating": 4,
+      "userRatingCount": 10
+    },
+    {
+      "id": "ChIJiSMIybugZYYRGuXRAt_iZNc",
+      "pureServiceAreaBusiness": false,
+      "displayName": {
+        "text": "Synthetic plumber 031"
+      },
+      "formattedAddress": "031 Synthetic St, McAllen, TX 78500",
+      "location": {
+        "latitude": 26.1214,
+        "longitude": -98.2094
+      },
+      "nationalPhoneNumber": "(956) 555-0131",
+      "websiteUri": "https://synthetic-031.example",
+      "rating": 4,
+      "userRatingCount": 10
+    },
+    {
+      "id": "ChIJO00yoeunZYYRc1WG64cUUok",
+      "pureServiceAreaBusiness": false,
+      "displayName": {
+        "text": "Synthetic plumber 032"
+      },
+      "formattedAddress": "032 Synthetic St, McAllen, TX 78500",
+      "location": {
+        "latitude": 26.1861,
+        "longitude": -98.2765
+      },
+      "nationalPhoneNumber": "(956) 555-0132",
+      "websiteUri": "https://synthetic-032.example",
+      "rating": 4,
+      "userRatingCount": 10
+    },
+    {
+      "id": "ChIJWQB0-E2hZYYR9i8QSEed5dM",
+      "pureServiceAreaBusiness": false,
+      "displayName": {
+        "text": "Synthetic plumber 033"
+      },
+      "formattedAddress": "033 Synthetic St, McAllen, TX 78500",
+      "location": {
+        "latitude": 26.3083,
+        "longitude": -98.2474
+      },
+      "nationalPhoneNumber": "(956) 555-0133",
+      "websiteUri": "https://synthetic-033.example",
+      "rating": 4,
+      "userRatingCount": 10
+    }
+  ]
+}

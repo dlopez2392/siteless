@@ -1,7 +1,8 @@
 /**
  * A preset becomes a list of CELLS. One cell is one (industry cluster × one geography
- * unit) pair, and a cell is the estimator's atom: requests scale off how many there are,
- * expected businesses off what each one contains.
+ * unit) pair, and a cell is the estimator's atom: requests scale off how many there are
+ * times the Places types each cell's cluster searches (D-18, `placesTypesFor`), expected
+ * businesses off what each one contains.
  *
  * 🔴 PURE. No I/O, no database, no fetch, no clock. The caller hands in the seed tables
  * and gets arithmetic back. That is what lets D-08's live-as-you-type estimate exist at
@@ -20,6 +21,7 @@ import type {
   CitiesFile,
   CitySeed,
   ClusterKey,
+  ClustersFile,
   CountiesFile,
   CountySeed,
   GeoPresetsFile,
@@ -59,6 +61,9 @@ export type Cell = {
  *  pure and so a test can hand it a deliberately-broken seed. */
 export type SeedTables = {
   cities: CitiesFile;
+  /** D-18: the estimate counts each cluster's Places types, so the cluster table is an
+   *  estimator input now, not only a seed for the database. */
+  clusters: ClustersFile;
   counties: CountiesFile;
   outletCounts: OutletCountsFile;
   geoPresets: GeoPresetsFile;
@@ -66,7 +71,46 @@ export type SeedTables = {
 
 /** U+0000 cannot occur in a FIPS code, a county name or a cluster key, so it is the one
  *  separator that cannot collide with data. A `-` would. */
-const SEP = '\u0000';
+export const CELL_KEY_SEP = '\u0000';
+const SEP = CELL_KEY_SEP;
+
+/**
+ * The one name for a cell outside this module: cluster key + U+0000 + the cell's `unitId`.
+ * The partition planner and the run planner key cells by this, so it is exported rather
+ * than re-joined at each call site with a separator that could drift.
+ */
+export function cellKey(clusterKey: string, unitId: string): string {
+  return clusterKey + CELL_KEY_SEP + unitId;
+}
+
+/**
+ * The Places types a cluster searches, read from clusters.json. Throws naming the key when
+ * the cluster is not seeded: a silent empty list would price that cluster at zero requests,
+ * which reads as "free" — the one wrong answer the estimate must never give.
+ */
+export function placesTypesFor(clusterKey: string, seed: SeedTables): readonly string[] {
+  const cluster = seed.clusters.clusters.find((c) => c.key === clusterKey);
+  if (!cluster) {
+    throw new Error(
+      `placesTypesFor: no seeded cluster "${clusterKey}" in src/seed/data/clusters.json, so ` +
+        `its Places type searches cannot be counted.`,
+    );
+  }
+  return cluster.placesTypes;
+}
+
+/**
+ * B-CR-03. A radius unit's id names its GEOMETRY: county, centre (5 decimals, ~1 m — stable for
+ * one geocoded address, distinct for any two a person would type) and radius. The id flows into
+ * the tile keys and cell keys, and `place_tiles` is keyed per (org, tile_key) across every run
+ * and preset — so "5 mi around McAllen" and "5 mi around Edinburg" (both county 48215) must
+ * never share one, or the second preset's change check would search the first one's rectangle
+ * and diff against a merged membership. `,`, `.` and `-` pass the step wire untouched (wire.ts
+ * escapes only `%`, `/` and U+0000).
+ */
+export function radiusUnitId(countyFips: string, lat: number, lng: number, miles: number): string {
+  return `${countyFips}${SEP}${lat.toFixed(5)},${lng.toFixed(5)}${SEP}${miles}mi`;
+}
 
 const countyClusterKey = (fips: string, cluster: string) => fips + SEP + cluster;
 const cityKey = (countyFips: string, name: string) => countyFips + SEP + name;
@@ -237,9 +281,12 @@ export function expandCells(spec: PresetSpec, seed: SeedTables): Cell[] {
     }
 
     // radius
-    const { countyFips, radiusMiles } = spec.geo;
+    const { countyFips, radiusMiles, lat, lng } = spec.geo;
     if (!(radiusMiles > 0)) {
       throw new Error(`expandCells: radiusMiles must be greater than zero, got ${radiusMiles}`);
+    }
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      throw new Error('expandCells: a radius needs a finite centre');
     }
     // Area, not distance: halving the radius quarters the footprint. Capped at 1.0 because
     // the apportionment base is a whole county and a radius cannot contain more of a county
@@ -249,7 +296,7 @@ export function expandCells(spec: PresetSpec, seed: SeedTables): Cell[] {
       cellFor(
         clusterKey,
         'radius',
-        `${countyFips}${SEP}${radiusMiles}mi`,
+        radiusUnitId(countyFips, lat, lng, radiusMiles),
         countyClusterExact(countyFips, clusterKey, idx) * ratio,
       ),
     );

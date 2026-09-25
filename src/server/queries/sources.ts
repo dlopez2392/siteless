@@ -2,6 +2,7 @@ import 'server-only';
 import { sql } from 'drizzle-orm';
 import { withOrg, type OrgClaims } from '@/db/with-org';
 import { instantOf } from '@/lib/instant';
+import type { TransientStats } from '@/lib/places/purge-status';
 import { rowsOf, type Tx } from './budget';
 
 /**
@@ -22,7 +23,9 @@ import { rowsOf, type Tx } from './budget';
  * parses that text, never ISO-ifies it, and never calls `Intl` — the page formats through
  * `src/lib/time.ts`.
  *
- * ONE TRANSACTION PER REQUEST: `readSources` takes an open one, `listSources` opens it.
+ * ONE TRANSACTION PER REQUEST: `readSources` takes an open one, `listSources` opens it. The
+ * page itself calls `listSourcesPage` (04-17), which opens the one transaction for the ledger
+ * AND the Google Places transient figures (below).
  */
 
 export const SOURCE_KEYS = [
@@ -146,4 +149,85 @@ export async function readSources(tx: Tx): Promise<SourceLedgerRow[]> {
 
 export async function listSources(claims: OrgClaims): Promise<SourceLedgerRow[]> {
   return withOrg(claims, (tx) => readSources(tx));
+}
+
+/* --- The Google Places transient card (04-17, D-12; 04-UI-SPEC § Screen 4) ------------------- */
+
+type RawTransientStats = {
+  place_ids_held: string | number;
+  coordinates_held: string | number;
+  oldest_coordinate_ms: string | null;
+  expired_awaiting_purge: string | number;
+  oldest_expired_ms: string | null;
+  last_purge_ms: string | null;
+  last_rows_purged: number | null;
+};
+
+/** A bigint count arrives as TEXT through postgres.js; anything non-finite is refused, never 0. */
+function countOf(value: string | number, what: string): number {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0) {
+    throw new Error(`readTransientStats: ${what} is not a count (${JSON.stringify(value)})`);
+  }
+  return n;
+}
+
+/**
+ * The five figures, from `app.places_transient_stats()` (drizzle/0028 § 5; 0031 adds when the
+ * longest-waiting expired row expired, for the purge-overdue rule) for the transaction's
+ * org. `authenticated` holds NO privilege on `place_coordinates` (0027) and that stays true:
+ * the definer returns counts and three epoch-ms timestamps, never a row. The function always
+ * returns exactly one row (a cross join of aggregates); zero rows is refused, not defaulted.
+ */
+export async function readTransientStats(tx: Tx): Promise<TransientStats> {
+  const [row] = rowsOf<RawTransientStats>(
+    await tx.execute(sql`
+      select place_ids_held, coordinates_held, oldest_coordinate_ms,
+             expired_awaiting_purge, oldest_expired_ms, last_purge_ms, last_rows_purged
+        from app.places_transient_stats()`),
+  );
+  if (!row) throw new Error('readTransientStats: app.places_transient_stats() returned no row');
+  return {
+    placeIdsHeld: countOf(row.place_ids_held, 'place_ids_held'),
+    coordinatesHeld: countOf(row.coordinates_held, 'coordinates_held'),
+    oldestCoordinateMs: instantOf(row.oldest_coordinate_ms)?.getTime() ?? null,
+    expiredAwaitingPurge: countOf(row.expired_awaiting_purge, 'expired_awaiting_purge'),
+    oldestExpiredMs: instantOf(row.oldest_expired_ms)?.getTime() ?? null,
+    lastPurgeMs: instantOf(row.last_purge_ms)?.getTime() ?? null,
+    lastRowsPurged: row.last_rows_purged === null ? null : countOf(row.last_rows_purged, 'last_rows_purged'),
+  };
+}
+
+export type SourcesPage = {
+  /** Always the four ledger rows (Rule 27); the transient source is NEVER a fifth (Rule 37). */
+  rows: SourceLedgerRow[];
+  /** Null when the transient read failed — the card shows its own error; the ledger stands. */
+  transient: TransientStats | null;
+};
+
+/**
+ * `/sources`' ONE read: the ledger, then the transient figures, in ONE `withOrg` — the pool is
+ * `max: 1`, so a second `withOrg` from the page would HANG rather than fail.
+ *
+ * 🔴 THE TRANSIENT READ RUNS IN A SAVEPOINT. A failed statement aborts the whole transaction
+ * (every later statement is `25P02`), so without one a broken definer would take the ledger
+ * down with it. The savepoint rolls back only its own statement; the card renders its own
+ * error copy and the ledger renders as ever (04-UI-SPEC § Error). The failure is logged by
+ * error NAME only. A ledger failure still fails the whole read — the page's existing error.
+ */
+export async function listSourcesPage(claims: OrgClaims): Promise<SourcesPage> {
+  return withOrg(claims, async (tx) => {
+    const rows = await readSources(tx);
+    let transient: TransientStats | null;
+    try {
+      transient = await tx.transaction((sp) => readTransientStats(sp as unknown as Tx));
+    } catch (error) {
+      console.error(
+        'sources: the transient figures failed to load',
+        error instanceof Error ? error.name : 'unknown',
+      );
+      transient = null;
+    }
+    return { rows, transient };
+  });
 }

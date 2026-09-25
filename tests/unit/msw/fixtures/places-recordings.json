@@ -1,0 +1,85 @@
+{
+  "synthetic": true,
+  "anonymized": true,
+  "recordedFrom": "Places API (New) Text Search, via scripts/record-places-fixtures.ts, anonymized in memory (D-20)",
+  "note": "Two kinds of file coexist; each file's own entry decides which it is. Synthetic: hand-authored before the D-01 legal gate, no Google-authored text, every id synthetic- (no anonymized flag). Anonymized recordings (places-recorded-*, synthetic: false, anonymized: true): real Text Search pages recorded after D-01 by scripts/record-places-fixtures.ts and anonymized in memory (D-20). The top-level synthetic/anonymized flags only say which kinds are present; tests/unit/msw/places.ts checks them against the entries.",
+  "files": {
+    "places-saturated-p1.json": {
+      "purpose": "Saturated plumber search, page 1 of 3 (the 60-result cap)",
+      "places": 20,
+      "nextPageToken": true
+    },
+    "places-saturated-p2.json": {
+      "purpose": "Saturated plumber search, page 2 of 3 (pageToken saturated:p2)",
+      "places": 20,
+      "nextPageToken": true
+    },
+    "places-saturated-p3.json": {
+      "purpose": "Saturated plumber search, page 3 of 3 (pageToken saturated:p3); no further token",
+      "places": 20,
+      "nextPageToken": false
+    },
+    "places-child-12.json": {
+      "purpose": "A child tile after a subdivide: 12 places, under the cap, one page",
+      "places": 12,
+      "nextPageToken": false
+    },
+    "places-empty.json": {
+      "purpose": "A zero-result search: {} with no places key (research A5); served for any request no route claims",
+      "places": 0,
+      "nextPageToken": false
+    },
+    "places-match-page.json": {
+      "purpose": "The matching contract with tests/db/_places-fixtures.ts PLACES_SPINE: exact match, dead site, SAB phone tie, SAB phone+city, a tentative near-miss, a no-match and an outside-Texas place",
+      "places": 7,
+      "nextPageToken": false
+    },
+    "places-ids-only.json": {
+      "purpose": "An IDs-only (Essentials) response: 10 places carrying only id",
+      "places": 10,
+      "nextPageToken": false
+    },
+    "places-429-daily.json": {
+      "purpose": "Envelope: 429 RESOURCE_EXHAUSTED on the per-day quota (D-19: the run ends partial)",
+      "places": 0,
+      "nextPageToken": false,
+      "status": 429
+    },
+    "places-429-minute.json": {
+      "purpose": "Envelope: 429 RESOURCE_EXHAUSTED on the per-minute quota",
+      "places": 0,
+      "nextPageToken": false,
+      "status": 429
+    },
+    "places-400-invalid.json": {
+      "purpose": "Envelope: 400 INVALID_ARGUMENT",
+      "places": 0,
+      "nextPageToken": false,
+      "status": 400
+    },
+    "places-503.json": {
+      "purpose": "Envelope: 503 UNAVAILABLE",
+      "places": 0,
+      "nextPageToken": false,
+      "status": 503
+    },
+    "places-recorded-mcallen-plumber-p1.json": {
+      "purpose": "Recorded (anonymized) plumber search, city:48215/McAllen|plumber|r, page 1 of 2",
+      "places": 20,
+      "nextPageToken": true,
+      "synthetic": false,
+      "anonymized": true,
+      "recordedAt": "2026-09-25T03:20:04.072Z",
+      "requests": 2
+    },
+    "places-recorded-mcallen-plumber-p2.json": {
+      "purpose": "Recorded (anonymized) plumber search, city:48215/McAllen|plumber|r, page 2 of 2",
+      "places": 13,
+      "nextPageToken": false,
+      "synthetic": false,
+      "anonymized": true,
+      "recordedAt": "2026-09-25T03:20:04.072Z",
+      "requests": 2
+    }
+  }
+}

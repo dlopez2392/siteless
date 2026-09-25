@@ -48,6 +48,29 @@ export const runs = pgTable(
     callsCount: integer('calls_count').notNull().default(0),
     startedAt: tstz('started_at'),
     finishedAt: tstz('finished_at'),
+    // ---- Phase 4 plan 09 (D-15, D-16; 04-RESEARCH Pattern 8) ----
+    // What kind of run this is. A full sweep pays for Enterprise pages over every tile; a
+    // partition sweeps one quarter of the cells (D-16); a change check is IDs-only and free.
+    kind: text('kind').notNull().default('full_sweep'),
+    // 0..3 when kind = 'partition' (PARTITION_COUNT = 4); null otherwise.
+    partitionIndex: integer('partition_index'),
+    // The admission estimate (D-15), shown before the run starts and kept so the run screen
+    // can set what was promised beside what was spent.
+    estimateRequestsLo: integer('estimate_requests_lo'),
+    estimateRequestsHi: integer('estimate_requests_hi'),
+    estimateMicroUsdLo: bigint('estimate_micro_usd_lo', { mode: 'bigint' }),
+    estimateMicroUsdHi: bigint('estimate_micro_usd_hi', { mode: 'bigint' }),
+    // 🔴 Immutable after insert — deliberately OUTSIDE the UPDATE column grant (drizzle/0027,
+    // T-4-12), so a tenant session cannot raise its own ceiling mid-run. 0 on legacy rows
+    // means any reservation is refused: a Phase 2 run never had a ceiling.
+    ceilingRequests: integer('ceiling_requests').notNull().default(0),
+    // The Workflow DevKit run id, so the run screen can link to its trace. Column-granted.
+    workflowRunId: text('workflow_run_id'),
+    // The Clerk user (sub) who queued it. Null for a cron-started run.
+    requestedBy: text('requested_by'),
+    // Stamped by every workflow step; a running run whose heartbeat is stale is 'abandoned'.
+    // Column-granted.
+    heartbeatAt: tstz('heartbeat_at'),
   },
   (t) => [
     index('runs_org_idx').on(t.orgId),
@@ -58,6 +81,14 @@ export const runs = pgTable(
       'runs_status_known',
       sql`status in ('queued','running','complete','partial','refused','failed')`,
     ),
+    check('runs_kind_known', sql`kind in ('full_sweep','partition','change_check')`),
+    check(
+      'runs_partition_index_range',
+      sql`partition_index is null or partition_index between 0 and 3`,
+    ),
+    // One active run per org is a UNIQUE PARTIAL INDEX in drizzle/0027
+    // (`runs_one_active_per_org`), not here: 0027 must first fail the stale Phase 2 queued
+    // rows as never_started, or creating the index fails on apply.
     ...orgPolicies('runs'),
   ],
 );

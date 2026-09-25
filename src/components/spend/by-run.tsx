@@ -1,5 +1,13 @@
-import { Badge } from '@/components/ui/badge';
-import { Item, ItemActions, ItemContent, ItemGroup, ItemSeparator, ItemTitle } from '@/components/ui/item';
+import Link from 'next/link';
+import { RunStatusBadge } from '@/components/runs/run-status-badge';
+import {
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemGroup,
+  ItemSeparator,
+  ItemTitle,
+} from '@/components/ui/item';
 import {
   Table,
   TableBody,
@@ -10,26 +18,25 @@ import {
 } from '@/components/ui/table';
 import { formatUsd } from '@/lib/budget/money';
 import { formatLocal } from '@/lib/time';
-import { RUN_LABEL, RUN_TONE, type BadgeTone, type RunStatus } from '@/lib/ui/run-tone';
-import { cn } from '@/lib/utils';
+import { STOPPED_REASON } from '@/lib/ui/copy';
+import { runKindLabelOf } from '@/lib/ui/run-tone';
 import type { RunSpend } from '@/server/queries/budget';
 
 /**
  * D-14's "by run" tab: every run started in this budget month with what it actually cost.
  *
- * 🔴 THE STATUS RENDERS AS A WORD, NOT AS A COLOUR. `RUN_TONE` and `RUN_LABEL` ship
- * together from `src/lib/ui/run-tone.ts` and are read here as a pair — `refused` and
- * `failed` share the destructive tone and mean opposite things (the governor working
- * versus the pipeline breaking), so the label is the only thing that distinguishes them.
- * That module deliberately carries no client-boundary directive: its exports are read by
- * this server component, and a client module's exports arrive `undefined` inside one with
- * every gate green (UI-SPEC Executor Rule 5, two recorded BIS 500s).
+ * 🔴 THE STATUS IS THE SHARED `RunStatusBadge` (04-UI-SPEC § Reused, Rule 41) — a word,
+ * not a colour, at `FLAG_BADGE_SIZING`. It lived here until Phase 4 and was lifted to
+ * `src/components/runs/run-status-badge.tsx` so the run report and the preset's recent runs
+ * render the same badge rather than two more copies of it.
  *
- * 🔴 A STATUS THE MAP HAS NEVER HEARD OF STILL RENDERS ITS OWN WORD. The column is
- * `text` in the database behind a CHECK constraint, so the type here is `string`; falling
- * back to the raw value means a seventh status shows as itself rather than as an empty
- * badge. `tests/unit/ui-maps.test.ts` is what keeps the two lists from drifting in the
- * first place.
+ * 🔴 A STOPPED REASON IS A MACHINE KEY IN THE DATABASE AND A SENTENCE ON SCREEN (Executor
+ * Rule 35, threat T-4-05). `stoppedReasonOf` maps it through `STOPPED_REASON`; a key the map
+ * has never heard of renders NOTHING, never itself. Until Phase 4 this printed the stored
+ * key verbatim — `exceeded_estimate` on the spend screen.
+ *
+ * Every run links to its report at `/runs/{id}` through `spend-run-link-{runId}`: the name
+ * cell on desk, the whole card on phone — exactly one element per testid per layout.
  *
  * 🔴 `presetDisplayName`, NEVER an internal label (CONVENTIONS § Naming). BIS's single
  * `accounts.name` — the agency's own "Rio Roofing — trial" string — escaped to customers
@@ -40,39 +47,6 @@ import type { RunSpend } from '@/server/queries/budget';
  * DIFFERENT testids: one hook on two elements that are both in the DOM is the silent
  * `.first()` match 02-10 recorded as deviation 3.
  */
-
-const TONE_CLASS: Record<BadgeTone, string> = {
-  'neutral-outline': '',
-  // UI-SPEC § Screen Inventory 5 assigns `running` an accent outline, while § Accent
-  // reserved for item 7 calls the version badge "the only badge that carries accent".
-  // `src/lib/ui/run-tone.ts` shipped in plan 02-07 with `running: 'accent-outline'` and
-  // is the contract this component consumes, so the tone map wins and the contradiction
-  // is recorded in the plan summary rather than resolved silently here.
-  'accent-outline': 'border-primary text-primary',
-  'neutral-solid': '',
-  warning: 'border-warning/40 bg-warning-surface text-warning-surface-foreground',
-  destructive: '',
-};
-
-const TONE_VARIANT: Record<BadgeTone, 'outline' | 'secondary' | 'destructive'> = {
-  'neutral-outline': 'outline',
-  'accent-outline': 'outline',
-  'neutral-solid': 'secondary',
-  warning: 'outline',
-  destructive: 'destructive',
-};
-
-function RunStatusBadge({ status }: { status: string }) {
-  const known = status as RunStatus;
-  const tone = RUN_TONE[known];
-  const label = RUN_LABEL[known] ?? status;
-  const variant = tone ? TONE_VARIANT[tone] : 'outline';
-  return (
-    <Badge variant={variant} className={cn(tone ? TONE_CLASS[tone] : '', 'text-xs font-semibold')}>
-      {label}
-    </Badge>
-  );
-}
 
 /** "Sep 22, 3:04 PM", in the app's zone with the locale pinned. A bare `Date` formatter
  *  would resolve the SYSTEM zone, which on Vercel is UTC — the same run rendering on two
@@ -105,10 +79,25 @@ function runName(run: RunSpend): string {
   return `${run.presetDisplayName} · version ${run.version}`;
 }
 
-/** The `partial` reason, as the run itself recorded it. Never composed here: the sentence
- *  belongs to the run that stopped, and inventing one would be a claim about money. */
+/** The `partial` reason, as the run itself recorded it, in its `STOPPED_REASON` sentence.
+ *  Never composed here: the sentence belongs to the run that stopped, and inventing one would
+ *  be a claim about money. An unknown key renders nothing rather than the raw key (Rule 35):
+ *  there is deliberately no `?? run.stoppedReason` fallback — that fallback IS the leak, and
+ *  `run-chrome.test.tsx` was watched red against it. */
 function stoppedReasonOf(run: RunSpend): string | null {
-  return run.status === 'partial' && run.stoppedReason ? run.stoppedReason : null;
+  if (run.status !== 'partial' || !run.stoppedReason) return null;
+  return STOPPED_REASON[run.stoppedReason] ?? null;
+}
+
+function runHref(run: RunSpend): string {
+  return `/runs/${run.runId}`;
+}
+
+/** "Full sweep" / "Weekly partition · week 36" / "Change check" — the same words the run report
+ *  and the preset's recent runs use (C-WR-06: a past partition names its week, never "this
+ *  week"). An unknown kind renders nothing, never its key. */
+function kindLabel(run: RunSpend): string | null {
+  return runKindLabelOf(run.kind, run.startedAt?.getTime() ?? null);
 }
 
 export function ByRun({ runs }: { runs: RunSpend[] }) {
@@ -130,7 +119,25 @@ export function ByRun({ runs }: { runs: RunSpend[] }) {
           <TableBody>
             {runs.map((run) => (
               <TableRow key={run.runId} data-testid="spend-run-row" className="align-top">
-                <TableCell className="text-sm font-normal">{runName(run)}</TableCell>
+                <TableCell className="text-sm font-normal whitespace-normal">
+                  <div className="flex flex-col gap-1">
+                    <Link
+                      href={runHref(run)}
+                      data-testid={`spend-run-link-${run.runId}`}
+                      className="rounded-sm underline-offset-4 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                    >
+                      {runName(run)}
+                    </Link>
+                    {kindLabel(run) ? (
+                      <span
+                        data-kind={run.kind}
+                        className="text-sm font-normal text-muted-foreground"
+                      >
+                        {kindLabel(run)}
+                      </span>
+                    ) : null}
+                  </div>
+                </TableCell>
                 <TableCell className="text-sm font-normal tabular-nums">
                   {startedLabel(run.startedAt)}
                 </TableCell>
@@ -169,36 +176,53 @@ export function ByRun({ runs }: { runs: RunSpend[] }) {
         {runs.map((run, index) => (
           <div key={run.runId}>
             {index > 0 ? <ItemSeparator /> : null}
-            <Item data-testid="spend-run-card" className="flex-col items-stretch gap-2">
-              <ItemContent className="gap-2">
-                <ItemTitle className="text-xl font-semibold leading-tight">
-                  {runName(run)}
-                </ItemTitle>
-                <dl className="flex flex-col gap-1">
-                  {[
-                    ['Started', startedLabel(run.startedAt)],
-                    ['Duration', durationLabel(run.startedAt, run.finishedAt)],
-                    ['Calls', String(run.calls)],
-                    ['Cost', formatUsd(run.microUsd)],
-                  ].map(([label, value]) => (
-                    <div key={label} className="flex items-baseline justify-between gap-4">
-                      <dt className="text-sm font-normal text-muted-foreground">{label}</dt>
-                      <dd className="text-sm font-normal tabular-nums">{value}</dd>
-                    </div>
-                  ))}
-                </dl>
-              </ItemContent>
-              <ItemActions className="justify-start">
-                <div className="flex flex-col items-start gap-1">
-                  <RunStatusBadge status={run.status} />
-                  {stoppedReasonOf(run) ? (
-                    <span className="text-sm font-normal text-muted-foreground">
-                      {stoppedReasonOf(run)}
+            {/* The whole card is the link on phone — one ≥44px target, one testid. The link
+                WRAPS the item rather than being slotted into it: `Item asChild` would merge
+                the two `data-testid`s and the link's would silently replace `spend-run-card`. */}
+            <Link
+              href={runHref(run)}
+              data-testid={`spend-run-link-${run.runId}`}
+              className="block rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <Item data-testid="spend-run-card" className="flex-col items-stretch gap-2">
+                <ItemContent className="gap-2">
+                  <ItemTitle className="text-xl font-semibold leading-tight">
+                    {runName(run)}
+                  </ItemTitle>
+                  {kindLabel(run) ? (
+                    <span
+                      data-kind={run.kind}
+                      className="text-sm font-normal text-muted-foreground"
+                    >
+                      {kindLabel(run)}
                     </span>
                   ) : null}
-                </div>
-              </ItemActions>
-            </Item>
+                  <dl className="flex flex-col gap-1">
+                    {[
+                      ['Started', startedLabel(run.startedAt)],
+                      ['Duration', durationLabel(run.startedAt, run.finishedAt)],
+                      ['Calls', String(run.calls)],
+                      ['Cost', formatUsd(run.microUsd)],
+                    ].map(([label, value]) => (
+                      <div key={label} className="flex items-baseline justify-between gap-4">
+                        <dt className="text-sm font-normal text-muted-foreground">{label}</dt>
+                        <dd className="text-sm font-normal tabular-nums">{value}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                </ItemContent>
+                <ItemActions className="justify-start">
+                  <div className="flex flex-col items-start gap-1">
+                    <RunStatusBadge status={run.status} />
+                    {stoppedReasonOf(run) ? (
+                      <span className="text-sm font-normal text-muted-foreground">
+                        {stoppedReasonOf(run)}
+                      </span>
+                    ) : null}
+                  </div>
+                </ItemActions>
+              </Item>
+            </Link>
           </div>
         ))}
       </ItemGroup>

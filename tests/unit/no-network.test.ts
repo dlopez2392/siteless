@@ -3,15 +3,16 @@
  * built to do it. CI replays recorded payloads through msw. A test that names a live host is
  * one missing handler away from calling it, and on a Places-shaped API that would spend budget.
  *
- * Hosts: the Texas Comptroller Socrata host, Overture's bucket, any S3 endpoint, and the
- * Census geocoder. They are written below as constructed strings so this file is not its own
+ * Hosts: the Texas Comptroller Socrata host, Overture's bucket, any S3 endpoint, the Census
+ * geocoder, and (since 04-12) Google Places — where a live call would spend budget. They are written below as constructed strings so this file is not its own
  * violation, and it also excludes itself by path.
  *
  * Allow-list, exactly (D-01, T-3-05):
  *   - scripts/**: the desk scripts are the only network callers. This walk does not cover
  *     scripts/ at all.
- *   - src/lib/socrata/client.ts, src/lib/geocode/census.ts, src/lib/geocode/census-batch.ts:
- *     each carries its host as ONE module-level constant.
+ *   - src/lib/socrata/client.ts, src/lib/geocode/census.ts, src/lib/geocode/census-batch.ts,
+ *     src/lib/places/client.ts (04-12, D-03): each carries its host as ONE module-level
+ *     constant.
  *   - tests/unit/msw/**: the replay handlers and their recorded fixtures.
  *   - src/seed/data/*.json, but ONLY on a `"source":` line. Those three committed seed files
  *     cite the dataset they were measured from. That is provenance text, not a request. Any
@@ -25,12 +26,16 @@
 import * as nodeFs from 'node:fs';
 import * as nodePath from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { walk } from './_walk';
 
 const HOSTS: readonly string[] = [
   'data.' + 'texas.gov',
   'overture' + 'maps',
   's3' + '.',
   'geocoding.geo.' + 'census.gov',
+  // Google Places (API New), plan 04-12. Spelled only in src/lib/places/client.ts and the msw
+  // harness; every test builds its URL from tests/unit/msw/places.ts.
+  'places.' + 'googleapis.com',
 ];
 
 const EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.mjs', '.cjs', '.json']);
@@ -41,6 +46,7 @@ const ALLOWED_FILES = new Set([
   'src/lib/socrata/client.ts',
   'src/lib/geocode/census.ts',
   'src/lib/geocode/census-batch.ts',
+  'src/lib/places/client.ts',
 ]);
 
 const ALLOWED_PREFIXES = ['tests/unit/msw/'];
@@ -48,15 +54,6 @@ const ALLOWED_PREFIXES = ['tests/unit/msw/'];
 /** Provenance lines in committed seed data: the host may appear only as a `"source"` value. */
 const PROVENANCE_DIR = 'src/seed/data/';
 const PROVENANCE_LINE = /^\s*"source"\s*:/;
-
-function walk(dir: string, found: string[] = []): string[] {
-  for (const entry of nodeFs.readdirSync(dir, { withFileTypes: true })) {
-    const full = nodePath.join(dir, entry.name);
-    if (entry.isDirectory()) walk(full, found);
-    else if (EXTENSIONS.has(nodePath.extname(entry.name))) found.push(full);
-  }
-  return found;
-}
 
 const toPosix = (p: string) => p.split(nodePath.sep).join('/');
 
@@ -74,15 +71,25 @@ function offencesIn(file: string): string[] {
 
 describe('CI hygiene', () => {
   it('CI never reaches the network', () => {
-    const scanned = [...walk('src'), ...walk('tests')].map(toPosix);
+    // The shared walker skips the generated workflow tree (04-RESEARCH Pitfall 6).
+    const scanned = [
+      ...walk('src', { exts: EXTENSIONS }),
+      ...walk('tests', { exts: EXTENSIONS }),
+    ].map(toPosix);
 
     // Two-sided: the walk found real files in both trees...
     expect(scanned.length).toBeGreaterThan(40);
     expect(scanned).toContain('src/lib/geocode/census.ts');
     expect(scanned).toContain('tests/unit/msw/server.ts');
+    // ...none of them generated workflow output (paths are posix here, so the probe is too)...
+    expect(scanned.some((f) => f.includes('.well-known/workflow'))).toBe(false);
     // ...and the matcher works. The allow-listed Census client DOES name its host, so a
     // broken HOSTS list or a matcher that never fires goes red here instead of green.
     expect(offencesIn('src/lib/geocode/census.ts').length).toBeGreaterThan(0);
+    // ...and the Places entry fires too: the one sanctioned Places client names the host, so
+    // its allow-list entry excuses something real rather than nothing.
+    expect(scanned).toContain('src/lib/places/client.ts');
+    expect(offencesIn('src/lib/places/client.ts').length).toBeGreaterThan(0);
 
     const offences: string[] = [];
     for (const file of scanned) {

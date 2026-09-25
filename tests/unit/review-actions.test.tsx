@@ -14,6 +14,10 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
  * `src/db/`, whose `import 'server-only'` throws in the dom lane by design (vitest.config.ts).
  */
 vi.mock('@/server/actions/record-review-decision', () => ({ recordReviewDecision: vi.fn() }));
+// 04-24: the bar's Google kind imports the listing action, and its reject dialog imports
+// `useIsDesk` from run-drawer.tsx, which imports the queue-run action — same reason.
+vi.mock('@/server/actions/record-listing-decision', () => ({ recordListingDecision: vi.fn() }));
+vi.mock('@/server/actions/queue-run', () => ({ queueRun: vi.fn() }));
 const refresh = vi.fn();
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh }) }));
 vi.mock('sonner', () => ({ toast: vi.fn() }));

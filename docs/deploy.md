@@ -125,6 +125,7 @@ diverged, which is the exact failure D-09 exists to prevent.
 | 2 (fix waves) | `0017_strange_mathemanic` … `0020_yellow_ricochet` — four | 2026-09-22, with the Phase 2 merge |
 | 3 | `0021_extensions`, `0022_spine_tables`, `0023_spine_constraints_grants`, `0024_merge_functions` — four | 2026-09-23, plan 03-21 (journal 21 → 25) |
 | 3 (review fixes) | `0025_review_fixes_spine` — one (record_merge lock, DML revoke on businesses/source_records, `pg_temp` on all definers, `apply_survivorship_if_changed`, `undo_merge` new signature) | 2026-09-23, after `/gsd-code-review 3 --fix` (journal 25 → 26; second run no-op; deployed `8f05309`) |
+| 4 | `0026_places_tables`, `0027_places_grants_triggers`, `0028_places_meter_retention`, `0029_places_writers` — four | 2026-09-24, plan 04-30 (journal 26 → 30; second run no-op; deployed `8218042` from the phase branch) — **never re-apply** |
 
 ### Phase 3 (plan 03-21): what the run taught
 
@@ -181,6 +182,108 @@ template for the next phase that ships a migration.
 > `.claude/worktrees/agent-*` — full checkouts, `.ts` included, untracked and not gitignored.
 > The CLI uploads the working tree, so a stale one would ship a second `src/` for `next build`
 > to type-check. Same class as `coverage/`.
+
+### Phase 4 (plan 04-30): what the run taught
+
+**The gate.** danlo answered the plan's `checkpoint:decision` on 2026-09-24 with **`apply`**.
+His reply was "Go with your recommendations", given to a recommendation of `apply`. The run
+followed 03-21 plus two additions: `CRON_SECRET` is set, and a second migrate is proven to be
+a no-op from the catalog.
+
+**What the four migrations do**
+
+- **`0026_places_tables`** creates eight tables: `place_attachments`,
+  `place_observations`, `place_coordinates`, `place_tiles`, `place_tile_members`,
+  `run_searches`, `run_place_outcomes` and `place_purge_runs`. It also adds the `runs`
+  columns Phase 4 needs.
+- **`0027_places_grants_triggers`** fails stale `queued` runs first, then builds the barrier:
+  - `runs_one_active_per_org`, `businesses_latlng_idx`
+  - `SELECT`-only grants for `authenticated`, and **no grant at all on `place_coordinates`**
+  - the append-only trigger on `place_observations`
+  - the `siteless_cron` role (NOLOGIN, granted to `app_user`)
+  - the `security_invoker` view `business_place_signal`
+- **`0028_places_meter_retention`** adds release, planning and progress, the purge (EXECUTE
+  for `siteless_cron` only) and the transient stats.
+- **`0029_places_writers`** adds the numeric-only `pa_features_numeric` CHECK and the three
+  writers.
+
+- 🔴 **The queued-runs precondition.** `runs_one_active_per_org` is a unique partial index on
+  `runs(org_id) where status in ('queued','running')`. Creating it fails if any org already
+  holds two active rows. Phase 2 and 3 left **five** `queued` runs in the one production org,
+  because nothing ever executed them. 0027 therefore first runs
+  `update runs set status='failed', stopped_reason='never_started' … where status='queued' and created_at < now() - interval '15 minutes'`,
+  and only then creates the index. Before each migrate, the pre-flight re-ran 04-09's blocker
+  read. That read counts orgs with more than one row that is `running`, or `queued` less
+  than 15 minutes old. It returned **empty**. After the migrate, all five read
+  `failed / never_started`, each with a `finished_at`. **Re-run that blocker read before any
+  future migration that touches this index.** A `queued` row younger than 15 minutes
+  survives the data fix and will still collide.
+- **The pre-flight read** (production, `begin read only`, owner), run once on 2026-09-23 and
+  again immediately before the migrate:
+  - PostgreSQL `17.6`; journal `26`, ending `0025_review_fixes_spine`; none of the eight
+    tables, the new `runs` columns, the two indexes or the ten new `app.*` functions present
+  - `siteless_cron` absent; `businesses` = 0
+  - the stale `general_contractor` `places_type` built-in still present (inert; see the
+    phase `deferred-items.md`)
+  - public baseline: RLS tables 21, policies 76, triggers 25, indexes 74, views 0
+- **The gates, fresh** (all on `8218042`, branch and HEAD printed before and after):
+  `tests/unit/pg17-compat.test.ts` 2/2, `tsc --noEmit` 0, `eslint` 0, and `next build` 0,
+  reporting "8 steps, 1 workflow".
+- **Post-flight, from the catalog on a separate later read-only connection:**
+  - journal **30**, ending `0029_places_writers` by name
+  - all eight tables present
+  - `authenticated` holds exactly `SELECT` on the seven, and **nothing** on
+    `place_coordinates`. `has_table_privilege` is false for both `authenticated` and `anon`,
+    and `anon` holds nothing on any new table.
+  - `has_column_privilege('authenticated','runs','ceiling_requests','UPDATE')` = **false**
+  - `prosecdef = t` on all eight functions: `release_reservation`, `plan_run_searches`,
+    `mark_run_search`, `purge_expired_place_coordinates`, `places_transient_stats`,
+    `record_places_page`, `record_change_check`, `decide_place_attachment`
+  - purge EXECUTE: false for `authenticated`, `anon` and `service_role`; true for
+    `siteless_cron`
+  - `siteless_cron` exists as NOLOGIN, and `app_user` is a member
+  - `business_place_signal` has reloptions `security_invoker=true`
+  - both indexes and both named constraints are present
+  - parity with local, scoped to `public` (constraints with `contype <> 'n'`): identical
+    member-for-member on every compared set
+    - constraints 167/167, columns 398/398, indexes 107/107
+    - policies 108/108, table grants 267/267, `app.*` functions 29/29
+    - triggers 32/32, views 1/1, RLS flags 29/29
+- **Second run:** `pnpm db:migrate:prod` exited 0. The journal read afterwards was still
+  **30**, and the last row's `created_at` was unchanged (`1790195198325`).
+- **No seed ran.** Phase 4 adds no reference table. The `general_contractor` row that
+  `clusters.json` dropped is not deleted by a re-seed anyway, because the seed only upserts.
+
+### Phase 4: `CRON_SECRET` and `PLACES_MODE`
+
+- **`CRON_SECRET`** is set on Vercel **Production only**, stored as **Sensitive**. Sensitive
+  values cannot be pulled back, which is intended. The value is 64 hex characters from
+  `crypto.randomBytes(32)`, and `src/env.ts` requires at least 16. Vercel Cron sends it as
+  `Authorization: Bearer <secret>` to `/api/cron/purge-places` (schedule `17 9 * * *`, from
+  `vercel.json`). The route fails closed:
+  - unset → `503 {"ok":false,"reason":"not_configured"}`
+  - wrong or missing → `401 {"ok":false,"reason":"unauthorized"}`
+  - correct → `200 {"ok":true,"orgs":N,"rowsPurged":M}`
+- **Rotating `CRON_SECRET`:**
+  1. Generate a new value into a file outside the repo, never echoed:
+     `node -e "require('fs').writeFileSync(process.argv[1], require('crypto').randomBytes(32).toString('hex'))" <file>`.
+  2. Replace it: `vercel env rm CRON_SECRET production --yes --scope …`, then
+     `vercel env add CRON_SECRET production --sensitive --scope … < <file>`.
+  3. **Redeploy.** A deployment keeps the environment it was built with, so the old secret
+     stays live until then.
+  4. Smoke the route: no header → 401; `Bearer $(cat <file>)` → 200.
+  5. Delete the file in the same command as the smoke.
+
+  Vercel Cron reads the secret from the deployment, so no second place needs updating.
+- **`PLACES_MODE` is unset on Vercel, which means `off`.** `src/env.ts` defaults it to `off`,
+  and in that mode no Places request of any SKU can leave the app.
+  `GOOGLE_PLACES_API_KEY` does not exist in any environment either. `vercel env ls` after this
+  deploy listed exactly seven Production names: `CRON_SECRET` plus the six in § 6. The mode
+  changes only by a Vercel env edit plus a redeploy; see
+  [`docs/runbooks/places.md`](runbooks/places.md) § 1. **The legal gate (04-29) governs when
+  it may change.**
+- **Fluid compute:** on for this project (`resourceConfig.fluid = true`), default function
+  timeout 300 s, region `iad1` (research A10).
 
 Production Supabase is **PostgreSQL 17.6** while local and CI are 18. `NULLS NOT DISTINCT`,
 stored generated columns and `FOR UPDATE ... SKIP LOCKED` are all fine there;
@@ -261,6 +364,10 @@ vercel env add NEXT_PUBLIC_SUPABASE_URL production preview --scope team_8zjV46sJ
 vercel env ls --scope team_8zjV46sJxQDsVzikNQa1JaO2      # names only; never print a value
 ```
 
+Since Phase 4 there is a seventh: **`CRON_SECRET`**, on **Production only** and stored as
+Sensitive. It is created and rotated as described in § 4, "Phase 4: `CRON_SECRET` and
+`PLACES_MODE`". `PLACES_MODE` and `GOOGLE_PLACES_API_KEY` are deliberately absent.
+
 GitHub Actions additionally needs the repository secrets `CLERK_SECRET_KEY`,
 `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` and `E2E_ADMIN_EMAIL`, plus a repository *variable*
 `E2E_BASE_URL` pointing at the deployed URL.
@@ -319,13 +426,14 @@ excluded directory just the same.
 | --- | --- |
 | Production URL (use this) | `https://siteless-iota.vercel.app` |
 | Other alias | `https://siteless-danlopez508-8452s-projects.vercel.app` |
-| Deployment id | `dpl_3EwN5CwiKtnKyMAQvjkpAuXMLDry` |
-| Per-deployment URL | `https://siteless-8c5xyiz7z-danlopez508-8452s-projects.vercel.app` |
-| Verified commit | `8acee7c35e4122697530f18bee74b637e4c3924f` (`8acee7c`), branch `gsd/phase-03-free-data-spine-entity-resolution` (not yet pushed or merged) |
-| State | READY, target production, region `iad1` |
+| Deployment id | `dpl_GsSdZJYNe6oS7UcjSDHr29baJCzH` |
+| Per-deployment URL | `https://siteless-6207dz148-danlopez508-8452s-projects.vercel.app` |
+| Verified commit | `8218042b382e1810f9e9c55d0d3a6846b3f15e8d` (`8218042`), branch `gsd/phase-04-places-transient-verifier` (not yet merged) |
+| State | READY, target production, region `iad1`; cron `17 9 * * *` → `/api/cron/purge-places` registered on this deployment |
 | First deployed | 2026-09-22 |
 | Phase 2 deployed | 2026-09-22, plan 02-15 |
 | Phase 3 deployed | 2026-09-23, plan 03-21 |
+| Phase 4 deployed | 2026-09-24, plan 04-30 — `PLACES_MODE` unset (`off`) |
 
 ### Deployment history
 
@@ -335,14 +443,44 @@ excluded directory just the same.
 | `311e6b4` | `dpl_AxqqohtjnoFzhfJxSvUSWYtrFHkm` | 2026-09-22, plan 01-11 | the pending-session fix the e2e suite found against `453c0c4` |
 | `6d6c52f` | `dpl_Dk71EVmgcaav2NwhgWQNd65EJBRy` | 2026-09-22, plan 02-15 | Phase 2 — the six new routes, the budget meter and the design system |
 | `8acee7c` | `dpl_3EwN5CwiKtnKyMAQvjkpAuXMLDry` | 2026-09-23, plan 03-21 | Phase 3 — `/review`, `/sources`, `/businesses`, `/businesses/[id]`, the six-destination nav; CLI deploy from the phase branch after migrations 0021–0024 |
+| `3dd2060` | `dpl_2WgEDVgD1Rr8f2EhEaYdeDvfqvvb` | 2026-09-23 | Phase 3 merged (PR #2) — git-integration deploy from `main` |
+| `8218042` | `dpl_GsSdZJYNe6oS7UcjSDHr29baJCzH` | 2026-09-24, plan 04-30 | Phase 4 — `/runs/[id]`, the Places workflow (off), `/sources` transient card, the purge cron; CLI deploy from the phase branch after migrations 0026–0029 |
 
 The alias is unchanged and always points at the newest production deployment.
 
-🔴 **The Phase 3 deployment came from a feature branch, not `main`** (danlo's "Apply + deploy"
-decision). Production now serves a commit `origin/main` does not contain. `vercel git connect`
-means the **next push to `main` redeploys production from `main`** and rolls these four
-screens back until the phase branch is merged. Merge the phase branch before anything else
-lands on `main`.
+🔴 **The Phase 4 deployment came from the phase branch, not `main`** (danlo's `apply`).
+Production serves `8218042`, which `origin/main` (`3dd2060`) does not contain. Because of
+`vercel git connect`, **the next push to `main` redeploys production from `main`**. That
+would bring back the Phase 3 app: no `/runs/[id]`, no transient card, and **no cron
+definition**, because `main`'s `vercel.json` has no `crons`. The purge would stop being
+scheduled. The database stays at journal 30 either way, since migrations never ride a
+deploy. **Nothing may land on `main` before the Phase 4 PR merges.** The same held for
+Phase 3 until PR #2 merged.
+
+The Phase 4 deployment was gated at `8218042` in this order:
+1. `pg17-compat`, `tsc`, `eslint` and `next build` each exit 0 locally.
+2. Migrate, catalog post-flight, second migrate.
+3. `CRON_SECRET` added, then `vercel deploy --prod --yes`. The remote build printed
+   "8 steps, 1 workflow" and every route, including `/api/cron/purge-places`. The deployment
+   record's `meta.githubCommitSha` names `8218042…`, on branch
+   `gsd/phase-04-places-transient-verifier`.
+
+The migrate finished at 11:11:27Z and the alias was live by 11:15:12Z. Smoke:
+- `/api/health` → `200 {"ok":true,"db":"up","proxy":"up","commit":"8218042b382e1810f9e9c55d0d3a6846b3f15e8d"}`
+- signed-out `/` → `307 /presets`
+- `/api/cron/purge-places` with no header, and with a wrong bearer → `401 {"ok":false,"reason":"unauthorized"}`
+- the same route with the real bearer → `200 {"ok":true,"orgs":1,"rowsPurged":0}`. This
+  wrote one `place_purge_runs` row (trigger `cron`, `rows_purged` 0), read back read-only.
+
+The project's `crons.definitions` then listed `/api/cron/purge-places` `17 9 * * *` on this
+deployment; before the deploy it was empty. The full e2e suite against the alias:
+**22 passed, 10 skipped, 0 failed**, in 1.1 minutes. The pass list includes
+`sources: the transient card sits beside the four rows, never among them` and all three
+`spend` tests. The skips are deliberate self-skips against a deployed target:
+- `budget-banner` ×2
+- `preset-detail` ×3
+- `runs` ×4
+- `toast-clearance` ×1 (no business on production)
 
 The Phase 3 deployment was gated the same way at `8acee7c`: `typecheck`, `lint` and `build`
 each exit 0 locally, then `vercel deploy --prod`, whose remote build printed all four new

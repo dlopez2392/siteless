@@ -1,0 +1,21 @@
+{
+  "_comment": "HAND-WRITTEN, not recorded (D-20: no Google-authored text is committed). An ENVELOPE, not a response body: tests/unit/msw/places.ts replays it as HttpResponse.json(body, { status }).",
+  "status": 429,
+  "body": {
+    "error": {
+      "code": 429,
+      "message": "Synthetic: quota SearchTextRequestsPerDayPerProject exhausted for this project.",
+      "status": "RESOURCE_EXHAUSTED",
+      "details": [
+        {
+          "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+          "reason": "RATE_LIMIT_EXCEEDED",
+          "metadata": {
+            "quota_limit": "SearchTextRequestsPerDayPerProject",
+            "quota_limit_value": "100"
+          }
+        }
+      ]
+    }
+  }
+}

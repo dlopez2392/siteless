@@ -31,6 +31,9 @@ export type ActionErrorCode =
   /** The meter refused. `app.reserve_budget` returned a null reservation id, and nothing
    *  was called and nothing was charged. */
   | 'budget_refused'
+  /** D-02. `PLACES_MODE` forbids this run kind (`off` forbids every run; `ids_only` every
+   *  run but the free change check). Refused before any row or reservation exists. */
+  | 'mode_refused'
   /** The input did not parse, or named something that is not seeded. */
   | 'validation'
   /** A third party did not answer. In Phase 2 that is the Census geocoder and nothing else. */

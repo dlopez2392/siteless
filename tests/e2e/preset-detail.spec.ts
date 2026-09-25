@@ -14,9 +14,9 @@ import { Client } from 'pg';
  * 🔴 THE FIXTURE IS INSERTED WITH SQL, AND THAT IS A DEPENDENCY, NOT A PREFERENCE. The
  * preset editor is plan 02-11's and is not on this branch, so there is no UI path that
  * creates a preset here. The budget-banner spec's rule — drive state through the product,
- * not through SQL — still holds for everything this file actually tests: the duplicate and
- * the run both go through the real server actions via the real UI. Only the starting row
- * is seeded. When 02-11 lands, the two-version fixture should be rebuilt through the
+ * not through SQL — still holds for everything this file actually tests: the duplicate goes
+ * through the real server action via the real UI, and (since 04-27) no test here starts a run
+ * at all. Only the starting rows are seeded. When 02-11 lands, the two-version fixture should be rebuilt through the
  * editor and this helper deleted.
  *
  * 🔴 THE DATABASE IS SHARED AND IS LEFT AS FOUND. `siteless_test` is one database for the
@@ -324,43 +324,82 @@ test('preset detail: duplicate creates a new preset at version 1', async ({ page
   await expect(page.getByTestId('version-history-single')).toBeVisible();
 });
 
-test('preset detail: run this preset queues a run', async ({ page }) => {
+/**
+ * The three ways to run with Places switched off (D-02; 04-UI-SPEC § Screen 2, Rules 33, 38).
+ *
+ * 🔴 THIS SPEC CANNOT START A RUN (Rules 38, 39). It never opens a drawer and never clicks a
+ * confirm: it asserts the `off` state the local target renders — the notice, and three
+ * `aria-disabled`, focusable actions — and clicks nothing that could spend. "A confirmed run
+ * creates a runs row on the current version" lives in the DB lane, with `start()` as a double:
+ *   tests/db/queue-run.test.ts → 'a confirmed run creates a runs row on the current version'
+ *
+ * This file runs only against a LOCAL target (see `TARGET_IS_LOCAL`), where `PLACES_MODE`
+ * defaults to `off`. Playwright and the local dev server read the same .env.local, so if it
+ * switches Places on the page renders a different mode and these assertions do not apply — the
+ * skip says so instead of failing on a correct screen.
+ */
+test('preset detail: with places off, all three run actions are disabled and explained', async ({
+  page,
+}) => {
+  const localMode = process.env.PLACES_MODE ?? '';
+  test.skip(
+    localMode !== '' && localMode !== 'off',
+    `PLACES_MODE is "${localMode}" in .env.local, so the page renders that mode, not off — ` +
+      'this spec asserts the off state only and never starts a run (UI-SPEC Rule 39)',
+  );
+
   await page.goto(`/presets/${fixture.searchId}`);
 
-  // Version 2 is current and has no runs yet — the number this test moves.
-  await expect(page.getByTestId('version-row-2-used-by')).toHaveAttribute(
-    'data-used-by-count',
-    '0',
+  const notice = page.getByTestId('places-mode-notice');
+  await expect(notice).toBeVisible();
+  await expect(notice).toHaveAttribute('data-mode', 'off');
+  const noticeId = await notice.getAttribute('id');
+  expect(noticeId).not.toBeNull();
+
+  for (const id of ['run-preset', 'run-partition', 'run-check-changes']) {
+    // Exactly one visible element per action (Rule 40) — `:visible` so the phone's sticky
+    // placement and the desk's title row can never both count.
+    const action = page.locator(`[data-testid="${id}"]:visible`);
+    await expect(action, id).toHaveCount(1);
+    await expect(action, id).toHaveAttribute('data-enabled', 'false');
+    await expect(action, id).toHaveAttribute('aria-disabled', 'true');
+    await expect(action, id).not.toHaveAttribute('disabled');
+    await expect(action, id).toHaveAttribute('aria-describedby', new RegExp(`\\b${noticeId}\\b`));
+    // Focusable, so a keyboard user reaches the control and hears why it is inert.
+    await action.focus();
+    await expect(action, id).toBeFocused();
+  }
+
+  // C-CR-02: every version's "Run version N" — desk row or phone card, whichever is visible —
+  // is inert too, described by the same notice. Before this, each one opened a live drawer
+  // whose confirm answered "switched off after this page loaded" and looped on reload.
+  const versionRuns = page.locator(
+    '[data-testid^="version-row-"][data-testid$="-run"]:visible, ' +
+      '[data-testid^="version-card-"][data-testid$="-run"]:visible',
   );
-
-  await page.getByTestId('run-preset').click();
-  await expect(page.getByTestId('run-drawer')).toBeVisible();
-
-  // 🔴 The Phase-4 notice is on screen BEFORE confirming, not in a tooltip: the reader has
-  // to know that queuing is not running before they reserve budget for it.
-  await expect(page.getByTestId('run-phase4-notice')).toBeVisible();
-
-  await page.getByTestId('run-confirm').click();
-
-  // The drawer closes on success, and no refusal is showing.
+  const versionRunCount = await versionRuns.count();
+  expect(versionRunCount, 'at least one visible version run button').toBeGreaterThan(0);
+  for (let i = 0; i < versionRunCount; i += 1) {
+    const button = versionRuns.nth(i);
+    await expect(button).toHaveAttribute('aria-disabled', 'true');
+    await expect(button).toHaveAttribute('data-enabled', 'false');
+    await expect(button).not.toHaveAttribute('disabled');
+    await expect(button).toHaveAttribute('aria-describedby', new RegExp(`\\b${noticeId}\\b`));
+  }
+  // Nothing opened a drawer, and this spec clicked nothing that could.
   await expect(page.getByTestId('run-drawer')).toHaveCount(0);
-  await expect(page.getByTestId('run-refused')).toHaveCount(0);
 
-  /**
-   * The run landed on the CURRENT version and nowhere else.
-   *
-   * `/spend` → By run is plan 02-13's and is not on this branch, so the assertion that a
-   * run row exists is made here instead, against the count this screen already publishes.
-   * It is the stronger claim of the two anyway: it says WHICH version the run attached to,
-   * which the spend view does not show.
-   */
-  await expect(page.getByTestId('version-row-2-used-by')).toHaveAttribute(
-    'data-used-by-count',
-    '1',
-  );
-  // And version 1's history is untouched by the new run (T-2-12).
-  await expect(page.getByTestId('version-row-1-used-by')).toHaveAttribute(
-    'data-used-by-count',
-    '1',
+  // No accent anywhere among the run actions in off mode (Rule 34).
+  await expect(page.locator('[data-testid^="run-"][data-variant="default"]')).toHaveCount(0);
+
+  await expect(page.getByTestId('preset-other-runs')).toBeVisible();
+  await expect(page.getByTestId('preset-recent-runs')).toBeVisible();
+  // The fixture's one finished run is listed and links to its report.
+  const row = page.locator('[data-testid^="preset-run-row-"]');
+  await expect(row).toHaveCount(1);
+  await expect(row).toHaveAttribute('href', /^\/runs\/[0-9a-f-]{36}$/);
+  await expect(page.getByTestId('summary-last-run-link')).toHaveAttribute(
+    'href',
+    /^\/runs\/[0-9a-f-]{36}$/,
   );
 });

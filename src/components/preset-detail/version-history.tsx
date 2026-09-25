@@ -15,8 +15,12 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { formatLocal } from '@/lib/time';
+import type { PlacesModeName } from '@/lib/ui/copy';
+import { cn } from '@/lib/utils';
 import { DuplicateDialog } from './duplicate-dialog';
 import { RunDrawer, type RunVersionOption } from './run-drawer';
+// Server-safe (no directive): the mode table, never a copy of it that could drift.
+import { MODE_ALLOWS } from './run-plan';
 import { geoDetail, type DiffGeo } from './version-diff';
 
 /**
@@ -65,7 +69,16 @@ export type HistoryContext = {
   presetName: string;
   isAdmin: boolean;
   remainingLabel: string;
+  /** C-CR-02: `env.PLACES_MODE`, read by the page on the server and passed as a string (Rule
+   *  33). A row's "Run version N" is a full sweep, so it is inert wherever the mode refuses
+   *  one — exactly like the page's own run actions. */
+  placesMode: PlacesModeName;
+  /** The Places-mode notice's element id; every mode-disabled row action is described by it. */
+  noticeId: string;
 };
+
+/** The same inert look as `run-actions.tsx`'s mode-disabled buttons. */
+const DISABLED_CLASS = 'cursor-not-allowed opacity-50';
 
 /** Which of the two presentations a hook belongs to. The desk table keeps the canonical
  *  `version-row-` prefix that `tests/e2e/preset-detail.spec.ts` drives. */
@@ -131,33 +144,60 @@ function RowActions({
   surface,
   context,
   options,
+  editHref,
 }: {
   version: HistoryVersion;
   surface: Surface;
   context: HistoryContext;
   options: RunVersionOption[];
+  editHref: string;
 }) {
+  const runTestId = `version-${surface}-${version.version}-run`;
+  // 🔴 C-CR-02 / Rule 33. In `off` and `ids_only` a full sweep cannot run, so the row's button
+  // is `aria-disabled`, focusable, described by the Places-mode notice, and opens NOTHING — no
+  // drawer, so no "switched off after this page loaded" sentence about a mode that was already
+  // off when the page loaded, and no reload loop. A server component can't attach a click
+  // handler, and it needs none: a `type="button"` outside a form with no handler is a no-op.
+  // `queueRun` still refuses on its own (D-02); this is the affordance, not the boundary.
+  const runnable = MODE_ALLOWS[context.placesMode].full;
   return (
     <>
-      {/* D-16's "any version is re-runnable, explicitly". `pickable` is true here because
-          the reader arrived from a specific row and may want to change their mind — from
-          the primary CTA there is nothing to pick. */}
-      <RunDrawer
-        presetName={context.presetName}
-        versions={options}
-        initialVersionId={version.id}
-        pickable
-        remainingLabel={context.remainingLabel}
-        isAdmin={context.isAdmin}
-      >
+      {runnable ? (
+        /* D-16's "any version is re-runnable, explicitly". `pickable` is true here because
+           the reader arrived from a specific row and may want to change their mind — from
+           the primary CTA there is nothing to pick. */
+        <RunDrawer
+          kind="full"
+          presetName={context.presetName}
+          editHref={editHref}
+          versions={options}
+          initialVersionId={version.id}
+          pickable
+          remainingLabel={context.remainingLabel}
+          isAdmin={context.isAdmin}
+        >
+          <Button
+            variant="outline"
+            className="h-11 sm:h-9"
+            data-testid={runTestId}
+            data-enabled="true"
+          >
+            Run version {version.version}
+          </Button>
+        </RunDrawer>
+      ) : (
         <Button
+          type="button"
           variant="outline"
-          className="h-11 sm:h-9"
-          data-testid={`version-${surface}-${version.version}-run`}
+          className={cn('h-11 sm:h-9', DISABLED_CLASS)}
+          data-testid={runTestId}
+          data-enabled="false"
+          aria-disabled="true"
+          aria-describedby={context.noticeId}
         >
           Run version {version.version}
         </Button>
-      </RunDrawer>
+      )}
 
       {/* D-17. `Copy of {name}` is derived from the preset's own display name, the same
           string `duplicate-preset.ts` derives it from when the field is left untouched. */}
@@ -263,7 +303,13 @@ export function VersionHistory({
                   </TableCell>
                   <TableCell className="align-top">
                     <div className="flex flex-wrap items-center justify-end gap-2">
-                      <RowActions version={v} surface="row" context={context} options={options} />
+                      <RowActions
+                        version={v}
+                        surface="row"
+                        context={context}
+                        options={options}
+                        editHref={editHref}
+                      />
                     </div>
                   </TableCell>
                 </TableRow>
@@ -311,7 +357,13 @@ export function VersionHistory({
                   <VersionDetail version={v} surface="card" />
 
                   <div className="mt-2 flex flex-wrap items-center gap-2">
-                    <RowActions version={v} surface="card" context={context} options={options} />
+                    <RowActions
+                      version={v}
+                      surface="card"
+                      context={context}
+                      options={options}
+                      editHref={editHref}
+                    />
                   </div>
                 </ItemContent>
               </Item>

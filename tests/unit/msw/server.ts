@@ -35,6 +35,7 @@ import closuresPage from './fixtures/socrata-3kx8-page.json';
 import typeMismatch from './fixtures/socrata-400-type-mismatch.json';
 import permitsPage from './fixtures/socrata-jrea-page.json';
 import socrataRecordings from './fixtures/socrata-recordings.json';
+import { placesHandler, resetPlaces } from './places';
 
 export const CENSUS_ORIGIN = 'https://geocoding.geo.census.gov';
 export const CENSUS_PATHNAME = '/geocoder/geographies/onelineaddress';
@@ -86,11 +87,13 @@ export function respondNextWithJson(body: JsonBodyType): void {
 
 /** Clear the request log and any pending one-shot — the one-line endpoint's AND the batch
  *  endpoint's (see the batch section below), so a file that only knows `resetCensus` still
- *  cannot leak an armed batch failure into the next test. Call in `afterEach`. */
+ *  cannot leak an armed batch failure into the next test. Also clears the Places routes, log
+ *  and hook (`./places.ts`), for the same reason. Call in `afterEach`. */
 export function resetCensus(): void {
   censusRequests.length = 0;
   oneShot = null;
   resetCensusBatch();
+  resetPlaces();
 }
 
 export const censusHandler = http.get(CENSUS_ENDPOINT, ({ request }) => {
@@ -394,10 +397,12 @@ export function failNextSocrataWithTypeMismatch(): void {
   socrataOneShot = 'type-mismatch';
 }
 
-/** Clear the request log and any pending one-shot. Call in `afterEach`. */
+/** Clear the request log and any pending one-shot (and the Places routes, log and hook, so
+ *  a file that only knows `resetSocrata` cannot leak them either). Call in `afterEach`. */
 export function resetSocrata(): void {
   socrataRequests.length = 0;
   socrataOneShot = null;
+  resetPlaces();
 }
 
 function datasetFromFile(file: unknown): string {
@@ -463,11 +468,14 @@ export const server = setupServer(
   censusBatchHandler,
   socrataResourceHandler,
   socrataViewsHandler,
+  placesHandler,
 );
 
 /**
- * Start the replay server — Census and Socrata both. 🔴 The `onUnhandledRequest` setting
- * lives here, once, so it cannot be relaxed per test file.
+ * Start the replay server — Census, Socrata and (since plan 04-10) Google Places, whose
+ * handler, routes and synthetic fixtures live in `./places.ts`. 🔴 The `onUnhandledRequest`
+ * setting lives here, once, so it cannot be relaxed per test file — for Places that is the
+ * difference between a failed test and a billed request.
  */
 export function startCensusServer(): void {
   server.listen({ onUnhandledRequest: 'error' });

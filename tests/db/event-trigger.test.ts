@@ -83,6 +83,18 @@ const EVENT_LOGGED = new Set([
   //   * overture_category_map — reference rows; the seed loader has no org claim and
   //     events.org_id is NOT NULL, same as the six Phase 2 reference tables.
   'business_merges',
+  // Phase 4 plan 09. UPDATE arm ONLY, narrowed to `old.status is distinct from new.status`
+  // (drizzle/0027 `place_attachments_event_upd`): confirm / reject / detach / re-score are the
+  // state-bearing events. The matcher's per-run INSERTs are audited at run level by 04-22's
+  // finishRun via app.emit_event — the budget_periods precedent.
+  //
+  // SEVEN Phase 4 tables are DELIBERATELY EXCLUDED, each with a `comment on table` in 0027:
+  //   * place_observations — append-only per-run volume; audited at run level.
+  //   * place_coordinates — inserted then purged; the purge writes place_purge_runs.
+  //   * place_tiles, place_tile_members, run_searches, run_place_outcomes — rewritten by
+  //     every sweep; the run IS the event (write amplification).
+  //   * place_purge_runs — the row IS the purge's audit record.
+  'place_attachments',
 ]);
 
 /**
@@ -99,8 +111,33 @@ const EVENT_LOGGED = new Set([
  * UNNARROWED update trigger on budget_periods — which is the exact defect the split
  * exists to avoid, and it would restore the write amplification while leaving the name
  * set identical. 6 tables, 7 triggers (Phase 3 plan 05 adds business_merges_event — one).
+ * Phase 4 plan 09 adds place_attachments_event_upd — one row, the UPDATE arm only, with no
+ * insert/delete twin: 7 tables, 8 triggers.
+ *
+ * drizzle/0030 (A-WR-05) dropped and recreated place_attachments_event_upd on a NEW function,
+ * app.log_place_attachment_event (allow-listed payload: ids and status, never score or
+ * features). An enumeration filtered on `log_event` alone then saw 7 rows, not 8 — the
+ * trigger had not gone, it had changed function. A count cannot tell those apart, and it
+ * cannot see the reverse either: recreating the trigger back on app.log_event would restore
+ * the Google-derived payload in the undeletable `events` table while every count stayed at
+ * 8. So the set is pinned BY NAME — table, trigger AND function — below.
  */
-const LOG_EVENT_TRIGGER_ROWS = 7;
+const LOG_EVENT_TRIGGER_ROWS = 8;
+
+/**
+ * Every audit trigger, exactly. `table/trigger/function` — the function is part of the
+ * identity, because which function a table's trigger calls decides what the audit copies.
+ */
+const AUDIT_TRIGGERS = [
+  'budget_periods/budget_periods_event_ins_del/app.log_event',
+  'budget_periods/budget_periods_event_upd/app.log_event',
+  'business_merges/business_merges_event/app.log_event',
+  'businesses/businesses_event/app.log_event',
+  'orgs/orgs_event/app.log_event',
+  'place_attachments/place_attachments_event_upd/app.log_place_attachment_event',
+  'search_versions/search_versions_event/app.log_event',
+  'searches/searches_event/app.log_event',
+];
 
 type LatestEvent = {
   actor_id: string;
@@ -132,17 +169,29 @@ const LATEST_BUSINESS_EVENT = `
    order by id desc
    limit 1`;
 
+/**
+ * The audit functions: app.log_event (whole-row before/after) and, since drizzle/0030
+ * (A-WR-05), app.log_place_attachment_event — place_attachments' audit with an allow-listed
+ * payload (ids and status, never the Google-derived score or features). Both write the same
+ * events row shape through the same actor resolution, so both count as "this table is audited".
+ * A new audit function must be added here by name, which is a diff a reviewer sees.
+ */
+const AUDIT_FUNCTIONS = ['log_event', 'log_place_attachment_event'];
+
 const LOG_EVENT_TRIGGERS = `
   select c.relname   as table_name,
+         t.tgname    as trigger_name,
+         pn.nspname || '.' || p.proname as function_name,
          t.tgenabled::text as enabled
     from pg_trigger t
     join pg_class c on c.oid = t.tgrelid
     join pg_proc p on p.oid = t.tgfoid
+    join pg_namespace pn on pn.oid = p.pronamespace
     join pg_namespace n on n.oid = c.relnamespace
    where not t.tgisinternal
      and n.nspname = 'public'
-     and p.proname = 'log_event'
-   order by c.relname`;
+     and p.proname in (${AUDIT_FUNCTIONS.map((f) => `'${f}'`).join(', ')})
+   order by c.relname, t.tgname`;
 
 describe('attribution is a property of the database', () => {
   it('a direct write still produces an event', () =>
@@ -218,13 +267,24 @@ describe('attribution is a property of the database', () => {
       expect(upd.rows[0]?.updated_by).toBe('user_danlo');
     }));
 
-  it('every state-bearing table has an app.log_event after-row trigger', () =>
+  it('every state-bearing table has its audit trigger, pinned by table, trigger and function', () =>
     withRollback(async (c) => {
-      const { rows } = await c.query<{ table_name: string; enabled: string }>(LOG_EVENT_TRIGGERS);
+      const { rows } = await c.query<{
+        table_name: string;
+        trigger_name: string;
+        function_name: string;
+        enabled: string;
+      }>(LOG_EVENT_TRIGGERS);
       // One row per TRIGGER, so this is checked before the name set: budget_periods holds
       // two, and a third anywhere is a surprise the distinct-name comparison below cannot
       // see.
       expect(rows).toHaveLength(LOG_EVENT_TRIGGER_ROWS);
+      // The intended set by name, function included: a trigger recreated on the wrong audit
+      // function (place_attachments back on app.log_event, copying score/features forever)
+      // keeps the count and the table set identical — only this line sees it.
+      expect(
+        rows.map((r) => `${r.table_name}/${r.trigger_name}/${r.function_name}`).sort(),
+      ).toEqual([...AUDIT_TRIGGERS].sort());
       // Exact set equality in both directions: a missing trigger and a surprise extra one
       // are both failures, and the second is how source_records would quietly acquire the
       // write amplification the boundary exists to prevent. Distinct, because the query

@@ -27,6 +27,7 @@ import {
   PAGES_HI,
   PAGES_LO,
   RADIUS_REFERENCE_MILES,
+  RUN_CEILING_MULTIPLIER,
 } from '@/lib/estimate/assumptions';
 import {
   builtInSpec,
@@ -36,13 +37,20 @@ import {
   texasMultiplier,
   type EstimateContext,
 } from '@/lib/estimate/estimate';
-import { expandCells, type PresetSpec, type SeedTables } from '@/lib/estimate/expand-cells';
+import {
+  cellKey,
+  expandCells,
+  type PresetSpec,
+  type SeedTables,
+} from '@/lib/estimate/expand-cells';
 import citiesJson from '@/seed/data/cities.json';
+import clustersJson from '@/seed/data/clusters.json';
 import countiesJson from '@/seed/data/counties.json';
 import geoPresetsJson from '@/seed/data/geo-presets.json';
 import outletCountsJson from '@/seed/data/outlet-counts.json';
 import type {
   CitiesFile,
+  ClustersFile,
   CountiesFile,
   GeoPresetsFile,
   OutletCountsFile,
@@ -57,11 +65,15 @@ import {
 } from './fixtures/preset';
 
 const cities: CitiesFile = citiesJson;
+const clusters: ClustersFile = clustersJson;
 const counties: CountiesFile = countiesJson;
 const outletCounts: OutletCountsFile = outletCountsJson;
 const geoPresets: GeoPresetsFile = geoPresetsJson;
 
-const SEED: SeedTables = { cities, counties, outletCounts, geoPresets };
+const SEED: SeedTables = { cities, clusters, counties, outletCounts, geoPresets };
+
+/** D-18. Types searched per cell, per cluster, read from the seed: 6 + 6 + 7 + 7 = 26. */
+const TYPES_PER_CITY = clusters.clusters.reduce((s, c) => s + c.placesTypes.length, 0);
 
 /** The $50 monthly data cap from PROJECT.md, in micro-USD. */
 const CAP = 50_000_000;
@@ -90,15 +102,22 @@ describe('the estimator, priced over the real seeded cell list', () => {
     expect(e.cells).toBe(68);
     expect(e.cells).toBe(cellCount(RGV_BASELINE_SPEC));
 
-    expect(e.requestsLo).toBe(204);
-    expect(e.requestsHi).toBe(612);
+    // D-18: requests are per (cell x Places type), not per cell. 17 cities x 26 types.
+    expect(TYPES_PER_CITY).toBe(26);
+    expect(e.typeSearches).toBe(442);
+    expect(e.typeSearches).toBe(17 * TYPES_PER_CITY);
 
-    expect(e.costMicroUsdLo).toBe(7_140_000);
-    expect(e.costMicroUsdHi).toBe(21_420_000);
+    // 442 x PAGES_LO; 442 x PAGES_HI x FAN_OUT = 442 x 9.
+    expect(e.requestsLo).toBe(442);
+    expect(e.requestsHi).toBe(3978);
 
-    // The whole point of the cost model: one monthly sweep of the default geography fits
-    // inside the cap, with room for the rest of the pipeline.
-    expect(e.costMicroUsdHi).toBeLessThanOrEqual(CAP);
+    expect(e.costMicroUsdLo).toBe(15_470_000);
+    expect(e.costMicroUsdHi).toBe(139_230_000);
+
+    // D-18: a full RGV sweep is refused at admission; a partition or one city x one cluster
+    // fits. danlo accepted this: the per-cell model under-counted requests ~6.5x, and the
+    // honest number is the one the cap has to hold against.
+    expect(e.costMicroUsdHi).toBeGreaterThan(CAP);
 
     // The drawer shows the constants the figure was actually built from, not a second copy.
     expect(e.assumptions).toEqual({
@@ -113,8 +132,10 @@ describe('the estimator, priced over the real seeded cell list', () => {
     const e = estimatePreset(RGV_COUNTIES_SPEC, ctx(FREE_EXHAUSTED));
 
     expect(e.cells).toBe(16);
-    expect(e.requestsHi).toBe(144);
-    expect(e.costMicroUsdHi).toBe(5_040_000);
+    expect(e.typeSearches).toBe(104);
+    // 4 counties x 26 types x 9.
+    expect(e.requestsHi).toBe(936);
+    expect(e.costMicroUsdHi).toBe(32_760_000);
 
     // The measured RGV grand total, read straight from the seed with no apportionment:
     // 1452 + 5572 + 977 + 15977. A county cell is the one cell kind that is a measurement.
@@ -125,11 +146,12 @@ describe('the estimator, priced over the real seeded cell list', () => {
     const e = estimatePreset(TEXAS_SPEC, ctx({ unitsUsedThisPeriod: 0 }));
 
     expect(e.cells).toBe(1016);
-    expect(e.requestsHi).toBe(9144);
+    // 254 counties x 26 types x 9.
+    expect(e.requestsHi).toBe(59_436);
 
-    // The free 1,000 still applies at the top of the range; 8,144 requests remain billable.
+    // The free 1,000 still applies at the top of the range; 58,436 requests remain billable.
     expect(e.freeRemaining).toBe(1000);
-    expect(e.costMicroUsdHi).toBe(285_040_000);
+    expect(e.costMicroUsdHi).toBe(2_045_260_000);
     expect(e.costMicroUsdHi).toBeGreaterThan(CAP);
 
     // 🔴 552,275 and NOT 552,278. The Comptroller dataset carries a 255th sentinel
@@ -155,24 +177,75 @@ describe('the estimator, priced over the real seeded cell list', () => {
     expect(priceRequests('ts_enterprise', 68, 0).microUsd).toBe(2_380_000);
 
     // Half two: through the estimator, which is where the allowance can actually get
-    // dropped. Early in the month the RGV baseline's 612 requests are entirely free.
+    // dropped. Early in the month the first 1,000 of the RGV baseline's 3,978 requests are
+    // free: (3978 - 1000) x 35,000.
     const early = estimatePreset(RGV_BASELINE_SPEC, ctx({ unitsUsedThisPeriod: 0 }));
-    expect(early.requestsHi).toBe(612);
+    expect(early.requestsHi).toBe(3978);
     expect(early.freeRemaining).toBe(1000);
+    expect(early.costMicroUsdHi).toBe(104_230_000);
+
+    // Same preset, same month, allowance spent: the gross figure.
+    const late = estimatePreset(RGV_BASELINE_SPEC, ctx(FREE_EXHAUSTED));
+    expect(late.freeRemaining).toBe(0);
+    expect(late.costMicroUsdHi).toBe(139_230_000);
+  });
+
+  it('cost model: McAllen × home services fits the free allowance', () => {
+    // D-04's slice shape: one city x one cluster = one cell, six Places types.
+    const spec: PresetSpec = {
+      name: 'McAllen, home services',
+      clusterKeys: ['home_services'],
+      geo: { kind: 'cities', cities: [{ name: 'McAllen', countyFips: '48215' }] },
+    };
+    const early = estimatePreset(spec, ctx({ unitsUsedThisPeriod: 0 }));
+
+    expect(early.cells).toBe(1);
+    expect(early.typeSearches).toBe(6);
+    expect(early.requestsHi).toBe(54);
     expect(early.costMicroUsdHi).toBe(0);
     expect(formatUsd(early.costMicroUsdHi)).toBe('$0.00');
 
-    // Same preset, same month, allowance spent: now it costs money.
-    const late = estimatePreset(RGV_BASELINE_SPEC, ctx(FREE_EXHAUSTED));
-    expect(late.freeRemaining).toBe(0);
-    expect(late.costMicroUsdHi).toBe(21_420_000);
+    // D-15: the run ceiling is a REQUEST count, 2 x estimate-high. In dollars it would be
+    // 2 x $0.00, which stops a free run on its first page.
+    expect(RUN_CEILING_MULTIPLIER).toBe(2);
+    expect(Math.ceil(RUN_CEILING_MULTIPLIER * early.requestsHi)).toBe(108);
+
+    // Two-sided: the same slice with the allowance spent is 54 x 35,000.
+    expect(estimatePreset(spec, ctx(FREE_EXHAUSTED)).costMicroUsdHi).toBe(1_890_000);
+  });
+
+  it('the estimate can price a subset of cells', () => {
+    const subset = estimatePreset(RGV_BASELINE_SPEC, ctx(FREE_EXHAUSTED), {
+      onlyCells: (c) => c.clusterKey === 'home_services',
+    });
+    // 17 home-services cells x 6 types x 9.
+    expect(subset.cells).toBe(17);
+    expect(subset.typeSearches).toBe(102);
+    expect(subset.requestsHi).toBe(918);
+
+    // The subset's expected businesses are the home-services share, not the whole preset.
+    const whole = estimatePreset(RGV_BASELINE_SPEC, ctx(FREE_EXHAUSTED));
+    expect(subset.expectedResults).toBeLessThan(whole.expectedResults);
+
+    // No filter prices everything: the option is additive, not a changed default.
+    expect(estimatePreset(RGV_BASELINE_SPEC, ctx(FREE_EXHAUSTED), {}).requestsHi).toBe(3978);
+  });
+
+  it('cellKey joins cluster and unit with U+0000', () => {
+    expect(cellKey('home_services', '48215\u0000McAllen')).toBe(
+      'home_services\u000048215\u0000McAllen',
+    );
+    // And it names the cells expandCells actually produces.
+    const [cell] = expandCells(SINGLE_CLUSTER_CITY_SPEC, SEED);
+    if (!cell) throw new Error('SINGLE_CLUSTER_CITY_SPEC expanded to no cells');
+    expect(cellKey(cell.clusterKey, cell.unitId)).toBe('home_services\u0000' + cell.unitId);
   });
 
   it('texas multiplier is computed, not a constant', () => {
     const m = texasMultiplier(ctx());
 
     // Exactly the ratio of the two request counts, not a rounded stand-in for it.
-    expect(m).toBe(9144 / 612);
+    expect(m).toBe(59436 / 3978);
     expect(Number(m.toFixed(1))).toBe(14.9);
 
     // Derived from the seeded built-ins, so promoting a city moves it automatically.
@@ -267,9 +340,10 @@ describe('the estimator, priced over the real seeded cell list', () => {
 
     // The other side of the same guard: a free estimate against a spent-out cap consumes
     // none of what is left, so it is 0 and not 100. A blanket "return 100 when remaining
-    // is zero" would pass the assertion above and fail this one.
+    // is zero" would pass the assertion above and fail this one. (The RGV counties, 936
+    // requests: since D-18 the 3,978-request city baseline no longer fits the free 1,000.)
     const freeAtSpentOutCap = estimatePreset(
-      RGV_BASELINE_SPEC,
+      RGV_COUNTIES_SPEC,
       ctx({ unitsUsedThisPeriod: 0, spentMicroUsd: BigInt(CAP) }),
     );
     expect(freeAtSpentOutCap.costMicroUsdHi).toBe(0);
@@ -277,7 +351,7 @@ describe('the estimator, priced over the real seeded cell list', () => {
 
     // A normal estimate still produces a real percentage.
     const normal = estimatePreset(RGV_BASELINE_SPEC, ctx(FREE_EXHAUSTED));
-    expect(normal.pctOfRemainingHi).toBeCloseTo((100 * 21_420_000) / CAP, 10);
+    expect(normal.pctOfRemainingHi).toBeCloseTo((100 * 139_230_000) / CAP, 10);
   });
 
   it('estimate: an unseeded cluster-geography pair throws rather than estimating zero', () => {

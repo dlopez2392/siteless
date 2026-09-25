@@ -64,6 +64,40 @@ function capForEightyPercent(committed: number): string {
   return (Math.ceil(committed * 115) / 100).toFixed(2);
 }
 
+/**
+ * 🔴 NEVER LOWER THE CAP UNDER A LIVE RUN (04-UI-SPEC OQ 14; T-4-09).
+ *
+ * The two tests below lower the PRODUCTION cap to ~115% of what is committed. Since Phase 4 a
+ * Places run reserves against that cap before every request, so a cap lowered mid-sweep refuses
+ * the sweep's next reservation and stops it `budget_cap_reached` — an e2e run would have
+ * stopped real work and cost a re-run. Before either test touches the cap it reads `/spend` →
+ * By run and skips while any run is `queued` or `running`. `:visible` because the desk table
+ * and the phone cards both carry a `run-status-badge` (04-14); the viewport shows one of them.
+ *
+ * The anchor wait matters: the By-run tab renders on click, and a count taken before the
+ * content paints is zero on a page with a live run — the guard would wave the test through.
+ */
+async function aRunIsLive(page: Page): Promise<boolean> {
+  await page.goto('/spend');
+  await page.getByTestId('spend-tab-by-run').click();
+  await expect(
+    page.locator(
+      [
+        '[data-testid="spend-by-run-empty"]:visible',
+        '[data-testid="spend-by-run-table"]:visible',
+        '[data-testid="spend-by-run-cards"]:visible',
+      ].join(', '),
+    ),
+  ).toHaveCount(1);
+  const live = page.locator(
+    [
+      '[data-testid="run-status-badge"][data-status="running"]:visible',
+      '[data-testid="run-status-badge"][data-status="queued"]:visible',
+    ].join(', '),
+  );
+  return (await live.count()) > 0;
+}
+
 async function setCap(page: Page, usd: string) {
   const { input, save } = await capControl(page);
   await input.fill(usd);
@@ -80,6 +114,10 @@ test('budget banner: absent under 80 percent', async ({ page }) => {
 });
 
 test('budget banner: renders on every route at 80 percent', async ({ page }) => {
+  test.skip(
+    await aRunIsLive(page),
+    'a Places run is live; lowering the cap now could stop it (04-UI-SPEC OQ 14)',
+  );
   const { present } = await capControl(page);
   test.skip(!present, 'the cap control ships in plan 02-13; nothing can move the meter yet');
 
@@ -110,6 +148,10 @@ test('budget banner: renders on every route at 80 percent', async ({ page }) => 
 });
 
 test('budget banner: is not dismissible', async ({ page }) => {
+  test.skip(
+    await aRunIsLive(page),
+    'a Places run is live; lowering the cap now could stop it (04-UI-SPEC OQ 14)',
+  );
   const { present } = await capControl(page);
   test.skip(!present, 'the cap control ships in plan 02-13; nothing can move the meter yet');
 

@@ -3,6 +3,7 @@ import { sql, type SQL } from 'drizzle-orm';
 import { withOrg, type OrgClaims } from '@/db/with-org';
 import { isUuid } from '@/lib/ids';
 import { instantOf, requireInstant } from '@/lib/instant';
+import { HOST_CLASSES, type HostClass } from '@/lib/places/host-class';
 import { rowsOf, type Tx } from './budget';
 import { spineSourceOf, type ChainFlag, type SpineSourceKey } from './review-queue';
 
@@ -340,6 +341,47 @@ export type AliasRow = {
   releasedAt: Date | null;
 };
 
+/**
+ * "Google Maps check" (04-UI-SPEC § Screen 5; D-05, D-08, D-10). Instants are epoch ms.
+ *
+ *   * `signal` — the BUSINESS-LEVEL value from `business_place_signal`: attached listings only,
+ *     true if any attached listing's latest observation lists a website (D-08). Null when no
+ *     listing is attached (tentative and rejected ones are never a verdict input).
+ *   * `listings` — every listing, attached (newest observation first) → tentative (highest score
+ *     first) → rejected/detached (most recently decided first). `latest` is what exists; whether
+ *     a tentative listing's website sentence is SHOWN is the screen's rule, not this read's.
+ *   * `history` — every observation (D-10's append-only rows), newest first, with its run.
+ *
+ * 🔴 RULE 32 / T-4-04: NEVER A COORDINATE. The Places coordinate table is not named anywhere in
+ * this module — a test scans the source for its name (authenticated holds no grant on it anyway,
+ * 0027) — and nothing Google-authored exists to select: an observation is a boolean, a host
+ * class, a SKU and a time (D-09).
+ */
+export type GoogleCheckView = {
+  signal: { hadWebsiteUri: boolean; hostClass: HostClass; observedMs: number } | null;
+  listings: Array<{
+    attachmentId: string;
+    placeId: string;
+    status: 'attached' | 'tentative' | 'rejected';
+    /** `score` | `tie` | `confirmed` | `rejected` | `detached` (pa_reason_known). */
+    reason: string;
+    score: number;
+    tieBusinessId: string | null;
+    /** A Clerk user id, or the desk actor. */
+    decidedBy: string | null;
+    decidedMs: number | null;
+    latest: { hadWebsiteUri: boolean; hostClass: HostClass; observedMs: number; runId: string } | null;
+  }>;
+  history: Array<{
+    observationId: string;
+    placeId: string;
+    observedMs: number;
+    hadWebsiteUri: boolean;
+    hostClass: HostClass;
+    runId: string;
+  }>;
+};
+
 export type BusinessDetail = {
   id: string;
   /** The lead key (`SL-7F3K2`). Display-only — never a route parameter or a foreign key. */
@@ -353,6 +395,8 @@ export type BusinessDetail = {
   sourceRecords: SourceRecordRow[];
   merges: MergeHistoryRow[];
   aliases: AliasRow[];
+  /** 04-21: the Places-derived signal and its history, read in the same transaction. */
+  google: GoogleCheckView;
 };
 
 type DetailRow = {
@@ -688,6 +732,159 @@ export async function readBusinessDetail(tx: Tx, id: string): Promise<BusinessDe
       businessId: a.business_id,
       sourceBusinessId: a.source_business_id,
       releasedAt: instantOf(a.released_ms),
+    })),
+    // Inside this same transaction — getBusinessDetail stays ONE withOrg.
+    google: await readGoogleCheck(tx, row.id),
+  };
+}
+
+/** An epoch-ms text column (`(extract(epoch …) * 1000)::bigint::text`) → a number. */
+function msOf(value: string, what: string): number {
+  const ms = Number(value);
+  if (!Number.isFinite(ms)) throw new Error(`readGoogleCheck: ${what} is not an instant`);
+  return ms;
+}
+
+function hostClassOf(value: string): HostClass {
+  // po_host_class_known (0026) holds the column to exactly these; anything else is a bug.
+  if (!(HOST_CLASSES as readonly string[]).includes(value)) {
+    throw new Error('readGoogleCheck: unknown host class');
+  }
+  return value as HostClass;
+}
+
+/**
+ * The "Google Maps check" read (see `GoogleCheckView`). Reads `business_place_signal`,
+ * `place_attachments` and `place_observations` ONLY — three statements in the caller's
+ * transaction, RLS-scoped, so another org's business is the same empty check as one with no
+ * listing. Never opens a transaction of its own.
+ */
+export async function readGoogleCheck(tx: Tx, businessId: string): Promise<GoogleCheckView> {
+  const empty: GoogleCheckView = { signal: null, listings: [], history: [] };
+  if (typeof businessId !== 'string' || !isUuid(businessId)) return empty;
+
+  // 🔴 THIS BUSINESS AND EVERY BUSINESS MERGED INTO IT (0030). `business_place_signal` groups
+  // attachments by `coalesce(b.merged_into_id, b.id)`, so a merged-away loser's listings count
+  // toward the survivor's signal; the listings and the history below must read the same family,
+  // or the signal row would name a website no listing on the page explains. Merges are flattened
+  // (0024 re-points a loser's own losers to the winner), so one level is the whole family.
+  const mergedFamily = sql`
+    select b.id
+      from businesses b
+     where b.org_id = (select app.current_org_id())
+       and (b.id = ${businessId} or b.merged_into_id = ${businessId})`;
+
+  const signalRow = rowsOf<{ had_website_uri: boolean; host_class: string; observed_ms: string }>(
+    await tx.execute(sql`
+      select s.had_website_uri,
+             s.host_class,
+             (extract(epoch from s.observed_at) * 1000)::bigint::text as observed_ms
+        from business_place_signal s
+       where s.org_id = (select app.current_org_id())
+         and s.business_id = ${businessId}`),
+  )[0];
+
+  const listingRows = rowsOf<{
+    id: string;
+    place_id: string;
+    status: 'attached' | 'tentative' | 'rejected';
+    reason: string;
+    score: number;
+    tie_business_id: string | null;
+    decided_by: string | null;
+    decided_ms: string | null;
+    latest_had_website_uri: boolean | null;
+    latest_host_class: string | null;
+    latest_ms: string | null;
+    latest_run_id: string | null;
+  }>(
+    await tx.execute(sql`
+      select a.id,
+             a.place_id,
+             a.status,
+             a.reason,
+             a.score,
+             a.tie_business_id,
+             a.decided_by,
+             (extract(epoch from a.decided_at) * 1000)::bigint::text as decided_ms,
+             o.had_website_uri                                        as latest_had_website_uri,
+             o.host_class                                             as latest_host_class,
+             (extract(epoch from o.observed_at) * 1000)::bigint::text as latest_ms,
+             o.run_id                                                 as latest_run_id
+        from place_attachments a
+        left join lateral (
+          select po.had_website_uri, po.host_class, po.observed_at, po.run_id
+            from place_observations po
+           where po.org_id = a.org_id
+             and po.business_id = a.business_id
+             and po.place_id = a.place_id
+           order by po.observed_at desc, po.id desc
+           limit 1
+        ) o on true
+       where a.org_id = (select app.current_org_id())
+         and a.business_id in (${mergedFamily})
+       order by case a.status when 'attached' then 1 when 'tentative' then 2 else 3 end,
+                case when a.status = 'attached' then o.observed_at end desc nulls last,
+                case when a.status = 'tentative' then a.score end desc nulls last,
+                a.decided_at desc nulls last,
+                a.id`),
+  );
+
+  const historyRows = rowsOf<{
+    id: string;
+    place_id: string;
+    observed_ms: string;
+    had_website_uri: boolean;
+    host_class: string;
+    run_id: string;
+  }>(
+    await tx.execute(sql`
+      select po.id,
+             po.place_id,
+             (extract(epoch from po.observed_at) * 1000)::bigint::text as observed_ms,
+             po.had_website_uri,
+             po.host_class,
+             po.run_id
+        from place_observations po
+       where po.org_id = (select app.current_org_id())
+         and po.business_id in (${mergedFamily})
+       order by po.observed_at desc, po.id desc`),
+  );
+
+  return {
+    signal: signalRow
+      ? {
+          hadWebsiteUri: signalRow.had_website_uri === true,
+          hostClass: hostClassOf(signalRow.host_class),
+          observedMs: msOf(signalRow.observed_ms, 'business_place_signal.observed_at'),
+        }
+      : null,
+    listings: listingRows.map((l) => ({
+      attachmentId: l.id,
+      placeId: l.place_id,
+      status: l.status,
+      reason: l.reason,
+      score: l.score,
+      tieBusinessId: l.tie_business_id,
+      decidedBy: l.decided_by,
+      decidedMs: l.decided_ms === null ? null : msOf(l.decided_ms, 'place_attachments.decided_at'),
+      latest:
+        l.latest_ms === null || l.latest_run_id === null || l.latest_host_class === null
+          ? null
+          : {
+              hadWebsiteUri: l.latest_had_website_uri === true,
+              hostClass: hostClassOf(l.latest_host_class),
+              observedMs: msOf(l.latest_ms, 'place_observations.observed_at'),
+              runId: l.latest_run_id,
+            },
+    })),
+    history: historyRows.map((h) => ({
+      observationId: h.id,
+      placeId: h.place_id,
+      observedMs: msOf(h.observed_ms, 'place_observations.observed_at'),
+      hadWebsiteUri: h.had_website_uri === true,
+      hostClass: hostClassOf(h.host_class),
+      runId: h.run_id,
     })),
   };
 }
