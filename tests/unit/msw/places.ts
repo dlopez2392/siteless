@@ -129,10 +129,14 @@ const SIDECAR_FILES = sidecar.files as Record<
   const hasHandAuthored = entries.some((e) => e.anonymized !== true);
   const hasRecorded = entries.some((e) => e.anonymized === true);
   if (sidecar.synthetic !== hasHandAuthored) {
-    fail(`${SIDECAR_FILE} says synthetic: ${String(sidecar.synthetic)}, but its files say ${String(hasHandAuthored)} (D-20).`);
+    fail(
+      `${SIDECAR_FILE} says synthetic: ${String(sidecar.synthetic)}, but its files say ${String(hasHandAuthored)} (D-20).`,
+    );
   }
   if ((sidecar.anonymized as boolean) !== hasRecorded) {
-    fail(`${SIDECAR_FILE} says anonymized: ${String(sidecar.anonymized)}, but its files say ${String(hasRecorded)} (D-20).`);
+    fail(
+      `${SIDECAR_FILE} says anonymized: ${String(sidecar.anonymized)}, but its files say ${String(hasRecorded)} (D-20).`,
+    );
   }
 }
 
