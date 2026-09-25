@@ -325,10 +325,11 @@ in input order would make the rejoin test vacuous (the test guards that at load)
 
 ## Google Places (API New) — synthetic (plan 04-10, D-01, D-20)
 
-🔴 **Nothing in the `places-*.json` files was recorded.** They were hand-authored on
-**2026-09-23**, before the D-01 legal gate, and `places-recordings.json` says so:
-`"synthetic": true`, `"anonymized": false`, `"recordedFrom": null`. No Places request has
-ever been made from this repo; CI never spends (D-01, Phase 2 D-04).
+🔴 **Nothing in the hand-authored `places-*.json` files was recorded.** They were written on
+**2026-09-23**, before the D-01 legal gate, and none of their sidecar entries carries an
+`anonymized` marker. The two `places-recorded-*.json` files are the only exception: real
+structure, anonymized in memory, recorded after the gate (see "Recorded (anonymized) — D-04"
+below). CI never spends (D-01, Phase 2 D-04).
 
 🔴 **D-20: no Google-authored text is ever committed.** Real recordings, when they come, are
 anonymized **in memory** by `scripts/record-places-fixtures.ts` (plan 04-19) before anything
@@ -434,6 +435,44 @@ in `tests/db/places-search-tile.test.ts`.
 `nationalPhoneNumber` and `websiteUri` these files serve, read out of the files at load. The
 "no Places text reaches the database" and "no step returns Places content" scans search for
 them.
+
+### Recorded (anonymized) — D-04 (plan 04-32)
+
+| File                                      | Places | `nextPageToken` | Purpose                                                  |
+| ----------------------------------------- | ------ | --------------- | -------------------------------------------------------- |
+| `places-recorded-mcallen-plumber-p1.json` | 20     | `recorded:p2`   | `city:48215/McAllen\|plumber\|r` (the root tile), page 1 |
+| `places-recorded-mcallen-plumber-p2.json` | 13     | —               | Page 2, the last: the root was **not** saturated         |
+
+- **When:** 2026-09-24 (America/Chicago), 22:20 CDT. The sidecar's `recordedAt` reads
+  `2026-09-25T03:20:04.072Z` because it is UTC. Google's quota day (midnight Pacific) was
+  also 2026-09-24.
+- **How:** one run of `pnpm record:places` with `--type=plumber`,
+  `--unit=city:48215/McAllen`, `--max-requests=3` and `--out=mcallen-plumber`, against the
+  local McAllen × home_services version. **2 real Text Search Enterprise requests** (page 1 and
+  page 2). The third allowed request was never needed, so there is no `-p3` file and no
+  child-quad recording.
+- **The ledger.** The recorder ran against the **LOCAL** database, so its two `cost_ledger`
+  rows (`ts_enterprise`, units 1, $0.00 each) are in the local ledger, **not production's**.
+  The requests went to the same Google Cloud project production uses: they count against the
+  same free 1,000 Text Search Enterprise requests per month and the same 100/day GCP quota,
+  and production's meter cannot see them. Take 2 off production's apparent headroom for
+  September 2026 and for 2026-09-24.
+- **What it holds:** 33 unique real place ids over 2 pages; the root unsaturated; **9** places
+  with `pureServiceAreaBusiness: true` (none with an address or a location) and 24 located.
+  Kept from Google: the ids, the page split, which fields each place carried, and the SAB
+  flags. **Synthetic** (D-20): every name (`Synthetic plumber NNN`), every address
+  (`NNN Synthetic St, McAllen, TX 78500`), every phone (`(956) 555-01NN`), every URL (a
+  synthetic URL of the same host class) and every location (a hashed point inside the searched
+  rectangle, 4 decimals). Every rating and review count is the fixed 4 / 10 (D-21:
+  memory-only fields never reach git). The page token is the anonymizer's `recorded:p2`, not
+  Google's.
+- **Replayed by** `tests/db/places-recorded-replay.test.ts` ("recorded fixtures replay
+  through the tile search") through the real meter, matcher and writers. Its one finding: a
+  recorded service area can never be **observed**. `place_observations`, the only table that
+  holds `pure_sab`, is written for matched places only, and an anonymized SAB (a
+  never-blockable 555 phone, no address, no pin) scores at most name 45 + cluster 5 = 50
+  against even its exact twin. The flag's positive path stays covered by the synthetic
+  `synthetic-match-valley`.
 
 ### Re-recording (Places)
 
